@@ -11,20 +11,6 @@
 	"observability": {
 		"enabled": true
 	},
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "godeye-db",
-			"database_id": "godeye-db-local",
-			"migrations_dir": "migrations"
-		}
-	],
-	"kv_namespaces": [
-		{
-			"binding": "CACHE",
-			"id": "godeye-cache-local"
-		}
-	],
 	"images": {
 		"binding": "IMAGES"
 	}
