@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fcfcf9;
+  --foreground: #0f0f0f;
+  --card: #ffffff;
+  --card-foreground: #0f0f0f;
+  --muted: #f5f5f3;
+  --muted-foreground: #6b6b6b;
+  --border: #e9e9e7;
+  --primary: #0f0f0f;
+  --primary-foreground: #ffffff;
+  --accent: #f59e0b;
+  --accent-foreground: #0f0f0f;
+  --radius: 0.75rem;
+}
+
+/* Theme: Light — clean modern */
+.theme-light {
+  --background: #fcfcf9;
+  --foreground: #0f0f0f;
+  --card: #ffffff;
+  --card-foreground: #0f0f0f;
+  --muted: #f5f5f3;
+  --muted-foreground: #6b6b6b;
+  --border: #e9e9e7;
+  --primary: #0f0f0f;
+  --primary-foreground: #ffffff;
+}
+
+/* Theme: Dark */
+.theme-dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #141414;
+  --card-foreground: #fafafa;
+  --muted: #1a1a1a;
+  --muted-foreground: #a1a1a1;
+  --border: #262626;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+}
+
+/* legacy .dark support */
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #141414;
+  --card-foreground: #fafafa;
+  --muted: #1a1a1a;
+  --muted-foreground: #a1a1a1;
+  --border: #262626;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+}
+
+/* Theme: Glass — modern frosted glass, translucent */
+.theme-glass {
+  --background: #eef2f7;
+  --foreground: #0f172a;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-foreground: #0f172a;
+  --muted: rgba(255, 255, 255, 0.55);
+  --muted-foreground: #64748b;
+  --border: rgba(255, 255, 255, 0.6);
+  --primary: #0f172a;
+  --primary-foreground: #ffffff;
+}
+.theme-glass body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,0.18), transparent 60%),
+    radial-gradient(1000px 500px at 90% 0%, rgba(245,158,11,0.16), transparent 60%),
+    radial-gradient(900px 600px at 50% 100%, rgba(16,185,129,0.14), transparent 60%),
+    #eef2f7;
+}
+.theme-glass .bg-card {
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 8px 32px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.06);
+}
+.theme-glass .bg-background {
+  backdrop-filter: blur(10px);
+}
+.theme-glass .border {
+  border-color: rgba(255,255,255,0.6);
+}
+
+/* Theme: Midnight — deep navy premium */
+.theme-midnight {
+  --background: #060a14;
+  --foreground: #e8eefc;
+  --card: #0f172a;
+  --card-foreground: #e8eefc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --border: #1e2d4a;
+  --primary: #e8eefc;
+  --primary-foreground: #060a14;
+}
+
+/* Theme: Aurora — warm cream / soft editorial */
+.theme-aurora {
+  --background: #fffbf0;
+  --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --muted: #fef3e2;
+  --muted-foreground: #78716c;
+  --border: #fde9c8;
+  --primary: #1c1917;
+  --primary-foreground: #ffffff;
+}
+.theme-aurora body {
+  background:
+    radial-gradient(900px 500px at 0% 0%, rgba(251,146,60,0.10), transparent 60%),
+    radial-gradient(800px 400px at 100% 0%, rgba(139,92,246,0.08), transparent 60%),
+    #fffbf0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* { border-color: var(--border); }
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.glass {
+  backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.7);
+}
+.dark .glass {
+  background: rgba(20,20,20,0.7);
+}
+.theme-glass .glass {
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.6);
+}
+.theme-midnight .glass {
+  background: rgba(15,23,42,0.7);
+  border: 1px solid rgba(30,45,74,0.8);
+}
