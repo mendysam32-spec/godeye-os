@@ -9,8 +9,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-5 w-5" /></div>
             <div>
-              <div className="font-semibold leading-none">GodEye OS</div>
-              <div className="text-[11px] tracking-widest uppercase text-muted-foreground">by S&P Group</div>
+              <div className="font-semibold leading-none">GodEye</div>
             </div>
           </div>
           <div className="flex items-center gap-2">

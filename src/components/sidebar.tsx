@@ -23,7 +23,7 @@ export function Sidebar() {
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 border-b bg-card/80 backdrop-blur flex items-center justify-between px-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
-          <div><div className="text-sm font-semibold leading-none">GodEye OS</div><div className="text-[11px] tracking-widest uppercase text-muted-foreground">by S&P Group</div></div>
+          <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
         </Link>
         <button onClick={() => setOpen(!open)} className="p-2 rounded-xl border bg-background"><Menu className="h-5 w-5" /></button>
       </div>
@@ -32,7 +32,7 @@ export function Sidebar() {
         <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)}>
           <div className="w-[280px] h-full bg-card border-r flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 flex items-center justify-between border-b">
-              <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye OS</div>
+              <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye</div>
               <button onClick={() => setOpen(false)} className="p-2 rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
             </div>
             <nav className="p-3 flex-1 space-y-1">
@@ -60,8 +60,7 @@ export function Sidebar() {
               <Eye className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-[15px] font-semibold tracking-tight leading-none">GodEye OS</div>
-              <div className="text-[11px] tracking-widest uppercase text-muted-foreground">by S&P Group</div>
+              <div className="text-[15px] font-semibold tracking-tight leading-none">GodEye</div>
             </div>
           </Link>
         </div>
