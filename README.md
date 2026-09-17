@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GodEye OS — by S&P Group
 
-## Getting Started
+Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, OpenRouter, OmeRoute, OpenAI, Anthropic + 8 more)
 
-First, run the development server:
+**Live:** https://godeye-os.grade-up.workers.dev
 
+## Features
+- **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
+- **Workforce** — Multi-model crews fan out in parallel to any provider
+- **Chat** — 7 modes (coding/image/plan/search/chat/research/terminal) with file upload + streaming
+- **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
+- **5 Themes** — Light, Dark, Glass (frosted modern), Midnight (navy premium), Aurora (cream warm) + accent + density
+- **Responsive** — Mobile drawer, adaptive grids, touch-friendly
+
+## Run locally
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy to Cloudflare Workers (online, fixes OpenRouter local vs online)
+OpenRouter keys work both locally and online — server `fetch` to `https://openrouter.ai/api/v1`. Deploying makes it public and removes `localhost` limits.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run cf:build   # builds .open-next
+npm run cf:deploy  # deploys to https://godeye-os.<subdomain>.workers.dev
+# already deployed: https://godeye-os.grade-up.workers.dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Config:
+- `wrangler.jsonc` — Worker name `godeye-os`, `nodejs_compat`, assets `/.open-next/assets`
+- `open-next.config.ts` — Cloudflare adapter
+- `wrangler login` already authenticated as `mendysam32@gmail.com`
 
-## Learn More
+### Test OpenRouter online
+```bash
+curl -X POST https://godeye-os.grade-up.workers.dev/api/providers/test \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openrouter","apiKey":"sk-or-v1-..."}'
+# -> {ok:true, message:"Connected"} with valid key
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Push to GitHub (host code online)
+```bash
+# create repo on github.com/new (name: godeye-os, no README)
+git remote add origin https://github.com/<YOUR_USERNAME>/godeye-os.git
+git push -u origin main
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+GitHub Actions auto-deploy is ready (`.github/workflows/deploy.yml`):
+1. Add secrets in GitHub repo Settings > Secrets and variables > Actions:
+   - `CLOUDFLARE_API_TOKEN` — create at https://dash.cloudflare.com/profile/api-tokens (Workers:Edit)
+   - `CLOUDFLARE_ACCOUNT_ID` — `74d44c8ba83fe529f83b3e408e0366e1`
+2. Push to `main` → auto builds & deploys to Cloudflare Workers
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Alternatively connect Cloudflare Dashboard:
+- Cloudflare > Workers & Pages > Create > Workers > Connect to Git > select `godeye-os` > Build `npx opennextjs-cloudflare build` > Deploy `npx opennextjs-cloudflare deploy`
 
-## Deploy on Vercel
+## Adaptable to all screens
+- Sidebar: desktop 260px, mobile fixed top bar + slide drawer
+- Dashboard grids: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`, `p-4 md:p-6`, flex-col on mobile
+- Glass theme uses `backdrop-blur(16px)` for modern clean look
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Stack
+Next.js 16, React 19, Zustand, Tailwind 4, OpenNext Cloudflare, Wrangler 4
