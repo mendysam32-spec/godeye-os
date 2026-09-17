@@ -5,6 +5,7 @@ import { PROVIDERS } from "@/lib/providers";
 import { Play, Code2, FileText, Bot, Eye, Sparkles, Plus, Layers, Loader2, Copy, Check, AlertTriangle, FolderKanban, Search, Trash2, Archive, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 
 type WorkResult = { agentId: string; agentName: string; provider: string; model: string; content?: string; error?: string; usage?: any; latencyMs?: number };
 
@@ -26,10 +27,11 @@ export default function DashboardPage() {
     setRunning(true);
     setResults(null);
     try {
+      const decryptedVault = await getDecryptedVaultForApi(vault as any);
       const res = await fetch("/api/workforce/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, agents, vault, settings }),
+        body: JSON.stringify({ prompt, agents, vault: decryptedVault, settings }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Workforce failed");

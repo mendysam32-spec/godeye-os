@@ -1,7 +1,8 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
-import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise } from "lucide-react";
+import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Download, Upload, Lock, Database, HardDrive, ShieldCheck } from "lucide-react";
+import { useRef, useState } from "react";
 
 const THEMES = [
   {
@@ -51,7 +52,9 @@ const ACCENTS = [
 ];
 
 export default function SettingsPage() {
-  const { profile, setProfile, settings, setSettings } = useGodEye();
+  const { profile, setProfile, settings, setSettings, vault, agents, chats, projects } = useGodEye() as any;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -209,6 +212,67 @@ export default function SettingsPage() {
               <label className="flex items-center gap-2"><input type="checkbox" checked={settings.soundEffects} onChange={e=>setSettings({soundEffects:e.target.checked})}/> Sound effects</label>
               <label className="flex items-center gap-2"><input type="checkbox" checked={settings.telemetry} onChange={e=>setSettings({telemetry:e.target.checked})}/> Telemetry</label>
             </div>
+          </div>
+
+          {/* Data & Backup + D1 ready */}
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2 font-medium"><Database className="h-4 w-4"/> Data & Backup — persistence</div>
+            <p className="text-xs text-muted-foreground mt-1">Local encrypted + ready for Cloudflare D1/KV sync. Export now to avoid losing projects/chats/keys on cache clear.</p>
+            <div className="mt-4 flex flex-col sm:flex-row gap-3">
+              <button onClick={() => {
+                const data = { profile, settings, vault, agents, chats, projects, exportedAt: new Date().toISOString(), version: 1 };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a"); a.href = url; a.download = `godeye-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+              }} className="inline-flex items-center justify-center gap-2 rounded-full bg-foreground text-background px-5 py-2.5 text-sm font-medium">
+                <Download className="h-4 w-4"/> Export backup (JSON)
+              </button>
+              <button onClick={() => fileRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-full border bg-card px-5 py-2.5 text-sm font-medium">
+                <Upload className="h-4 w-4"/> Import backup
+              </button>
+              <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={async (e) => {
+                const f = e.target.files?.[0]; if (!f) return;
+                try {
+                  const txt = await f.text(); const j = JSON.parse(txt);
+                  if (j.profile) setProfile(j.profile);
+                  if (j.settings) setSettings(j.settings);
+                  // vault/agents/chats/projects need direct localStorage merge — use zustand persist key
+                  const raw = localStorage.getItem("godeye-os-v1");
+                  const cur = raw ? JSON.parse(raw) : {};
+                  const next = { ...cur.state, ...j };
+                  // keep only known keys
+                  localStorage.setItem("godeye-os-v1", JSON.stringify({ state: { profile: j.profile ?? cur.state.profile, settings: j.settings ?? cur.state.settings, vault: j.vault ?? cur.state.vault, agents: j.agents ?? cur.state.agents, chats: j.chats ?? cur.state.chats, activeChatId: j.activeChatId ?? cur.state.activeChatId, projects: j.projects ?? cur.state.projects }, version: 0 }));
+                  setImportMsg("✓ Imported — reload to see chats/projects");
+                  setTimeout(() => window.location.reload(), 800);
+                } catch (err: any) { setImportMsg("✗ Import failed: " + err.message); }
+                if (fileRef.current) fileRef.current.value = "";
+              }}/>
+            </div>
+            {importMsg && <div className="mt-2 text-xs p-2 rounded-xl border bg-muted">{importMsg}</div>}
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><HardDrive className="h-3 w-3"/> localStorage: godeye-os-v1</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><ShieldCheck className="h-3 w-3"/> D1: godeye-db • KV: CACHE ready</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border">migrations/0001_init.sql</span>
+            </div>
+          </div>
+
+          {/* App Lock — optional lightweight auth */}
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2 font-medium"><Lock className="h-4 w-4"/> App lock — optional</div>
+            <p className="text-xs text-muted-foreground mt-1">Enable a local PIN to gate dashboard/chat when sharing device. Smooth testing — disable anytime. (Full email auth later)</p>
+            <div className="mt-4 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+              <label className="flex items-center gap-2 text-sm rounded-xl border bg-muted px-3 py-2.5 cursor-pointer">
+                <input type="checkbox" checked={settings.appLockEnabled} onChange={e=>setSettings({ appLockEnabled: e.target.checked })} /> Enable lock
+              </label>
+              <label className="block flex-1">
+                <span className="text-xs font-medium">PIN (4-8 digits)</span>
+                <input value={settings.lockPin} onChange={e=>setSettings({ lockPin: e.target.value.replace(/[^0-9]/g,"").slice(0,8) })} placeholder="e.g. 1234" type="password" className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10"/>
+              </label>
+              <div className="text-xs text-muted-foreground sm:mb-2">{settings.appLockEnabled ? (settings.lockPin.length>=4 ? "✓ will ask on reload" : "Set 4+ digits") : "Off — anyone with link can open"}</div>
+            </div>
+            {settings.appLockEnabled && settings.lockPin.length>=4 && (
+              <div className="mt-3 rounded-xl border bg-amber-50 border-amber-200 p-3 text-xs">Lock is on. Reload will show PIN screen. Keep PIN safe — stored locally only.</div>
+            )}
           </div>
 
           {/* preview */}

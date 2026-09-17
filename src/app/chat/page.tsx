@@ -3,8 +3,9 @@ import { useState, useRef, useEffect } from "react";
 import { useGodEye, type ChatMode } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, ChevronDown } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, ChevronDown, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
+import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 
 const MODES: { id: ChatMode; label: string; icon: any; desc: string }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare, desc: "General" },
@@ -32,6 +33,8 @@ export default function ChatPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
 
   useEffect(() => {
     if (!activeChatId && chats.length === 0) {
@@ -94,12 +97,13 @@ export default function ChatPage() {
 
     try {
       const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, 15000), type: f.type }));
+      const decryptedVault = await getDecryptedVaultForApi(vault as any);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [...activeChat.messages, { role: "user", content: userContent }].map(m => ({ role: m.role, content: m.content })),
-          provider, model, mode, referenceFiles, vault, settings, stream: true
+          provider, model, mode, referenceFiles, vault: decryptedVault, settings, stream: true
         }),
         signal: controller.signal,
       });
@@ -165,10 +169,10 @@ export default function ChatPage() {
   const modelList = providerObj?.models || [];
 
   return (
-    <div className="min-h-screen flex bg-background">
-      <Sidebar />
+    <div className={`min-h-screen flex bg-background ${focused ? "h-screen overflow-hidden" : ""}`}>
+      {!focused && !sidebarHidden && <Sidebar />}
       {/* chats list */}
-      <aside className="hidden lg:flex w-[280px] border-r bg-card/30 flex-col">
+      <aside className={`${focused ? "hidden" : "hidden lg:flex"} w-[280px] border-r bg-card/30 flex-col`}>
         <div className="p-3 border-b flex items-center justify-between">
           <div className="font-semibold text-sm">Chats</div>
           <button onClick={newChat} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-xs"><Plus className="h-3.5 w-3.5"/> New chat</button>
@@ -197,6 +201,15 @@ export default function ChatPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-background">
         {/* header */}
         <div className="h-14 border-b flex items-center gap-2 px-3 md:px-4 bg-background/80 backdrop-blur shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => setSidebarHidden(!sidebarHidden)} title={sidebarHidden ? "Show sidebar" : "Hide sidebar"} className={`p-2 rounded-xl border ${sidebarHidden ? "bg-foreground text-background" : "bg-card hover:bg-muted"} hidden md:inline-flex`}>
+              {sidebarHidden ? <PanelLeftOpen className="h-4 w-4"/> : <PanelLeftClose className="h-4 w-4"/>}
+            </button>
+            <button onClick={() => setFocused(!focused)} title={focused ? "Exit focus" : "Focus chat only"} className={`p-2 rounded-xl border ${focused ? "bg-foreground text-background" : "bg-card hover:bg-muted"}`}>
+              {focused ? <Minimize2 className="h-4 w-4"/> : <Maximize2 className="h-4 w-4"/>}
+            </button>
+            <span className="hidden md:inline text-xs text-muted-foreground ml-1">{focused ? "Focus" : sidebarHidden ? "Expanded" : ""}</span>
+          </div>
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="hidden md:block text-sm font-medium">Chat</div>
             <span className="hidden md:block text-muted-foreground">•</span>

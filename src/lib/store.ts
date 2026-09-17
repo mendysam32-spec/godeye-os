@@ -44,6 +44,8 @@ export interface ProgramSettings {
   codeStyle: "concise" | "verbose" | "documented";
   language: string;
   telemetry: boolean;
+  appLockEnabled: boolean;
+  lockPin: string;
 }
 
 export type ChatMode = "coding" | "image" | "plan" | "search" | "chat" | "research" | "terminal";
@@ -135,6 +137,8 @@ export const useGodEye = create<GodEyeState>()(
         codeStyle: "documented",
         language: "en",
         telemetry: false,
+        appLockEnabled: false,
+        lockPin: "",
       },
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
