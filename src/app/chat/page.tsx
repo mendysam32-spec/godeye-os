@@ -245,16 +245,6 @@ export default function ChatPage() {
               <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"><span className="h-2 w-2 rounded-full bg-emerald-500"/> GodEye OS • {mode} mode • {providerObj?.name}</div>
               <h2 className="mt-4 text-2xl font-semibold">What should GodEye do?</h2>
               <p className="text-sm text-muted-foreground mt-1">Pick a mode, attach files as reference, change model anytime — like Codex.</p>
-              <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-2 text-left">
-                {[
-                  { label: "Build a component", mode: "coding" },
-                  { label: "Plan my launch", mode: "plan" },
-                  { label: "Research competitors", mode: "search" },
-                  { label: "Generate hero image prompt", mode: "image" },
-                ].map(c=>(
-                  <button key={c.label} onClick={()=>{ setMode(c.mode as any); setInput(c.label); }} className="rounded-2xl border bg-card p-3 text-sm hover:bg-muted text-left">{c.label}<div className="text-xs text-muted-foreground">{c.mode}</div></button>
-                ))}
-              </div>
             </div>
           ) : activeChat.messages.map(m => (
             <div key={m.id} className={`max-w-3xl mx-auto flex gap-3 ${m.role==="user" ? "justify-end" : "justify-start"}`}>
@@ -295,30 +285,44 @@ export default function ChatPage() {
             </div>
           )}
           <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-sm">
-              <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
-              <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
-              <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 bg-transparent outline-none text-sm resize-none py-2 max-h-32"/>
-              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                <div className="flex items-center gap-1 rounded-full border bg-muted px-1.5 sm:px-2 py-1 text-xs">
-                  <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
-                  <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[85px] sm:max-w-[120px] cursor-pointer">
-                    {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <span className="text-muted-foreground hidden sm:inline">/</span>
-                  <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[95px] sm:max-w-[150px] cursor-pointer">
-                    {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
+            <div className="rounded-2xl border bg-background p-2 shadow-sm">
+              {/* Mobile: model selector on its own line so it doesn't squeeze the textarea */}
+              <div className="flex sm:hidden items-center gap-1 rounded-full border bg-muted px-2 py-1 text-xs w-fit mb-2">
+                <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[110px] cursor-pointer">
+                  {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <span className="text-muted-foreground">/</span>
+                <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[130px] cursor-pointer">
+                  {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end gap-2">
+                <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
+                <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
+                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-sm resize-none py-2 max-h-32"/>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="hidden sm:flex items-center gap-1 rounded-full border bg-muted px-2 py-1 text-xs">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                    <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[120px] cursor-pointer">
+                      {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <span className="text-muted-foreground">/</span>
+                    <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[150px] cursor-pointer">
+                      {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  </div>
+                  {running ? (
+                    <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-3 sm:px-4 py-2 text-sm shrink-0"><Square className="h-3.5 w-3.5 fill-white"/><span className="hidden sm:inline">Stop</span></button>
+                  ) : (
+                    <button onClick={send} disabled={!input.trim() && files.length===0} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 sm:px-4 py-2 text-sm disabled:opacity-40 shrink-0"><Send className="h-3.5 w-3.5"/><span className="hidden sm:inline">Send</span></button>
+                  )}
                 </div>
-                {running ? (
-                  <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-3 sm:px-4 py-2 text-sm shrink-0"><Square className="h-3.5 w-3.5 fill-white"/><span className="hidden sm:inline">Stop</span></button>
-                ) : (
-                  <button onClick={send} disabled={!input.trim() && files.length===0} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 sm:px-4 py-2 text-sm disabled:opacity-40 shrink-0"><Send className="h-3.5 w-3.5"/><span className="hidden sm:inline">Send</span></button>
-                )}
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Enter to send • Shift+Enter newline • Upload files as reference • Mode sets behavior</span>
+              <span className="hidden sm:inline">Enter to send • Shift+Enter newline • Upload files as reference • Mode sets behavior</span>
+              <span className="sm:hidden">Enter to send • Shift+Enter newline</span>
               <button onClick={newChat} className="inline-flex items-center gap-1 hover:text-foreground"><Plus className="h-3 w-3"/> New chat</button>
             </div>
           </div>
