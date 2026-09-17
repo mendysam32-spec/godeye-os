@@ -169,10 +169,10 @@ export default function ChatPage() {
   const modelList = providerObj?.models || [];
 
   return (
-    <div className={`min-h-screen flex bg-background ${focused ? "h-screen overflow-hidden" : ""}`}>
+    <div className="h-[100dvh] h-screen flex bg-background overflow-hidden">
       {!focused && !sidebarHidden && <Sidebar />}
       {/* chats list */}
-      <aside className={`${focused ? "hidden" : "hidden lg:flex"} w-[280px] border-r bg-card/30 flex-col`}>
+      <aside className={`${focused || sidebarHidden ? "hidden" : "hidden lg:flex"} w-[280px] border-r bg-card/30 flex-col shrink-0 overflow-hidden`}>
         <div className="p-3 border-b flex items-center justify-between">
           <div className="font-semibold text-sm">Chats</div>
           <button onClick={newChat} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-xs"><Plus className="h-3.5 w-3.5"/> New chat</button>
@@ -198,7 +198,7 @@ export default function ChatPage() {
       </aside>
 
       {/* main chat */}
-      <main className="flex-1 flex flex-col min-w-0 bg-background">
+      <main className="flex-1 flex flex-col min-w-0 bg-background min-h-0 overflow-hidden">
         {/* header */}
         <div className="h-14 border-b flex items-center gap-2 px-3 md:px-4 bg-background/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-1.5 shrink-0">
@@ -239,7 +239,7 @@ export default function ChatPage() {
         </div>
 
         {/* messages */}
-        <div ref={listRef} className="flex-1 overflow-auto p-4 md:p-6 space-y-4">
+        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 overscroll-contain">
           {!activeChat || activeChat.messages.length===0 ? (
             <div className="max-w-2xl mx-auto text-center py-16">
               <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"><span className="h-2 w-2 rounded-full bg-emerald-500"/> GodEye OS • {mode} mode • {providerObj?.name}</div>
@@ -299,15 +299,21 @@ export default function ChatPage() {
               <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
               <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
               <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 bg-transparent outline-none text-sm resize-none py-2 max-h-32"/>
-              <div className="flex items-center gap-1 shrink-0">
-                <div className="hidden md:flex items-center gap-1 rounded-full border bg-muted px-2 py-1 text-xs">
-                  <span style={{color: providerObj?.color}}>●</span> {model.split("/").pop()}
-                  <ChevronDown className="h-3 w-3"/>
+              <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 rounded-full border bg-muted px-1.5 sm:px-2 py-1 text-xs">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                  <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[85px] sm:max-w-[120px] cursor-pointer">
+                    {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <span className="text-muted-foreground hidden sm:inline">/</span>
+                  <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[95px] sm:max-w-[150px] cursor-pointer">
+                    {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
                 </div>
                 {running ? (
-                  <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-4 py-2 text-sm"><Square className="h-3.5 w-3.5 fill-white"/> Stop</button>
+                  <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-3 sm:px-4 py-2 text-sm shrink-0"><Square className="h-3.5 w-3.5 fill-white"/><span className="hidden sm:inline">Stop</span></button>
                 ) : (
-                  <button onClick={send} disabled={!input.trim() && files.length===0} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-sm disabled:opacity-40"><Send className="h-3.5 w-3.5"/> Send</button>
+                  <button onClick={send} disabled={!input.trim() && files.length===0} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 sm:px-4 py-2 text-sm disabled:opacity-40 shrink-0"><Send className="h-3.5 w-3.5"/><span className="hidden sm:inline">Send</span></button>
                 )}
               </div>
             </div>
