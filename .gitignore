@@ -48,3 +48,6 @@ worker-configuration.d.ts
 
 # opennext
 .open-next
+
+# local auth store (JSON fallback; in prod this lives in D1)
+/.data/

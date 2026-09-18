@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callLLM } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
+import { requireUser } from "@/lib/auth";
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
   coding: "You are an expert coder in GodEye OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable.",
@@ -14,6 +15,9 @@ const MODE_PROMPTS: Record<ChatMode, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  const user = await requireUser(req);
+  if (!user) return NextResponse.json({ error: "Login required" }, { status: 401 });
+
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 

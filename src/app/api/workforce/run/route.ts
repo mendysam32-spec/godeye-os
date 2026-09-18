@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, type ChatMessage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
+import { requireUser } from "@/lib/auth";
 
 interface AgentInput {
   id: string;
@@ -13,6 +14,9 @@ interface AgentInput {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await requireUser(req);
+  if (!user) return NextResponse.json({ error: "Login required" }, { status: 401 });
+
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 

@@ -22,9 +22,9 @@ const THEMES = [
   {
     id: "glass" as const,
     label: "Glass",
-    desc: "Frosted • Modern",
+    desc: "Frosted • Colorful",
     icon: Layers,
-    preview: { bg: "#eef2f7", card: "rgba(255,255,255,0.85)", muted: "rgba(255,255,255,0.5)", dot: "#0f172a", accent: "#6467f2" },
+    preview: { bg: "#f1e8fb", card: "rgba(255,255,255,0.85)", muted: "rgba(255,255,255,0.5)", dot: "#241a45", accent: "#4f46e5" },
     glass: true,
   },
   {
@@ -44,9 +44,9 @@ const THEMES = [
   {
     id: "motion" as const,
     label: "Motion",
-    desc: "Transport • Blue",
+    desc: "Day Red • Gradient",
     icon: Route,
-    preview: { bg: "#f0f5fc", card: "#ffffff", muted: "#e6eef7", dot: "#0b4f8a", accent: "#0a4d8c", gradient: true },
+    preview: { bg: "#fdf0ee", card: "#ffffff", muted: "#fbe7e2", dot: "#7f1d1d", accent: "#dc2626", gradient: true },
   },
 ] as const;
 
@@ -125,7 +125,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     {t.id === "glass" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-500/10 via-transparent to-amber-500/10" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/20 via-violet-400/10 to-cyan-400/15" />
                     )}
                     {t.id === "midnight" && (
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-600/20 to-blue-600/10" />
@@ -134,7 +134,7 @@ export default function SettingsPage() {
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-400/10 to-violet-400/10" />
                     )}
                     {(t as any).gradient && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/15 via-teal-400/10 to-emerald-500/10" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-red-500/20 via-orange-400/15 to-rose-400/15" />
                     )}
                     <div className="relative mt-3 flex items-start justify-between gap-2">
                       <div>
@@ -247,11 +247,27 @@ export default function SettingsPage() {
                   if (j.profile) setProfile(j.profile);
                   if (j.settings) setSettings(j.settings);
                   // vault/agents/chats/projects need direct localStorage merge — use zustand persist key
-                  const raw = localStorage.getItem("godeye-os-v1");
+                  const uid = useGodEye.getState().currentUser?.id;
+                  const baseKey = uid ? `godeye:workspace:${uid}` : "godeye-os-v1";
+                  const raw = localStorage.getItem(baseKey) ?? (baseKey !== "godeye-os-v1" ? localStorage.getItem("godeye-os-v1") : null);
                   const cur = raw ? JSON.parse(raw) : {};
-                  const next = { ...cur.state, ...j };
-                  // keep only known keys
-                  localStorage.setItem("godeye-os-v1", JSON.stringify({ state: { profile: j.profile ?? cur.state.profile, settings: j.settings ?? cur.state.settings, vault: j.vault ?? cur.state.vault, agents: j.agents ?? cur.state.agents, chats: j.chats ?? cur.state.chats, activeChatId: j.activeChatId ?? cur.state.activeChatId, projects: j.projects ?? cur.state.projects }, version: 0 }));
+                  const curState = cur.state || cur;
+                  const next = {
+                    state: {
+                      profile: j.profile ?? curState.profile,
+                      settings: j.settings ?? curState.settings,
+                      vault: j.vault ?? curState.vault,
+                      agents: j.agents ?? curState.agents,
+                      chats: j.chats ?? curState.chats,
+                      activeChatId: j.activeChatId ?? curState.activeChatId,
+                      projects: j.projects ?? curState.projects,
+                      folders: j.folders ?? curState.folders,
+                    },
+                    version: 0,
+                  };
+                  // write into the active user's workspace so the import survives login reload
+                  localStorage.setItem(uid ? `godeye:workspace:${uid}` : "godeye-os-v1", JSON.stringify(next.state));
+                  localStorage.setItem("godeye-os-v1", JSON.stringify(next));
                   setImportMsg("✓ Imported — reload to see chats/projects");
                   setTimeout(() => window.location.reload(), 800);
                 } catch (err: any) { setImportMsg("✗ Import failed: " + err.message); }

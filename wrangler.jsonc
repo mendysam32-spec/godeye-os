@@ -13,5 +13,12 @@
 	},
 	"images": {
 		"binding": "IMAGES"
-	}
+	},
+	"d1_databases": [
+		{
+			"binding": "godeye_db",
+			"database_name": "godeye-db",
+			"database_id": "0734fda3-b6cb-497c-ac3e-08ba2ce2e277"
+		}
+	]
 }

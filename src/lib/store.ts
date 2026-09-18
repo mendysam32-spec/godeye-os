@@ -14,6 +14,15 @@ export interface UserProfile {
   bio: string;
 }
 
+export interface AuthUserInfo {
+  id: string;
+  username: string;
+  email: string;
+  displayName: string;
+  role: string;
+  enabled: boolean;
+}
+
 export interface VaultKey {
   provider: ProviderId;
   key: string;
@@ -109,8 +118,9 @@ interface GodEyeState {
   addAgent: (a: Agent) => void;
   updateAgent: (id: string, patch: Partial<Agent>) => void;
   removeAgent: (id: string) => void;
-  currentUser: { email: string } | null;
-  setCurrentUser: (u: { email: string } | null) => void;
+  currentUser: AuthUserInfo | null;
+  loginUser: (u: AuthUserInfo) => void;
+  logoutUser: () => void;
   chats: ChatSession[];
   activeChatId: string | null;
   createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId">>) => string;
@@ -129,33 +139,108 @@ interface GodEyeState {
   removeFolder: (id: string) => void;
 }
 
+const LEGACY_STORAGE_KEY = "godeye-os-v1";
+const MIGRATED_FLAG = "godeye:legacy:migrated";
+const workspaceKey = (userId: string) => `godeye:workspace:${userId}`;
+
+function freshProfile(): UserProfile {
+  return { name: "GodEye User", email: "", avatar: "", role: "Member", bio: "" };
+}
+
+function freshSettings(): ProgramSettings {
+  return {
+    theme: "light",
+    accent: "amber",
+    density: "comfortable",
+    animations: true,
+    soundEffects: false,
+    autoSave: true,
+    defaultProvider: "openrouter",
+    agentBehavior: "balanced",
+    codeStyle: "documented",
+    language: "en",
+    telemetry: false,
+    appLockEnabled: false,
+    lockPin: "",
+  };
+}
+
+function freshAgents(): Agent[] {
+  return [
+    { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.1-405b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
+    { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-3.5-sonnet", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
+    { id: "3", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content.", temperature: 0.8, color: "#ff6b35" },
+  ];
+}
+
+function freshProjects(): Project[] {
+  const now = new Date().toISOString();
+  return [
+    { id: "p1", name: "GodEye Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2"], tasksTotal: 12, tasksDone: 7, createdAt: now, updatedAt: now },
+    { id: "p2", name: "AI Blog Pipeline", description: "Research → draft → SEO → publish", status: "active", color: "#8b5cf6", agentIds: ["3"], tasksTotal: 8, tasksDone: 3, createdAt: now, updatedAt: now },
+    { id: "p3", name: "Nvidia Demo App", description: "Llama 405B showcase build", status: "draft", color: "#76b900", agentIds: ["1", "2", "3"], tasksTotal: 5, tasksDone: 1, createdAt: now, updatedAt: now },
+  ];
+}
+
+function freshScopedState() {
+  return {
+    profile: freshProfile(),
+    settings: freshSettings(),
+    vault: {} as Record<ProviderId, VaultKey>,
+    agents: freshAgents(),
+    chats: [] as ChatSession[],
+    projects: freshProjects(),
+    folders: [] as Folder[],
+  };
+}
+
+function readJSON<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+interface WorkspaceData {
+  profile?: UserProfile;
+  settings?: ProgramSettings;
+  vault?: Record<ProviderId, VaultKey>;
+  agents?: Agent[];
+  chats?: ChatSession[];
+  projects?: Project[];
+  folders?: Folder[];
+}
+
+function readUserData(userId: string): WorkspaceData | null {
+  const own = readJSON<WorkspaceData>(workspaceKey(userId));
+  if (own) return own;
+  // migrate the pre-auth single-user data once, into the first account that logs in
+  if (localStorage.getItem(MIGRATED_FLAG)) return null;
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const state = raw ? (JSON.parse(raw) as { state?: WorkspaceData }).state : null;
+    const hasData =
+      state &&
+      (state.projects?.length || state.chats?.length || state.agents?.length || state.folders?.length || (state.vault && Object.keys(state.vault).length > 0));
+    if (hasData) {
+      localStorage.setItem(MIGRATED_FLAG, userId);
+      return state;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export const useGodEye = create<GodEyeState>()(
   persist(
-    (set) => ({
-      profile: {
-        name: "Alex Morgan",
-        email: "alex@godeye.os",
-        avatar: "",
-        role: "Workforce Owner",
-        bio: "Building autonomous teams with GodEye OS.",
-      },
+    (set, get) => ({
+      profile: freshProfile(),
       setProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
 
-      settings: {
-        theme: "light",
-        accent: "amber",
-        density: "comfortable",
-        animations: true,
-        soundEffects: false,
-        autoSave: true,
-        defaultProvider: "openrouter",
-        agentBehavior: "balanced",
-        codeStyle: "documented",
-        language: "en",
-        telemetry: false,
-        appLockEnabled: false,
-        lockPin: "",
-      },
+      settings: freshSettings(),
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
       vault: {} as Record<ProviderId, VaultKey>,
@@ -168,17 +253,61 @@ export const useGodEye = create<GodEyeState>()(
           return { vault: v };
         }),
 
-      agents: [
-        { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.1-405b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
-        { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-3.5-sonnet", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
-        { id: "3", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content.", temperature: 0.8, color: "#ff6b35" },
-      ],
+      agents: freshAgents(),
       addAgent: (a) => set((s) => ({ agents: [...s.agents, a] })),
       updateAgent: (id, patch) => set((s) => ({ agents: s.agents.map((a) => (a.id === id ? { ...a, ...patch } : a)) })),
       removeAgent: (id) => set((s) => ({ agents: s.agents.filter((a) => a.id !== id) })),
 
       currentUser: null,
-      setCurrentUser: (u) => set({ currentUser: u }),
+      loginUser: (u) => {
+        const data = readUserData(u.id);
+        set(() => {
+          const base = freshScopedState();
+          const merged = data
+            ? {
+                profile: data.profile ?? base.profile,
+                settings: data.settings ?? base.settings,
+                vault: data.vault ?? base.vault,
+                agents: data.agents ?? base.agents,
+                chats: data.chats ?? base.chats,
+                projects: data.projects ?? base.projects,
+                folders: data.folders ?? base.folders,
+              }
+            : base;
+          return {
+            ...merged,
+            profile: {
+              ...merged.profile,
+              email: merged.profile.email || u.email,
+              name: merged.profile.name === "GodEye User" ? u.displayName : merged.profile.name,
+            },
+            activeChatId: null,
+            currentUser: u,
+          };
+        });
+      },
+      logoutUser: () => {
+        const s = get();
+        if (s.currentUser) {
+          try {
+            localStorage.setItem(
+              workspaceKey(s.currentUser.id),
+              JSON.stringify({
+                profile: s.profile,
+                settings: s.settings,
+                vault: s.vault,
+                agents: s.agents,
+                chats: s.chats,
+                projects: s.projects,
+                folders: s.folders,
+              })
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        set({ ...freshScopedState(), activeChatId: null, currentUser: null });
+      },
 
       chats: [],
       activeChatId: null,
@@ -217,11 +346,7 @@ export const useGodEye = create<GodEyeState>()(
       deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id), activeChatId: s.activeChatId === id ? s.chats[0]?.id || null : s.activeChatId })),
       renameChat: (id, title) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) })),
 
-      projects: [
-        { id: "p1", name: "GodEye Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2"], tasksTotal: 12, tasksDone: 7, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-        { id: "p2", name: "AI Blog Pipeline", description: "Research → draft → SEO → publish", status: "active", color: "#8b5cf6", agentIds: ["3"], tasksTotal: 8, tasksDone: 3, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-        { id: "p3", name: "Nvidia Demo App", description: "Llama 405B showcase build", status: "draft", color: "#76b900", agentIds: ["1", "2", "3"], tasksTotal: 5, tasksDone: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      ],
+      projects: freshProjects(),
       addProject: (p) => set((s) => ({ projects: [p, ...s.projects] })),
       updateProject: (id, patch) => set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)) })),
       removeProject: (id) => set((s) => ({ projects: s.projects.filter((p) => p.id !== id) })),
