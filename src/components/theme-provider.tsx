@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { useGodEye } from "@/lib/store";
 
-const THEMES = ["light", "dark", "glass", "midnight", "aurora"] as const;
+const THEMES = ["light", "dark", "glass", "midnight", "aurora", "motion"] as const;
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { settings, setSettings } = useGodEye();

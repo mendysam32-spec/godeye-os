@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ProviderId } from "./providers";
 
-export type Theme = "light" | "dark" | "glass" | "midnight" | "aurora";
+export type Theme = "light" | "dark" | "glass" | "midnight" | "aurora" | "motion";
 export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
 
 export interface UserProfile {
@@ -67,9 +67,20 @@ export interface ChatSession {
   mode: ChatMode;
   provider: ProviderId;
   model: string;
+  projectId?: string;
+  folderId?: string;
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  parentId?: string;
+  createdAt: string;
 }
 
 export interface Project {
@@ -78,6 +89,7 @@ export interface Project {
   description: string;
   status: "active" | "archived" | "draft";
   color: string;
+  folderId?: string;
   agentIds: string[];
   tasksTotal: number;
   tasksDone: number;
@@ -101,7 +113,7 @@ interface GodEyeState {
   setCurrentUser: (u: { email: string } | null) => void;
   chats: ChatSession[];
   activeChatId: string | null;
-  createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model">>) => string;
+  createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId">>) => string;
   setActiveChat: (id: string | null) => void;
   addMessage: (chatId: string, msg: ChatMessage) => void;
   updateLastMessage: (chatId: string, content: string) => void;
@@ -111,6 +123,10 @@ interface GodEyeState {
   addProject: (p: Project) => void;
   updateProject: (id: string, patch: Partial<Project>) => void;
   removeProject: (id: string) => void;
+  folders: Folder[];
+  addFolder: (f: Folder) => void;
+  updateFolder: (id: string, patch: Partial<Folder>) => void;
+  removeFolder: (id: string) => void;
 }
 
 export const useGodEye = create<GodEyeState>()(
@@ -175,6 +191,8 @@ export const useGodEye = create<GodEyeState>()(
           mode: opts?.mode || "chat",
           provider: opts?.provider || "openrouter",
           model: opts?.model || "anthropic/claude-3.5-sonnet",
+          projectId: opts?.projectId,
+          folderId: opts?.folderId,
           messages: [],
           createdAt: now,
           updatedAt: now,
@@ -207,7 +225,29 @@ export const useGodEye = create<GodEyeState>()(
       addProject: (p) => set((s) => ({ projects: [p, ...s.projects] })),
       updateProject: (id, patch) => set((s) => ({ projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)) })),
       removeProject: (id) => set((s) => ({ projects: s.projects.filter((p) => p.id !== id) })),
+
+      folders: [],
+      addFolder: (f) => set((s) => ({ folders: [...s.folders, f] })),
+      updateFolder: (id, patch) => set((s) => ({ folders: s.folders.map((f) => (f.id === id ? { ...f, ...patch } : f)) })),
+      removeFolder: (id) =>
+        set((s) => {
+          const doomed = new Set<string>([id]);
+          let grew = true;
+          while (grew) {
+            grew = false;
+            for (const f of s.folders) {
+              if (f.parentId && doomed.has(f.parentId) && !doomed.has(f.id)) {
+                doomed.add(f.id);
+                grew = true;
+              }
+            }
+          }
+          return {
+            folders: s.folders.filter((f) => !doomed.has(f.id)),
+            projects: s.projects.map((p) => (p.folderId && doomed.has(p.folderId) ? { ...p, folderId: undefined } : p)),
+          };
+        }),
     }),
-    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects }) }
+    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders }) }
   )
 );

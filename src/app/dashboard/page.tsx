@@ -2,25 +2,61 @@
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
-import { Play, Code2, FileText, Bot, Eye, Sparkles, Plus, Layers, Loader2, Copy, Check, AlertTriangle, FolderKanban, Search, Trash2, Archive, X } from "lucide-react";
+import { Play, Code2, FileText, Bot, Eye, Sparkles, Plus, Layers, Loader2, Copy, Check, AlertTriangle, FolderKanban, Search, Trash2, Archive, X, Folder, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useRef, useState, Suspense } from "react";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 
 type WorkResult = { agentId: string; agentName: string; provider: string; model: string; content?: string; error?: string; usage?: any; latencyMs?: number };
 
 export default function DashboardPage() {
-  const { agents, vault, settings, projects, addProject, updateProject, removeProject } = useGodEye();
+  return (
+    <Suspense fallback={null}>
+      <DashboardInner />
+    </Suspense>
+  );
+}
+
+function DashboardInner() {
+  const searchParams = useSearchParams();
+  const folderParam = searchParams.get("folder");
+  const { agents, vault, settings, projects, addProject, updateProject, removeProject, folders } = useGodEye();
   const [prompt, setPrompt] = useState("Build a landing page hero in React + Tailwind plus a blog post for our new AI feature launch");
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<WorkResult[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
-  const [newProj, setNewProj] = useState({ name: "", description: "", color: "#f59e0b", status: "active" as const });
+  const [newProj, setNewProj] = useState({ name: "", description: "", color: "#f59e0b", status: "active" as const, folderId: "" });
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "draft" | "archived">("all");
 
   const connected = Object.values(vault).filter((v: any) => v?.connected).length;
+
+  function folderSubtreeIds(rootId: string): Set<string> {
+    const ids = new Set<string>([rootId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const f of folders) if (f.parentId && ids.has(f.parentId) && !ids.has(f.id)) { ids.add(f.id); grew = true; }
+    }
+    return ids;
+  }
+
+  function folderCrumb(f: { id: string; parentId?: string }) {
+    const chain: { id: string; name: string; icon: string; color: string }[] = [];
+    let cur: any = f;
+    const seen = new Set<string>();
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      chain.unshift(cur);
+      cur = folders.find((x) => x.id === cur.parentId);
+    }
+    return chain;
+  }
+
+  const currentFolder = folderParam ? folders.find((f) => f.id === folderParam) || null : null;
+  const viewFolderIds = currentFolder ? folderSubtreeIds(currentFolder.id) : null;
 
   async function runWorkforce() {
     if (!prompt.trim()) return;
@@ -57,21 +93,23 @@ export default function DashboardPage() {
       description: newProj.description.trim() || "No description",
       status: newProj.status,
       color: newProj.color,
+      folderId: newProj.folderId || undefined,
       agentIds: agents.slice(0, 2).map(a => a.id),
       tasksTotal: 0,
       tasksDone: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    setNewProj({ name: "", description: "", color: "#f59e0b", status: "active" });
+    setNewProj({ name: "", description: "", color: "#f59e0b", status: "active", folderId: "" });
     setShowNew(false);
   }
 
   const filteredProjects = projects.filter(p => {
     const q = query.toLowerCase();
+    const inFolder = !viewFolderIds || (p.folderId ? viewFolderIds.has(p.folderId) : false);
     const matchesQ = !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
     const matchesStatus = statusFilter === "all" || p.status === statusFilter;
-    return matchesQ && matchesStatus;
+    return inFolder && matchesQ && matchesStatus;
   });
 
   return (
@@ -102,10 +140,25 @@ export default function DashboardPage() {
                   <div className="text-xs text-muted-foreground hidden sm:block">Create projects, track tasks, open workforce per project</div>
                 </div>
               </div>
-              <button onClick={() => setShowNew(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-foreground text-background px-5 py-2.5 text-sm font-medium w-full md:w-auto">
+              <button onClick={() => { setNewProj(n => ({ ...n, folderId: currentFolder?.id || "" })); setShowNew(true); }} className="inline-flex items-center justify-center gap-2 rounded-full bg-foreground text-background px-5 py-2.5 text-sm font-medium w-full md:w-auto">
                 <Plus className="h-4 w-4" /> New project
               </button>
             </div>
+
+            {/* folder breadcrumb */}
+            {currentFolder && (
+              <div className="mt-4 flex flex-wrap items-center gap-1.5 text-sm">
+                <Link href="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs hover:bg-muted"><ArrowLeft className="h-3 w-3" /> All projects</Link>
+                {folderCrumb(currentFolder).map((f, i) => (
+                  <span key={f.id} className="inline-flex items-center gap-1.5">
+                    {i > 0 && <span className="text-muted-foreground">/</span>}
+                    <Link href={`/folders/${f.id}`} className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs hover:bg-muted">
+                      <Folder className="h-3 w-3" style={{ color: f.color }} /> {f.name}
+                    </Link>
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* search + filter — responsive */}
             <div className="mt-4 flex flex-col sm:flex-row gap-2">
@@ -126,7 +179,7 @@ export default function DashboardPage() {
                 const pct = p.tasksTotal ? Math.round((p.tasksDone / p.tasksTotal) * 100) : 0;
                 return (
                   <div key={p.id} className="rounded-2xl border bg-background p-4 flex flex-col hover:shadow-sm transition">
-                    <div className="flex items-start justify-between gap-2">
+                    <Link href={`/projects/${p.id}`} className="flex items-start justify-between gap-2">
                       <div className="flex gap-3 min-w-0">
                         <div className="h-9 w-9 rounded-xl grid place-items-center text-white shrink-0" style={{ background: p.color }}>{p.name.slice(0, 1).toUpperCase()}</div>
                         <div className="min-w-0">
@@ -135,7 +188,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <span className={`text-[11px] rounded-full px-2 py-1 border capitalize shrink-0 ${p.status === "active" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : p.status === "draft" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-muted"}`}>{p.status}</span>
-                    </div>
+                    </Link>
                     <div className="mt-3">
                       <div className="flex items-center justify-between text-[11px] text-muted-foreground"><span>{p.tasksDone}/{p.tasksTotal} tasks</span><span>{pct}%</span></div>
                       <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full" style={{ width: `${pct}%`, background: p.color }} /></div>
@@ -150,7 +203,8 @@ export default function DashboardPage() {
                       {p.agentIds.length === 0 && <span className="text-xs text-muted-foreground">No agents linked</span>}
                     </div>
                     <div className="mt-4 flex items-center gap-1.5 flex-wrap">
-                      <button onClick={() => { setPrompt(`Work on project "${p.name}": ${p.description}`); window.scrollTo({ top: 400, behavior: "smooth" }); }} className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-xs font-medium"><Play className="h-3 w-3" /> Run</button>
+                      <Link href={`/projects/${p.id}`} className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-xs font-medium"><Layers className="h-3 w-3" /> Open workspace</Link>
+                      <button onClick={() => { setPrompt(`Work on project "${p.name}": ${p.description}`); window.scrollTo({ top: 500, behavior: "smooth" }); }} title="Run workforce" className="p-1.5 rounded-full border bg-card hover:bg-muted"><Play className="h-3.5 w-3.5" /></button>
                       <button onClick={() => updateProject(p.id, { status: p.status === "active" ? "archived" : "active" })} className="p-1.5 rounded-full border bg-card hover:bg-muted" title="Toggle archive"><Archive className="h-3.5 w-3.5" /></button>
                       <button onClick={() => removeProject(p.id)} className="p-1.5 rounded-full border bg-card hover:bg-red-50 text-muted-foreground hover:text-red-600" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                       <span className="ml-auto text-[11px] text-muted-foreground hidden sm:inline">{new Date(p.updatedAt).toLocaleDateString()}</span>
@@ -158,7 +212,7 @@ export default function DashboardPage() {
                   </div>
                 );
               })}
-              <button onClick={() => setShowNew(true)} className="rounded-2xl border border-dashed grid place-items-center p-8 text-sm text-muted-foreground hover:bg-muted min-h-[180px]">
+              <button onClick={() => { setNewProj(n => ({ ...n, folderId: currentFolder?.id || "" })); setShowNew(true); }} className="rounded-2xl border border-dashed grid place-items-center p-8 text-sm text-muted-foreground hover:bg-muted min-h-[180px]">
                 <div className="text-center"><Plus className="h-5 w-5 mx-auto mb-2" /> Create project</div>
               </button>
             </div>
@@ -267,6 +321,12 @@ export default function DashboardPage() {
             <div className="mt-4 space-y-3">
               <label className="block"><span className="text-xs font-medium">Project name</span><input value={newProj.name} onChange={e => setNewProj({ ...newProj, name: e.target.value })} placeholder="e.g. Q4 Launch" className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none" /></label>
               <label className="block"><span className="text-xs font-medium">Description</span><textarea value={newProj.description} onChange={e => setNewProj({ ...newProj, description: e.target.value })} placeholder="What will this project do?" rows={3} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none" /></label>
+              <label className="block"><span className="text-xs font-medium">Folder</span>
+                <select value={newProj.folderId} onChange={e => setNewProj({ ...newProj, folderId: e.target.value })} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none">
+                  <option value="">No folder</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="block"><span className="text-xs font-medium">Color</span>
                   <div className="mt-1 flex gap-2 flex-wrap">

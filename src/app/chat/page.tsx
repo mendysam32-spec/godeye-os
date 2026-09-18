@@ -35,6 +35,16 @@ export default function ChatPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [showModelMenu, setShowModelMenu] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) setShowModelMenu(false);
+    }
+    if (showModelMenu) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showModelMenu]);
 
   useEffect(() => {
     if (!activeChatId && chats.length === 0) {
@@ -286,32 +296,24 @@ export default function ChatPage() {
           )}
           <div className="max-w-3xl mx-auto">
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
-              {/* Mobile: model selector on its own line so it doesn't squeeze the textarea */}
-              <div className="flex sm:hidden items-center gap-1 rounded-full border bg-muted px-2 py-1 text-xs w-fit mb-2">
-                <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
-                <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[110px] cursor-pointer">
-                  {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <span className="text-muted-foreground">/</span>
-                <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[130px] cursor-pointer">
-                  {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-                </select>
-              </div>
               <div className="flex items-end gap-2">
                 <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
                 <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-sm resize-none py-2 max-h-32"/>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <div className="hidden sm:flex items-center gap-1 rounded-full border bg-muted px-2 py-1 text-xs">
-                    <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
-                    <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none max-w-[120px] cursor-pointer">
-                      {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                    <span className="text-muted-foreground">/</span>
-                    <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[150px] cursor-pointer">
-                      {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
-                  </div>
+                <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
+                  <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Models • ${providerObj?.name}`}><Plus className="h-4 w-4"/></button>
+                  {showModelMenu && (
+                    <div className="absolute bottom-full right-0 mb-2 w-64 rounded-2xl border bg-card shadow-xl p-2 z-50">
+                      <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models</div>
+                      {modelList.map(m=>(
+                        <button key={m.id} onClick={()=>{ setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                          <span className="truncate">{m.name}</span>
+                          <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {running ? (
                     <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-3 sm:px-4 py-2 text-sm shrink-0"><Square className="h-3.5 w-3.5 fill-white"/><span className="hidden sm:inline">Stop</span></button>
                   ) : (

@@ -1,7 +1,7 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
-import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Download, Upload, Lock, Database, HardDrive, ShieldCheck } from "lucide-react";
+import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck } from "lucide-react";
 import { useRef, useState } from "react";
 
 const THEMES = [
@@ -41,6 +41,13 @@ const THEMES = [
     icon: Sunrise,
     preview: { bg: "#fffbf0", card: "#ffffff", muted: "#fef3e2", dot: "#1c1917", accent: "#fb923c" },
   },
+  {
+    id: "motion" as const,
+    label: "Motion",
+    desc: "Transport • Blue",
+    icon: Route,
+    preview: { bg: "#f0f5fc", card: "#ffffff", muted: "#e6eef7", dot: "#0b4f8a", accent: "#0a4d8c", gradient: true },
+  },
 ] as const;
 
 const ACCENTS = [
@@ -61,7 +68,7 @@ export default function SettingsPage() {
       <Sidebar />
       <main className="flex-1 min-w-0">
         <div className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur px-6 h-16 flex items-center">
-          <div><div className="font-semibold">Settings</div><div className="text-xs text-muted-foreground">Make it yours — 5 themes • glass • own the OS</div></div>
+          <div><div className="font-semibold">Settings</div><div className="text-xs text-muted-foreground">Make it yours — 6 themes • glass • own the OS</div></div>
         </div>
 
         <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -77,16 +84,16 @@ export default function SettingsPage() {
             <div className="mt-3 text-xs text-muted-foreground">Shows in Workforce, sharing and Windows app title bar.</div>
           </div>
 
-          {/* Themes - 5 modern clean glass style */}
+          {/* Themes - 6 modern clean glass style */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-medium"><Palette className="h-4 w-4"/> Appearance — 5 themes</div>
+              <div className="flex items-center gap-2 font-medium"><Palette className="h-4 w-4"/> Appearance — 6 themes</div>
               <span className="text-xs rounded-full bg-muted px-2.5 py-1 flex items-center gap-1"><Sparkles className="h-3 w-3" style={{color:'var(--accent)'}}/>{settings.theme} • {settings.accent}</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">Modern clean • Glass frosted • Pick your OS vibe. Live instantly.</p>
 
             {/* 5 theme cards */}
-            <div className="mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {THEMES.map((t) => {
                 const active = settings.theme === t.id;
                 const Icon = t.icon;
@@ -125,6 +132,9 @@ export default function SettingsPage() {
                     )}
                     {t.id === "aurora" && (
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-400/10 to-violet-400/10" />
+                    )}
+                    {(t as any).gradient && (
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-500/15 via-teal-400/10 to-emerald-500/10" />
                     )}
                     <div className="relative mt-3 flex items-start justify-between gap-2">
                       <div>
@@ -259,7 +269,7 @@ export default function SettingsPage() {
           {/* App Lock — optional lightweight auth */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="flex items-center gap-2 font-medium"><Lock className="h-4 w-4"/> App lock — optional</div>
-            <p className="text-xs text-muted-foreground mt-1">Enable a local PIN to gate dashboard/chat when sharing device. Smooth testing — disable anytime. (Full email auth later)</p>
+            <p className="text-xs text-muted-foreground mt-1">Enable a local PIN to gate dashboard/chat when sharing device. Smooth testing — disable anytime.</p>
             <div className="mt-4 flex flex-col sm:flex-row gap-3 items-start sm:items-end">
               <label className="flex items-center gap-2 text-sm rounded-xl border bg-muted px-3 py-2.5 cursor-pointer">
                 <input type="checkbox" checked={settings.appLockEnabled} onChange={e=>setSettings({ appLockEnabled: e.target.checked })} /> Enable lock
