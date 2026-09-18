@@ -1,11 +1,18 @@
 export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'groq' | 'together' | 'perplexity' | 'cohere' | 'atria';
 
+export interface ProviderModel {
+  id: string;
+  name: string;
+  context?: string;
+  starred?: boolean;
+}
+
 export interface Provider {
   id: ProviderId;
   name: string;
   icon: string;
   color: string;
-  models: { id: string; name: string; context: string; starred?: boolean }[];
+  models: ProviderModel[];
   baseUrl: string;
   keyPlaceholder: string;
 }
@@ -36,9 +43,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://integrate.api.nvidia.com/v1',
     keyPlaceholder: 'nvapi-...',
     models: [
-      { id: 'meta/llama-3.1-405b-instruct', name: 'Llama 3.1 405B', context: '128K', starred: true },
-      { id: 'mistralai/mixtral-8x22b-instruct', name: 'Mixtral 8x22B', context: '64K' },
-      { id: 'nvidia/nemotron-4-340b', name: 'Nemotron 4 340B', context: '128K' },
+      { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', context: '128K', starred: true },
+      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', context: '128K' },
+      { id: 'meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', context: '128K' },
     ]
   },
   {
@@ -124,3 +131,10 @@ export const PROVIDERS: Provider[] = [
 ];
 
 export const getProvider = (id: ProviderId) => PROVIDERS.find(p => p.id === id);
+
+// effective model list: models fetched live from the provider via the API key take
+// precedence over the static curated list. `dynamic` comes from the vault entry.
+export function modelsFor(p: Provider | undefined, dynamic?: ProviderModel[]): ProviderModel[] {
+  if (dynamic && dynamic.length) return dynamic;
+  return p?.models || [];
+}

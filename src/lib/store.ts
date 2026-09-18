@@ -1,7 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ProviderId } from "./providers";
+import type { ProviderId, ProviderModel } from "./providers";
 
 export type Theme = "light" | "dark" | "glass" | "midnight" | "aurora" | "motion";
 export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
@@ -28,6 +28,7 @@ export interface VaultKey {
   key: string;
   connected: boolean;
   endpoint?: string;
+  models?: ProviderModel[];
   lastTested?: string;
 }
 
@@ -113,7 +114,7 @@ interface GodEyeState {
   settings: ProgramSettings;
   setSettings: (s: Partial<ProgramSettings>) => void;
   vault: Record<ProviderId, VaultKey>;
-  setVaultKey: (provider: ProviderId, key: string, connected: boolean, endpoint?: string) => void;
+  setVaultKey: (provider: ProviderId, key: string, connected: boolean, endpoint?: string, models?: ProviderModel[]) => void;
   clearVaultKey: (provider: ProviderId) => void;
   agents: Agent[];
   addAgent: (a: Agent) => void;
@@ -172,7 +173,7 @@ function freshSettings(): ProgramSettings {
 
 function freshAgents(): Agent[] {
   return [
-    { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.1-405b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
+    { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.3-70b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
     { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-3.5-sonnet", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
     { id: "3", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content.", temperature: 0.8, color: "#ff6b35" },
   ];
@@ -251,7 +252,7 @@ export const useGodEye = create<GodEyeState>()(
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
       vault: {} as Record<ProviderId, VaultKey>,
-      setVaultKey: (provider, key, connected, endpoint) =>
+      setVaultKey: (provider, key, connected, endpoint, models) =>
         set((s) => ({
           vault: {
             ...s.vault,
@@ -260,6 +261,7 @@ export const useGodEye = create<GodEyeState>()(
               key,
               connected,
               ...(endpoint ? { endpoint } : {}),
+              ...(models && models.length ? { models } : {}),
               lastTested: new Date().toISOString(),
             },
           },

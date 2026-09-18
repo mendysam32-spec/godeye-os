@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { useGodEye, type ChatMode } from "@/lib/store";
-import { PROVIDERS } from "@/lib/providers";
+import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
 import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, ChevronDown, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
@@ -176,7 +176,7 @@ export default function ChatPage() {
   }
 
   const providerObj = PROVIDERS.find(p => p.id === provider);
-  const modelList = providerObj?.models || [];
+  const modelList = modelsFor(providerObj, vault[provider]?.models);
 
   return (
     <div className="h-[100dvh] h-screen flex bg-background overflow-hidden">
@@ -236,7 +236,7 @@ export default function ChatPage() {
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{background: providerObj?.color}}/>
-              <select value={provider} onChange={e=>{ const pid=e.target.value as any; const prov=PROVIDERS.find(p=>p.id===pid); setProvider(pid); if(prov?.models[0]) setModel(prov.models[0].id); }} className="bg-transparent text-xs outline-none">
+              <select value={provider} onChange={e=>{ const pid=e.target.value as ProviderId; const prov=PROVIDERS.find(p=>p.id===pid); const list = modelsFor(prov, vault[pid]?.models); setProvider(pid); if(list[0]?.id) setModel(list[0].id); }} className="bg-transparent text-xs outline-none">
                 {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <span className="text-muted-foreground">/</span>
@@ -303,15 +303,30 @@ export default function ChatPage() {
                 <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
                   <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Models • ${providerObj?.name}`}><Plus className="h-4 w-4"/></button>
                   {showModelMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 w-64 rounded-2xl border bg-card shadow-xl p-2 z-50">
-                      <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models</div>
-                      {modelList.map(m=>(
-                        <button key={m.id} onClick={()=>{ setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
-                          <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
-                          <span className="truncate">{m.name}</span>
-                          <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
-                        </button>
-                      ))}
+                    <div className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl border bg-card shadow-xl p-2 z-50">
+                      <div className="px-2 py-1.5">
+                        <div className="text-[11px] text-muted-foreground font-medium mb-1">Provider</div>
+                        <select value={provider} onChange={e=>{
+                          const pid = e.target.value as ProviderId;
+                          const prov = PROVIDERS.find(p=>p.id===pid);
+                          const list = modelsFor(prov, vault[pid]?.models);
+                          setProvider(pid);
+                          setModel(list[0]?.id || "");
+                        }} className="w-full rounded-lg border bg-muted px-2 py-1.5 text-sm outline-none">
+                          {PROVIDERS.map(p=>(<option key={p.id} value={p.id}>{p.name}{vault[p.id]?.connected ? "" : " • needs key"}</option>))}
+                        </select>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto mt-1">
+                        <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models ({modelList.length})</div>
+                        {modelList.map(m=>(
+                          <button key={m.id} onClick={()=>{ setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                            <span className="truncate">{m.name}</span>
+                            <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                          </button>
+                        ))}
+                        {modelList.length === 0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
+                      </div>
                     </div>
                   )}
                   {running ? (

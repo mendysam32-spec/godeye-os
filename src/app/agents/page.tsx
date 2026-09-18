@@ -1,14 +1,14 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
-import { PROVIDERS } from "@/lib/providers";
+import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
 import { useState } from "react";
 import { Plus, Trash2, Bot } from "lucide-react";
 
 export default function AgentsPage() {
   const { agents, addAgent, updateAgent, removeAgent, vault } = useGodEye();
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ name:"", role:"", provider:"openrouter" as any, model:"", prompt:"" });
+  const [form, setForm] = useState({ name:"", role:"", provider:"openrouter" as ProviderId, model:"", prompt:"" });
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -36,16 +36,17 @@ export default function AgentsPage() {
                   <div className="mt-3 space-y-2">
                     <label className="block"><span className="text-xs">Provider</span>
                       <select value={a.provider} onChange={e=>{
-                        const pid = e.target.value as any;
+                        const pid = e.target.value as ProviderId;
                         const prov = PROVIDERS.find(x=>x.id===pid);
-                        updateAgent(a.id, {provider: pid, model: prov?.models[0].id || ""});
+                        const list = modelsFor(prov, vault[pid]?.models);
+                        updateAgent(a.id, {provider: pid, model: list[0]?.id || ""});
                       }} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2 text-sm">
                         {PROVIDERS.map(pr=><option key={pr.id} value={pr.id}>{pr.name} {!vault[pr.id]?.connected && " • needs key"}</option>)}
                       </select>
                     </label>
                     <label className="block"><span className="text-xs">Model</span>
                       <select value={a.model} onChange={e=>updateAgent(a.id, {model: e.target.value})} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2 text-sm">
-                        {(PROVIDERS.find(x=>x.id===a.provider)?.models || []).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                        {modelsFor(PROVIDERS.find(x=>x.id===a.provider), vault[a.provider]?.models).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </label>
                     {!connected && <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Connect {p?.name} key in Providers to run this agent</div>}
@@ -63,14 +64,14 @@ export default function AgentsPage() {
                 <div className="mt-3 space-y-3">
                   <input placeholder="Name — e.g. Coder" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm"/>
                   <input placeholder="Role — e.g. Full-Stack Engineer" value={form.role} onChange={e=>setForm({...form, role:e.target.value})} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm"/>
-                  <select value={form.provider} onChange={e=>{const pid=e.target.value as any; const prov=PROVIDERS.find(x=>x.id===pid); setForm({...form, provider: pid, model: prov?.models[0].id || ""});}} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm">
+                  <select value={form.provider} onChange={e=>{const pid=e.target.value as ProviderId; const prov=PROVIDERS.find(x=>x.id===pid); setForm({...form, provider: pid, model: modelsFor(prov, vault[pid]?.models)[0]?.id || ""});}} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm">
                     {PROVIDERS.map(pr=><option key={pr.id} value={pr.id}>{pr.name}</option>)}
                   </select>
                   <select value={form.model} onChange={e=>setForm({...form, model:e.target.value})} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm">
-                    {(PROVIDERS.find(x=>x.id===form.provider)?.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    {modelsFor(PROVIDERS.find(x=>x.id===form.provider), vault[form.provider]?.models).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                   <textarea placeholder="System prompt" value={form.prompt} onChange={e=>setForm({...form, prompt:e.target.value})} rows={3} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm"/>
-                  <button onClick={()=>{ if(!form.name) return; addAgent({id: Date.now().toString(), name: form.name, role: form.role || "Agent", provider: form.provider, model: form.model || PROVIDERS.find(x=>x.id===form.provider)!.models[0].id, systemPrompt: form.prompt, temperature: 0.5, color: PROVIDERS.find(x=>x.id===form.provider)!.color}); setShow(false);}} className="w-full rounded-full bg-foreground text-background py-2.5 text-sm">Create agent</button>
+                  <button onClick={()=>{ if(!form.name) return; addAgent({id: Date.now().toString(), name: form.name, role: form.role || "Agent", provider: form.provider, model: form.model || modelsFor(PROVIDERS.find(x=>x.id===form.provider), vault[form.provider]?.models)[0]?.id, systemPrompt: form.prompt, temperature: 0.5, color: PROVIDERS.find(x=>x.id===form.provider)!.color}); setShow(false);}} className="w-full rounded-full bg-foreground text-background py-2.5 text-sm">Create agent</button>
                 </div>
               </div>
             </div>

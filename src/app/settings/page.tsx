@@ -17,7 +17,7 @@ const THEMES = [
     label: "Dark",
     desc: "OLED • Focus",
     icon: Moon,
-    preview: { bg: "#1a1a1a", card: "#2c2c2c", muted: "#3a3a3a", dot: "#eaeaea", accent: "#00ffff" },
+    preview: { bg: "#161616", card: "#202020", muted: "#2a241d", dot: "#ffedd5", accent: "#ff8a3c" },
   },
   {
     id: "glass" as const,
@@ -37,16 +37,17 @@ const THEMES = [
   {
     id: "aurora" as const,
     label: "Aurora",
-    desc: "Cream • Warm",
+    desc: "Indigo • Glass Gradient",
     icon: Sunrise,
-    preview: { bg: "#fffbf0", card: "#ffffff", muted: "#fef3e2", dot: "#1c1917", accent: "#fb923c" },
+    preview: { bg: "#4338ca", card: "rgba(255,255,255,0.14)", muted: "rgba(255,255,255,0.12)", dot: "#eef2ff", accent: "#c7d2fe" },
+    glass: true,
   },
   {
     id: "motion" as const,
     label: "Motion",
     desc: "Day Red • Gradient",
     icon: Route,
-    preview: { bg: "#fdf0ee", card: "#ffffff", muted: "#fbe7e2", dot: "#7f1d1d", accent: "#dc2626", gradient: true },
+    preview: { bg: "#f0f9ff", card: "#ffffff", muted: "#e0f2fe", dot: "#0c4a6e", accent: "#0284c7", gradient: true },
   },
 ] as const;
 
@@ -103,12 +104,12 @@ export default function SettingsPage() {
                     onClick={() => setSettings({ theme: t.id })}
                     className={`group relative text-left rounded-2xl border-2 p-3 transition-all overflow-hidden ${
                       active ? "border-foreground shadow-md scale-[1.02]" : "border-border hover:border-foreground/20 hover:shadow-sm"
-                    } ${t.id === "glass" ? "backdrop-blur-xl" : ""}`}
+                    } ${t.id === "glass" || t.id === "aurora" ? "backdrop-blur-xl" : ""}`}
                     style={{ background: t.preview.bg }}
                   >
                     {/* preview mini window */}
-                    <div className="rounded-xl overflow-hidden border shadow-sm" style={{ background: t.preview.card, borderColor: t.id==="glass" ? "rgba(255,255,255,0.6)" : t.preview.muted }}>
-                      <div className="h-7 flex items-center gap-1 px-2 border-b" style={{ background: t.preview.muted, borderColor: t.id==="glass"? "rgba(255,255,255,0.4)" : t.preview.bg }}>
+                    <div className="rounded-xl overflow-hidden border shadow-sm" style={{ background: t.preview.card, borderColor: t.id==="glass" || t.id==="aurora" ? "rgba(255,255,255,0.6)" : t.preview.muted }}>
+                      <div className="h-7 flex items-center gap-1 px-2 border-b" style={{ background: t.preview.muted, borderColor: t.id==="glass" || t.id==="aurora" ? "rgba(255,255,255,0.4)" : t.preview.bg }}>
                         <span className="h-2 w-2 rounded-full bg-red-400" />
                         <span className="h-2 w-2 rounded-full bg-amber-400" />
                         <span className="h-2 w-2 rounded-full bg-emerald-400" />
@@ -131,17 +132,17 @@ export default function SettingsPage() {
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-600/20 to-blue-600/10" />
                     )}
                     {t.id === "aurora" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-400/10 to-violet-400/10" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-400/25 via-violet-400/15 to-blue-400/20" />
                     )}
                     {(t as any).gradient && (
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-red-500/20 via-orange-400/15 to-rose-400/15" />
                     )}
                     <div className="relative mt-3 flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: t.id==="dark" || t.id==="midnight" ? "#fff" : "#0f0f0f" }}>
+                        <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: t.id==="dark" || t.id==="midnight" || t.id==="aurora" ? "#fff" : "#0f0f0f" }}>
                           <Icon className="h-3.5 w-3.5" /> {t.label}
                         </div>
-                        <div className="text-xs" style={{ color: t.id==="dark" || t.id==="midnight" ? "rgba(255,255,255,0.6)" : "#6b6b6b" }}>{t.desc}</div>
+                        <div className="text-xs" style={{ color: t.id==="dark" || t.id==="midnight" || t.id==="aurora" ? "rgba(255,255,255,0.6)" : "#6b6b6b" }}>{t.desc}</div>
                       </div>
                       <div className={`h-5 w-5 rounded-full border-2 grid place-items-center shrink-0 ${active ? "bg-foreground border-foreground" : "border-black/20 bg-white/50"}`} style={{ borderColor: active ? "var(--foreground)" : undefined }}>
                         {active && <Check className="h-3 w-3 text-background" />}

@@ -1,4 +1,4 @@
-import { PROVIDERS, type ProviderId } from "./providers";
+import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 
 export type ChatRole = "system" | "user" | "assistant";
 export interface ChatMessage { role: ChatRole; content: string; }
@@ -145,6 +145,61 @@ export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: 
   }
   // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, groq, mistral, together, perplexity)
   return callOpenAICompatible(call, apiKey, cfg.baseUrl, opts?.baseUrl);
+}
+
+// Fetch the live model list a provider exposes for a given API key.
+// Covers OpenAI-compatible /v1/models (nvidia, openrouter, omeroute, openai,
+// groq, mistral, together, perplexity, cohere...) plus anthropic and google.
+// NVCF deployment URLs are single-function endpoints with no /models listing.
+export async function fetchProviderModels(provider: ProviderId, apiKey: string, endpoint?: string): Promise<ProviderModel[]> {
+  const cfg = providerConfig(provider);
+  try {
+    const rawBase = (endpoint || cfg.baseUrl).replace(/\/+$/, "");
+    if (/api\.nvcf\.nvidia\.com/.test(rawBase)) return [];
+    const skip = /(embed|embedding|reward|rerank|ranker|guard|tts|asr|whisper|speech|tokeniz|dalle|midjourney|stable|sdxl|flux|text-embed)/i;
+
+    let url: string;
+    let headers: Record<string, string>;
+    if (provider === "anthropic") {
+      url = `${rawBase}/v1/models`;
+      headers = { "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
+    } else if (provider === "google") {
+      url = `${rawBase}/models?key=${encodeURIComponent(apiKey)}`;
+      headers = { "Content-Type": "application/json" };
+    } else {
+      url = `${rawBase}/models`;
+      headers = { Authorization: `Bearer ${apiKey}` };
+    }
+
+    const res = await fetch(url, { headers });
+    if (!res.ok) return [];
+    const json: unknown = await res.json();
+
+    const asList = json as { data?: unknown[]; models?: unknown[] };
+    const items: unknown[] = Array.isArray(json) ? json : asList.data ?? asList.models ?? [];
+
+    const seen = new Set<string>();
+    const out: ProviderModel[] = [];
+    for (const raw of items) {
+      if (!raw || typeof raw !== "object") continue;
+      const m = raw as Record<string, unknown>;
+      let id = String(m.id ?? m.name ?? "").trim();
+      if (id.startsWith("models/")) id = id.slice("models/".length);
+      if (!id || seen.has(id) || skip.test(id)) continue;
+      seen.add(id);
+      const ctx = (m.context_length as number) ??
+        (m.max_model_len as number) ??
+        (m.max_context_length as number) ??
+        (m.context_window as number) ??
+        (m.inputTokenLimit as number) ??
+        (m.context as number);
+      out.push({ id, name: id.split("/").pop() ?? id, context: ctx ? `${Math.max(1, Math.round(Number(ctx) / 1024))}K` : undefined });
+    }
+    out.sort((a, b) => a.id.localeCompare(b.id));
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 export async function testProviderKey(provider: ProviderId, apiKey: string, endpoint?: string): Promise<{ ok: boolean; message: string }> {

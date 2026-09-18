@@ -1,9 +1,9 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { PROVIDERS } from "@/lib/providers";
+import { PROVIDERS, type ProviderModel } from "@/lib/providers";
 import { useGodEye } from "@/lib/store";
 import { useState, useEffect } from "react";
-import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, Download } from "lucide-react";
+import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, Download, RefreshCw } from "lucide-react";
 import { encryptKey, decryptKey, maskKey } from "@/lib/vault-crypto";
 
 export default function VaultPage() {
@@ -28,26 +28,34 @@ export default function VaultPage() {
     return () => { cancelled = true; };
   }, [vault]);
 
-  async function connect(p: any, val: string, ep?: string) {
+  async function connect(p: (typeof PROVIDERS)[number], val: string, ep?: string) {
     if (!val.trim()) return;
     setTesting((s) => ({ ...s, [p.id]: true }));
     setMsg((s) => ({ ...s, [p.id]: undefined as any }));
     const cleanEp = ep?.trim() || "";
     try {
-      const res = await fetch("/api/providers/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
-      });
-      const j = await res.json();
+      const [testRes, modelRes] = await Promise.all([
+        fetch("/api/providers/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
+        }),
+        fetch("/api/providers/models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
+        }).then(r => r.json().catch(() => ({ ok: false }))).catch(() => ({ ok: false })),
+      ]);
+      const j = await testRes.json();
+      const models = (modelRes.models || []) as ProviderModel[];
       const enc = await encryptKey(val.trim());
-      if (res.ok && j.ok) {
-        setVaultKey(p.id, enc, true, cleanEp || undefined);
-        setMsg((s) => ({ ...s, [p.id]: { ok: true, text: "Live verified • connected — encrypted at rest" } }));
+      if (resOk(testRes, j)) {
+        setVaultKey(p.id, enc, true, cleanEp || undefined, models);
+        setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Live verified • connected${models.length ? ` • ${models.length} models synced` : ""} — encrypted at rest` } }));
         setDraft(d => { const n = { ...d }; delete n[p.id]; return n; });
       } else {
-        setVaultKey(p.id, enc, false, cleanEp || undefined);
-        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.message || j.error || "Key saved encrypted but verification failed — check key/endpoint/model" } }));
+        setVaultKey(p.id, enc, false, cleanEp || undefined, models);
+        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: `${j.message || j.error || "Key saved encrypted but verification failed — check key/endpoint/model"}${models.length ? ` (${models.length} models available)` : ""}` } }));
       }
     } catch (e: any) {
       const enc = await encryptKey(val.trim());
@@ -56,6 +64,37 @@ export default function VaultPage() {
     } finally {
       setTesting((s) => ({ ...s, [p.id]: false }));
     }
+  }
+
+  async function syncModels(p: (typeof PROVIDERS)[number]) {
+    const key = decrypted[p.id];
+    if (!vault[p.id]?.key || !key) return;
+    setTesting((s) => ({ ...s, [p.id]: true }));
+    setMsg((s) => ({ ...s, [p.id]: undefined as any }));
+    try {
+      const v = vault[p.id];
+      const res = await fetch("/api/providers/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: p.id, apiKey: key.trim(), ...(v?.endpoint?.trim() ? { endpoint: v.endpoint.trim() } : {}) }),
+      });
+      const j = await res.json();
+      const models = (Array.isArray(j.models) ? j.models : []) as ProviderModel[];
+      if (models.length) {
+        setVaultKey(p.id, v!.key as string, !!v?.connected, v?.endpoint, models);
+        setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Synced ${models.length} models from ${p.name}` } }));
+      } else {
+        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.error || `No models returned — key may not have model access` } }));
+      }
+    } catch (e: any) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: e.message || "Failed to sync models" } }));
+    } finally {
+      setTesting((s) => ({ ...s, [p.id]: false }));
+    }
+  }
+
+  function resOk(res: Response, j: { ok: boolean }) {
+    return res.ok && j.ok;
   }
 
   return (
@@ -85,6 +124,7 @@ export default function VaultPage() {
               const val = draft[p.id] !== undefined ? draft[p.id] : (visible[p.id] ? dec : (dec ? maskKey(dec) : ""));
               const ep = endpoint[p.id] !== undefined ? endpoint[p.id] : (v?.endpoint || "");
               const m = msg[p.id];
+              const dynModels = v?.models && v.models.length ? v.models : p.models;
               return (
                 <div key={p.id} className={`rounded-2xl border p-4 md:p-5 ${isConnected ? "bg-card border-emerald-200" : "bg-card"}`}>
                   <div className="flex items-center justify-between gap-2">
@@ -128,8 +168,13 @@ export default function VaultPage() {
                       <button onClick={()=>connect(p, draft[p.id] ?? dec, ep)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium disabled:opacity-50">
                         {testing[p.id] && <Loader2 className="h-3 w-3 animate-spin"/>} {testing[p.id] ? "Verifying..." : "Connect & verify"}
                       </button>
+                      {v?.key && v?.models && v.models.length > 0 && (
+                        <button onClick={()=>syncModels(p)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs disabled:opacity-50" title="Re-fetch model list from provider">
+                          <RefreshCw className="h-3 w-3"/> Sync {v.models.length} models
+                        </button>
+                      )}
                       {v?.key && <button onClick={()=>{ clearVaultKey(p.id); setDraft(d=>{const n={...d}; delete n[p.id]; return n;}); setEndpoint(s=>{const n={...s}; delete n[p.id]; return n;}); setMsg(s=>{const n={...s}; delete n[p.id]; return n;});}} className="rounded-full border px-4 py-1.5 text-xs">Disconnect</button>}
-                      <span className="text-xs text-muted-foreground hidden sm:inline">{p.models.slice(0,2).map(x=>x.id).join(" • ")} • {p.models.length} models</span>
+                      <span className="text-xs text-muted-foreground hidden sm:inline">{dynModels.slice(0,2).map(x=>x.id).join(" • ")} • {dynModels.length} models</span>
                     </div>
                     {p.id === "nvidia" && (
                       <div className="mt-2 text-[11px] text-muted-foreground">NVIDIA deployment keys use an NVCF URL like <code className="bg-muted px-1 rounded">…/v2/nvcf/deployments/functions/&lt;id&gt;/versions/&lt;ver&gt;</code>. Paste it above — GodEye calls it directly.</div>
@@ -139,9 +184,10 @@ export default function VaultPage() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {p.models.map(mm=>(
-                      <span key={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1">{mm.name} <span className="text-muted-foreground">{mm.context}</span>{mm.starred && " ★"}</span>
+                    {dynModels.slice(0, 12).map(mm=>(
+                      <span key={mm.id} title={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1">{mm.name} {mm.context && <span className="text-muted-foreground">• {mm.context}</span>}</span>
                     ))}
+                    {dynModels.length > 12 && <span className="text-[11px] rounded-full bg-muted px-2 py-1 text-muted-foreground">+{dynModels.length - 12} more</span>}
                   </div>
                 </div>
               )

@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye, type ChatMode } from "@/lib/store";
-import { PROVIDERS } from "@/lib/providers";
+import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Folder as FolderIcon, ArrowLeft, ChevronDown, FolderKanban } from "lucide-react";
 
@@ -58,7 +58,7 @@ export default function FolderPage() {
   }, [folder, folders]);
 
   const providerObj = PROVIDERS.find(p => p.id === provider);
-  const modelList = providerObj?.models || [];
+  const modelList = modelsFor(providerObj, vault[provider as ProviderId]?.models);
 
   useEffect(() => {
     if (activeChat) {
