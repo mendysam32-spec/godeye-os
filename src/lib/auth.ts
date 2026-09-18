@@ -90,6 +90,8 @@ export async function verifyPassword(password: string, stored: string): Promise<
 interface Store {
   load(): Promise<AuthState | null>;
   save(s: AuthState): Promise<void>;
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
 }
 
 interface D1Stmt {
@@ -120,6 +122,15 @@ class D1Store implements Store {
       .bind(JSON.stringify(s))
       .run();
   }
+  async get(key: string): Promise<string | null> {
+    await this.ready;
+    const row = (await this.db.prepare("SELECT v FROM auth_state WHERE k = ?1").bind(key).first()) as { v?: string } | null;
+    return row?.v ?? null;
+  }
+  async put(key: string, value: string): Promise<void> {
+    await this.ready;
+    await this.db.prepare("INSERT INTO auth_state (k, v) VALUES (?1, ?2) ON CONFLICT(k) DO UPDATE SET v = ?2").bind(key, value).run();
+  }
 }
 
 class FileStore implements Store {
@@ -127,6 +138,11 @@ class FileStore implements Store {
   private async path(): Promise<string> {
     const path = await import("node:path");
     return path.join(process.cwd(), ".data", "auth.json");
+  }
+  private async keyPath(key: string): Promise<string> {
+    const path = await import("node:path");
+    const safe = key.replace(/[^A-Za-z0-9_-]/g, "_");
+    return path.join(process.cwd(), ".data", `${safe}.json`);
   }
   async load(): Promise<AuthState | null> {
     try {
@@ -151,15 +167,42 @@ class FileStore implements Store {
       this.mem = s;
     }
   }
+  async get(key: string): Promise<string | null> {
+    try {
+      const fs = await import("node:fs/promises");
+      return await fs.readFile(await this.keyPath(key), "utf8");
+    } catch {
+      return null;
+    }
+  }
+  async put(key: string, value: string): Promise<void> {
+    try {
+      const fs = await import("node:fs/promises");
+      const p = await this.keyPath(key);
+      await fs.mkdir(await (await import("node:path")).dirname(p), { recursive: true });
+      const tmp = p + ".tmp";
+      await fs.writeFile(tmp, value, "utf8");
+      await fs.rename(tmp, p);
+    } catch {
+      /* keep in memory */
+    }
+  }
 }
 
 class MemoryStore implements Store {
   private mem: AuthState | null = null;
+  private kv: Record<string, string> = {};
   async load(): Promise<AuthState | null> {
     return this.mem;
   }
   async save(s: AuthState): Promise<void> {
     this.mem = s;
+  }
+  async get(key: string): Promise<string | null> {
+    return this.kv[key] ?? null;
+  }
+  async put(key: string, value: string): Promise<void> {
+    this.kv[key] = value;
   }
 }
 
@@ -223,6 +266,27 @@ export async function saveState(state: AuthState): Promise<void> {
   }
   const store = await getStore();
   await store.save(state);
+}
+
+/* ------------------------------ workspace ------------------------------- */
+
+// Per-user workspace blobs (settings/vault/agents/projects/chats/folders) are
+// stored in the same KV table under "ws:<userId>" so the same account can pull
+// them on any device. Workspace rows are kept separate from the AuthState row.
+export async function getWorkspace(uid: string): Promise<Record<string, unknown> | null> {
+  const store = await getStore();
+  const raw = await store.get(`ws:${uid}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspace(uid: string, data: unknown): Promise<void> {
+  const store = await getStore();
+  await store.put(`ws:${uid}`, JSON.stringify(data));
 }
 
 /* --------------------------------- seed --------------------------------- */

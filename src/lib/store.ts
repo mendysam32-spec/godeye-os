@@ -121,6 +121,10 @@ interface GodEyeState {
   currentUser: AuthUserInfo | null;
   loginUser: (u: AuthUserInfo) => void;
   logoutUser: () => void;
+  wsUpdatedAt: string;
+  collectWorkspace: () => WorkspaceData;
+  applyWorkspace: (data: WorkspaceData) => void;
+  markWorkspaceSynced: () => void;
   chats: ChatSession[];
   activeChatId: string | null;
   createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId">>) => string;
@@ -203,7 +207,7 @@ function readJSON<T>(key: string): T | null {
   }
 }
 
-interface WorkspaceData {
+export interface WorkspaceData {
   profile?: UserProfile;
   settings?: ProgramSettings;
   vault?: Record<ProviderId, VaultKey>;
@@ -211,6 +215,8 @@ interface WorkspaceData {
   chats?: ChatSession[];
   projects?: Project[];
   folders?: Folder[];
+  activeChatId?: string | null;
+  updatedAt?: string;
 }
 
 function readUserData(userId: string): WorkspaceData | null {
@@ -259,6 +265,7 @@ export const useGodEye = create<GodEyeState>()(
       removeAgent: (id) => set((s) => ({ agents: s.agents.filter((a) => a.id !== id) })),
 
       currentUser: null,
+      wsUpdatedAt: "",
       loginUser: (u) => {
         const data = readUserData(u.id);
         set(() => {
@@ -283,12 +290,62 @@ export const useGodEye = create<GodEyeState>()(
             },
             activeChatId: null,
             currentUser: u,
+            wsUpdatedAt: data?.updatedAt || "",
           };
         });
+      },
+      collectWorkspace: () => {
+        const s = get();
+        return {
+          profile: s.profile,
+          settings: s.settings,
+          vault: s.vault,
+          agents: s.agents,
+          chats: s.chats,
+          projects: s.projects,
+          folders: s.folders,
+          updatedAt: s.wsUpdatedAt,
+        };
+      },
+      markWorkspaceSynced: () => set({ wsUpdatedAt: new Date().toISOString() }),
+      applyWorkspace: (data) => {
+        const u = get().currentUser;
+        set((s) => {
+          const base = freshScopedState();
+          const merged = {
+            profile: data.profile ?? base.profile,
+            settings: data.settings ?? base.settings,
+            vault: data.vault ?? base.vault,
+            agents: data.agents ?? base.agents,
+            chats: data.chats ?? base.chats,
+            projects: data.projects ?? base.projects,
+            folders: data.folders ?? base.folders,
+          };
+          const profile = {
+            ...merged.profile,
+            email: merged.profile.email || u?.email || "",
+            name: merged.profile.name === "GodEye User" ? u?.displayName || merged.profile.name : merged.profile.name,
+          };
+          const wsUpdatedAt = data.updatedAt || s.wsUpdatedAt || new Date().toISOString();
+          return {
+            ...merged,
+            profile,
+            activeChatId: data.activeChatId ?? null,
+            wsUpdatedAt,
+          };
+        });
+        if (u) {
+          try {
+            localStorage.setItem(workspaceKey(u.id), JSON.stringify({ ...data, updatedAt: get().wsUpdatedAt }));
+          } catch {
+            /* ignore */
+          }
+        }
       },
       logoutUser: () => {
         const s = get();
         if (s.currentUser) {
+          const stamp = new Date().toISOString();
           try {
             localStorage.setItem(
               workspaceKey(s.currentUser.id),
@@ -300,13 +357,14 @@ export const useGodEye = create<GodEyeState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                updatedAt: stamp,
               })
             );
           } catch {
             /* ignore */
           }
         }
-        set({ ...freshScopedState(), activeChatId: null, currentUser: null });
+        set({ ...freshScopedState(), activeChatId: null, currentUser: null, wsUpdatedAt: "" });
       },
 
       chats: [],

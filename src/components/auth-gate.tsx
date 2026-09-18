@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { useGodEye, type AuthUserInfo } from "@/lib/store";
+import { useGodEye, type AuthUserInfo, type WorkspaceData } from "@/lib/store";
 import { Eye, Lock, Loader2, Mail, User, ArrowRight, AlertTriangle, X, HelpCircle, UserPlus } from "lucide-react";
 
 const OWNER_EMAIL = "mendysam32@gmail.com";
@@ -8,15 +8,57 @@ const LOGOUT_EVENT = "godeye:logout";
 
 type Status = "boot" | "anon" | "authed";
 
+async function syncWorkspace() {
+  try {
+    const store = useGodEye.getState();
+    const res = await fetch("/api/auth/workspace", { cache: "no-store" });
+    let remote: WorkspaceData | null = null;
+    if (res.ok) {
+      remote = ((await res.json().catch(() => ({}))) as { data?: WorkspaceData }).data ?? null;
+    }
+    const local = store.collectWorkspace();
+    const rt = remote?.updatedAt ? Date.parse(remote.updatedAt) : 0;
+    const lt = local.updatedAt ? Date.parse(local.updatedAt) : 0;
+    if (remote && !Number.isNaN(rt) && rt > lt) {
+      useGodEye.getState().applyWorkspace(remote);
+    } else {
+      useGodEye.getState().markWorkspaceSynced();
+      const blob = useGodEye.getState().collectWorkspace();
+      await fetch("/api/auth/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: blob }),
+      });
+    }
+  } catch {
+    /* keep local data */
+  }
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("boot");
 
   const handleLoggedIn = useCallback((user: AuthUserInfo) => {
     useGodEye.getState().loginUser(user);
     setStatus("authed");
+    void syncWorkspace();
   }, []);
 
   const handleLogout = useCallback(async () => {
+    try {
+      const store = useGodEye.getState();
+      if (store.currentUser) {
+        store.markWorkspaceSynced();
+        const blob = store.collectWorkspace();
+        await fetch("/api/auth/workspace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: blob }),
+        });
+      }
+    } catch {
+      /* ignore */
+    }
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {
@@ -36,6 +78,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             const { user } = await res.json();
             useGodEye.getState().loginUser(user as AuthUserInfo);
             setStatus("authed");
+            void syncWorkspace();
           } else {
             setStatus("anon");
           }
