@@ -47,6 +47,10 @@ export async function POST(req: NextRequest) {
   if (!apiKey) {
     return NextResponse.json({ error: `No API key for ${provider}. Connect it in Providers Vault.` }, { status: 401 });
   }
+  const vaultEntry = (vault as Record<string, { key?: string; connected?: boolean; endpoint?: string } | string> | undefined)?.[provider];
+  const endpointOverride = vaultEntry && typeof vaultEntry === "object" && typeof vaultEntry.endpoint === "string" && vaultEntry.endpoint.trim()
+    ? { baseUrl: vaultEntry.endpoint.trim() }
+    : undefined;
 
   const modePrompt = MODE_PROMPTS[(mode as ChatMode) || "chat"] || MODE_PROMPTS.chat;
   const behavior = settings?.agentBehavior ? `Behavior: ${settings.agentBehavior}.` : "";
@@ -69,7 +73,7 @@ export async function POST(req: NextRequest) {
     // For simplicity, we do non-streaming then fake stream chunks - providers not all stream same
     // If client wants real streaming, we'd pipe provider stream. For now chunked response:
     try {
-      const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey);
+      const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey, endpointOverride);
       const encoder = new TextEncoder();
       const readable = new ReadableStream({
         async start(controller) {
@@ -89,7 +93,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey);
+    const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey, endpointOverride);
     return NextResponse.json({ content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "LLM failed" }, { status: 500 });

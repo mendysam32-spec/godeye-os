@@ -27,6 +27,7 @@ export interface VaultKey {
   provider: ProviderId;
   key: string;
   connected: boolean;
+  endpoint?: string;
   lastTested?: string;
 }
 
@@ -112,7 +113,7 @@ interface GodEyeState {
   settings: ProgramSettings;
   setSettings: (s: Partial<ProgramSettings>) => void;
   vault: Record<ProviderId, VaultKey>;
-  setVaultKey: (provider: ProviderId, key: string, connected: boolean) => void;
+  setVaultKey: (provider: ProviderId, key: string, connected: boolean, endpoint?: string) => void;
   clearVaultKey: (provider: ProviderId) => void;
   agents: Agent[];
   addAgent: (a: Agent) => void;
@@ -250,8 +251,19 @@ export const useGodEye = create<GodEyeState>()(
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
       vault: {} as Record<ProviderId, VaultKey>,
-      setVaultKey: (provider, key, connected) =>
-        set((s) => ({ vault: { ...s.vault, [provider]: { provider, key, connected, lastTested: new Date().toISOString() } } })),
+      setVaultKey: (provider, key, connected, endpoint) =>
+        set((s) => ({
+          vault: {
+            ...s.vault,
+            [provider]: {
+              provider,
+              key,
+              connected,
+              ...(endpoint ? { endpoint } : {}),
+              lastTested: new Date().toISOString(),
+            },
+          },
+        })),
       clearVaultKey: (provider) =>
         set((s) => {
           const v = { ...s.vault };

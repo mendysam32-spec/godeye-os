@@ -26,9 +26,13 @@ function providerConfig(provider: ProviderId) {
 }
 
 // OpenAI-compatible call (covers OpenAI, Nvidia NIM, OpenRouter, OmeRoute, Groq, Together, Mistral, Perplexity-ish)
-async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: string): Promise<LLMResult> {
+async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: string, overrideBaseUrl?: string): Promise<LLMResult> {
   const t0 = Date.now();
-  const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  // NVCF deployment URLs (https://api.nvcf.nvidia.com/v2/nvcf/deployments/functions/{id}/versions/{v})
+  // are invoked directly — do NOT append /chat/completions.
+  const rawBase = (overrideBaseUrl || baseUrl).replace(/\/+$/, "");
+  const isNvcf = /api\.nvcf\.nvidia\.com/.test(rawBase);
+  const url = isNvcf ? rawBase : `${rawBase}/chat/completions`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
@@ -122,7 +126,7 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   return { provider: call.provider, model: call.model, content, latencyMs: Date.now() - t0 };
 }
 
-export async function callLLM(call: LLMCall, apiKey: string): Promise<LLMResult> {
+export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
   const cfg = providerConfig(call.provider);
   // route by provider type
   if (call.provider === "anthropic") return callAnthropic(call, apiKey);
@@ -140,14 +144,14 @@ export async function callLLM(call: LLMCall, apiKey: string): Promise<LLMResult>
     return { provider: call.provider, model: call.model, content: j.text || j.reply || "", latencyMs: Date.now() - t0 };
   }
   // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, groq, mistral, together, perplexity)
-  return callOpenAICompatible(call, apiKey, cfg.baseUrl);
+  return callOpenAICompatible(call, apiKey, cfg.baseUrl, opts?.baseUrl);
 }
 
-export async function testProviderKey(provider: ProviderId, apiKey: string): Promise<{ ok: boolean; message: string }> {
+export async function testProviderKey(provider: ProviderId, apiKey: string, endpoint?: string): Promise<{ ok: boolean; message: string }> {
   try {
     const model = PROVIDERS.find(p => p.id === provider)?.models[0].id;
     if (!model) throw new Error("No model for provider");
-    const r = await callLLM({ provider, model, messages: [{ role: "user", content: "Reply with OK" }], maxTokens: 5, temperature: 0 }, apiKey);
+    const r = await callLLM({ provider, model, messages: [{ role: "user", content: "Reply with OK" }], maxTokens: 5, temperature: 0 }, apiKey, endpoint ? { baseUrl: endpoint } : undefined);
     return { ok: !!r.content, message: r.content.slice(0, 200) || "Connected" };
   } catch (e: any) {
     return { ok: false, message: e.message || "Failed" };

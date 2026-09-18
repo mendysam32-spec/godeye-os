@@ -74,6 +74,10 @@ export async function POST(req: NextRequest) {
     ];
 
     try {
+      const vEntry = (vault as Record<string, { key?: string; provider?: string; endpoint?: string } | string>)?.[agent.provider];
+      const endpointOverride = vEntry && typeof vEntry === "object" && typeof vEntry.endpoint === "string" && vEntry.endpoint.trim()
+        ? { baseUrl: vEntry.endpoint.trim() }
+        : undefined;
       const r = await callLLM(
         {
           provider: agent.provider,
@@ -82,7 +86,8 @@ export async function POST(req: NextRequest) {
           temperature: agent.temperature ?? 0.5,
           maxTokens: isCodeRole ? 3000 : 2000,
         },
-        apiKey
+        apiKey,
+        endpointOverride
       );
       return {
         agentId: agent.id,

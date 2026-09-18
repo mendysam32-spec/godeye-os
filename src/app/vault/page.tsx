@@ -10,6 +10,7 @@ export default function VaultPage() {
   const { vault, setVaultKey, clearVaultKey } = useGodEye();
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [endpoint, setEndpoint] = useState<Record<string, string>>({});
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<Record<string, { ok: boolean; text: string }>>({});
@@ -27,29 +28,30 @@ export default function VaultPage() {
     return () => { cancelled = true; };
   }, [vault]);
 
-  async function connect(p: any, val: string) {
+  async function connect(p: any, val: string, ep?: string) {
     if (!val.trim()) return;
     setTesting((s) => ({ ...s, [p.id]: true }));
     setMsg((s) => ({ ...s, [p.id]: undefined as any }));
+    const cleanEp = ep?.trim() || "";
     try {
       const res = await fetch("/api/providers/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: p.id, apiKey: val.trim() }),
+        body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
       });
       const j = await res.json();
       const enc = await encryptKey(val.trim());
       if (res.ok && j.ok) {
-        setVaultKey(p.id, enc, true);
+        setVaultKey(p.id, enc, true, cleanEp || undefined);
         setMsg((s) => ({ ...s, [p.id]: { ok: true, text: "Live verified • connected — encrypted at rest" } }));
         setDraft(d => { const n = { ...d }; delete n[p.id]; return n; });
       } else {
-        setVaultKey(p.id, enc, false);
-        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.message || j.error || "Key saved encrypted but verification failed — check key/model" } }));
+        setVaultKey(p.id, enc, false, cleanEp || undefined);
+        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.message || j.error || "Key saved encrypted but verification failed — check key/endpoint/model" } }));
       }
     } catch (e: any) {
       const enc = await encryptKey(val.trim());
-      setVaultKey(p.id, enc, false);
+      setVaultKey(p.id, enc, false, cleanEp || undefined);
       setMsg((s) => ({ ...s, [p.id]: { ok: false, text: e.message || "Network error — saved encrypted locally" } }));
     } finally {
       setTesting((s) => ({ ...s, [p.id]: false }));
@@ -81,6 +83,7 @@ export default function VaultPage() {
               const isConnected = !!v?.connected;
               const dec = decrypted[p.id] ?? "";
               const val = draft[p.id] !== undefined ? draft[p.id] : (visible[p.id] ? dec : (dec ? maskKey(dec) : ""));
+              const ep = endpoint[p.id] !== undefined ? endpoint[p.id] : (v?.endpoint || "");
               const m = msg[p.id];
               return (
                 <div key={p.id} className={`rounded-2xl border p-4 md:p-5 ${isConnected ? "bg-card border-emerald-200" : "bg-card"}`}>
@@ -88,7 +91,7 @@ export default function VaultPage() {
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="h-9 w-9 rounded-xl grid place-items-center text-white text-sm shrink-0" style={{background: p.color}}>{p.icon}</div>
                       <div className="min-w-0"><div className="font-medium text-sm flex items-center gap-2 truncate">{p.name} {isConnected && <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><Check className="h-3 w-3"/> connected</span>}{!isConnected && v?.key && <span className="text-xs text-amber-600">saved • not verified</span>}</div>
-                      <div className="text-xs text-muted-foreground truncate">{p.baseUrl}</div></div>
+                      <div className="text-xs text-muted-foreground truncate">{v?.endpoint || p.baseUrl}</div></div>
                     </div>
                   </div>
 
@@ -112,13 +115,25 @@ export default function VaultPage() {
                         </button>
                       </div>
                     </div>
+                    <div className="mt-2">
+                      <div className="text-xs font-medium flex items-center gap-1">Endpoint URL <span className="text-[10px] text-muted-foreground font-normal">optional — overrides {p.baseUrl}</span></div>
+                      <input
+                        value={ep}
+                        onChange={e=>setEndpoint(s=>({...s, [p.id]: e.target.value}))}
+                        placeholder={p.id === "nvidia" ? "https://api.nvcf.nvidia.com/v2/nvcf/deployments/functions/YOUR_ID/versions/YOUR_VERSION" : p.baseUrl}
+                        className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10 font-mono text-xs"
+                      />
+                    </div>
                     <div className="mt-2 flex gap-2 items-center flex-wrap">
-                      <button onClick={()=>connect(p, draft[p.id] ?? dec)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium disabled:opacity-50">
+                      <button onClick={()=>connect(p, draft[p.id] ?? dec, ep)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium disabled:opacity-50">
                         {testing[p.id] && <Loader2 className="h-3 w-3 animate-spin"/>} {testing[p.id] ? "Verifying..." : "Connect & verify"}
                       </button>
-                      {v?.key && <button onClick={()=>{ clearVaultKey(p.id); setDraft(d=>{const n={...d}; delete n[p.id]; return n;}); setMsg(s=>{const n={...s}; delete n[p.id]; return n;});}} className="rounded-full border px-4 py-1.5 text-xs">Disconnect</button>}
+                      {v?.key && <button onClick={()=>{ clearVaultKey(p.id); setDraft(d=>{const n={...d}; delete n[p.id]; return n;}); setEndpoint(s=>{const n={...s}; delete n[p.id]; return n;}); setMsg(s=>{const n={...s}; delete n[p.id]; return n;});}} className="rounded-full border px-4 py-1.5 text-xs">Disconnect</button>}
                       <span className="text-xs text-muted-foreground hidden sm:inline">{p.models.slice(0,2).map(x=>x.id).join(" • ")} • {p.models.length} models</span>
                     </div>
+                    {p.id === "nvidia" && (
+                      <div className="mt-2 text-[11px] text-muted-foreground">NVIDIA deployment keys use an NVCF URL like <code className="bg-muted px-1 rounded">…/v2/nvcf/deployments/functions/&lt;id&gt;/versions/&lt;ver&gt;</code>. Paste it above — GodEye calls it directly.</div>
+                    )}
                     {m && <div className={`mt-2 text-xs flex gap-1.5 p-2 rounded-xl border break-words ${m.ok ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}`}>{m.ok ? <Check className="h-3.5 w-3.5 mt-0.5 shrink-0"/> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0"/>}<span>{m.text}</span></div>}
                     {v?.lastTested && <div className="mt-1 text-[11px] text-muted-foreground">Last tested {new Date(v.lastTested).toLocaleString()} • Stored {v.key?.startsWith("enc:") ? "encrypted" : "migrating to encrypted"}</div>}
                   </div>
