@@ -282,31 +282,61 @@ export const useGodEye = create<GodEyeState>()(
       wsUpdatedAt: "",
       loginUser: (u) => {
         const data = readUserData(u.id);
-        set(() => {
-          const base = freshScopedState();
-          const merged = data
-            ? {
-                profile: data.profile ?? base.profile,
-                settings: data.settings ?? base.settings,
-                vault: data.vault ?? base.vault,
-                agents: data.agents ?? base.agents,
-                chats: data.chats ?? base.chats,
-                projects: data.projects ?? base.projects,
-                folders: data.folders ?? base.folders,
-              }
-            : base;
-          return {
-            ...merged,
-            profile: {
-              ...merged.profile,
-              email: merged.profile.email || u.email,
-              name: merged.profile.name === "GodEye User" ? u.displayName : merged.profile.name,
-            },
-            activeChatId: null,
-            currentUser: u,
-            wsUpdatedAt: data?.updatedAt || "",
-          };
+        const current = get();
+        const hasData =
+          current.chats.length > 0 ||
+          current.projects.length > 0 ||
+          current.agents.length > 0 ||
+          current.folders.length > 0 ||
+          Object.keys(current.vault).length > 0 ||
+          current.profile.email !== "" ||
+          current.profile.bio !== "" ||
+          current.settings.theme !== "light" ||
+          current.settings.accent !== "amber";
+        // Priority: saved per-user workspace > current (persist-rehydrated) state > fresh defaults.
+        // Never clobber rehydrated data just because the per-user localStorage slot is empty.
+        const fallback = hasData ? current : freshScopedState();
+        const base = {
+          profile: data?.profile ?? fallback.profile,
+          settings: data?.settings ?? fallback.settings,
+          vault: data?.vault ?? fallback.vault,
+          agents: data?.agents ?? fallback.agents,
+          chats: data?.chats ?? fallback.chats,
+          projects: data?.projects ?? fallback.projects,
+          folders: data?.folders ?? fallback.folders,
+        };
+        set({
+          ...base,
+          profile: {
+            ...base.profile,
+            email: base.profile.email || u.email,
+            name: base.profile.name === "GodEye User" ? u.displayName : base.profile.name,
+          },
+          activeChatId: data?.activeChatId ?? (hasData ? current.activeChatId : null),
+          currentUser: u,
+          wsUpdatedAt: data?.updatedAt || current.wsUpdatedAt || "",
         });
+        // Make the merge durable right away so a reload without an explicit logout
+        // still finds this user's data locally.
+        try {
+          const after = get();
+          localStorage.setItem(
+            workspaceKey(u.id),
+            JSON.stringify({
+              profile: after.profile,
+              settings: after.settings,
+              vault: after.vault,
+              agents: after.agents,
+              chats: after.chats,
+              projects: after.projects,
+              folders: after.folders,
+              activeChatId: after.activeChatId,
+              updatedAt: after.wsUpdatedAt,
+            })
+          );
+        } catch {
+          /* ignore */
+        }
       },
       collectWorkspace: () => {
         const s = get();
@@ -445,6 +475,6 @@ export const useGodEye = create<GodEyeState>()(
           };
         }),
     }),
-    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders }) }
+    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );

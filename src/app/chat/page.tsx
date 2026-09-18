@@ -34,7 +34,7 @@ export default function ChatPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
-  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(() => (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches ? false : true));
   const [showModelMenu, setShowModelMenu] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
@@ -47,13 +47,15 @@ export default function ChatPage() {
   }, [showModelMenu]);
 
   useEffect(() => {
-    if (!activeChatId && chats.length === 0) {
-      const id = createChat({ mode, provider, model });
-      setActiveChat(id);
-    } else if (activeChat) {
+    if (activeChatId && activeChat) {
       setMode(activeChat.mode);
       setProvider(activeChat.provider);
       setModel(activeChat.model);
+    } else if (!activeChatId) {
+      const id = createChat({ mode, provider, model });
+      setActiveChat(id);
+    } else {
+      setActiveChat(null);
     }
   }, [activeChatId]);
 
@@ -181,8 +183,11 @@ export default function ChatPage() {
   return (
     <div className="h-[100dvh] h-screen flex bg-background overflow-hidden">
       {!focused && !sidebarHidden && <Sidebar />}
-      {/* chats list */}
-      <aside className={`${focused || sidebarHidden ? "hidden" : "hidden lg:flex"} w-[280px] border-r bg-card/30 flex-col shrink-0 overflow-hidden`}>
+      {/* chats list — drawer on mobile, column on desktop */}
+      {!focused && !sidebarHidden && (
+        <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden" onClick={() => setSidebarHidden(true)} />
+      )}
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[85vw] max-w-[280px] flex-col overflow-hidden border-r bg-card transition-transform duration-200 sm:w-[280px] lg:static lg:z-auto lg:w-[280px] lg:max-w-none lg:shrink-0 lg:bg-card/30 lg:transition-none ${focused || sidebarHidden ? "-translate-x-full lg:hidden" : ""}`}>
         <div className="p-3 border-b flex items-center justify-between">
           <div className="font-semibold text-sm">Chats</div>
           <button onClick={newChat} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-3 py-1.5 text-xs"><Plus className="h-3.5 w-3.5"/> New chat</button>
@@ -195,7 +200,7 @@ export default function ChatPage() {
                 <div className="text-sm truncate font-medium">{c.title}</div>
                 <div className={`text-xs truncate ${activeChatId===c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.provider}/{c.model.split("/").pop()}</div>
               </div>
-              <button onClick={(e)=>{e.stopPropagation(); deleteChat(c.id);}} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5"/></button>
+              <button onClick={(e)=>{e.stopPropagation(); deleteChat(c.id);}} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5"/></button>
             </div>
           ))}
         </div>
@@ -212,7 +217,7 @@ export default function ChatPage() {
         {/* header */}
         <div className="h-14 border-b flex items-center gap-2 px-3 md:px-4 bg-background/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-1.5 shrink-0">
-            <button onClick={() => setSidebarHidden(!sidebarHidden)} title={sidebarHidden ? "Show sidebar" : "Hide sidebar"} className={`p-2 rounded-xl border ${sidebarHidden ? "bg-foreground text-background" : "bg-card hover:bg-muted"} hidden md:inline-flex`}>
+            <button onClick={() => setSidebarHidden(!sidebarHidden)} title={focused ? undefined : sidebarHidden ? "Show chats" : "Hide chats"} className={`p-2 rounded-xl border ${sidebarHidden ? "bg-foreground text-background" : "bg-card hover:bg-muted"} inline-flex ${focused ? "hidden" : ""}`}>
               {sidebarHidden ? <PanelLeftOpen className="h-4 w-4"/> : <PanelLeftClose className="h-4 w-4"/>}
             </button>
             <button onClick={() => setFocused(!focused)} title={focused ? "Exit focus" : "Focus chat only"} className={`p-2 rounded-xl border ${focused ? "bg-foreground text-background" : "bg-card hover:bg-muted"}`}>
