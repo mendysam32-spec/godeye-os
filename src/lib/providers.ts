@@ -1,4 +1,4 @@
-export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'groq' | 'together' | 'perplexity' | 'cohere';
+export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'groq' | 'together' | 'perplexity' | 'cohere' | 'atria';
 
 export interface Provider {
   id: ProviderId;
@@ -111,6 +111,14 @@ export const PROVIDERS: Provider[] = [
     keyPlaceholder: '...',
     models: [
       { id: 'command-r-plus', name: 'Command R+', context: '128K' },
+    ]
+  },
+  {
+    id: 'atria', name: 'Atria (ASI)', icon: '▲', color: '#f43f5e',
+    baseUrl: 'https://api.atria-asi.ai/v1',
+    keyPlaceholder: 'atria_...',
+    models: [
+      { id: 'Atria-Dawn-Preview', name: 'Atria Dawn Preview', context: '128K', starred: true },
     ]
   },
 ];
