@@ -17,7 +17,7 @@ const THEMES = [
     label: "Dark",
     desc: "OLED • Focus",
     icon: Moon,
-    preview: { bg: "#0a0a0a", card: "#141414", muted: "#1a1a1a", dot: "#fafafa", accent: "#f59e0b" },
+    preview: { bg: "#1a1a1a", card: "#2c2c2c", muted: "#3a3a3a", dot: "#eaeaea", accent: "#00ffff" },
   },
   {
     id: "glass" as const,

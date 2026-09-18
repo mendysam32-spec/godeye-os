@@ -28,30 +28,46 @@
   --primary-foreground: #ffffff;
 }
 
-/* Theme: Dark */
+/* Theme: Dark — graphite / steel-blue cyber */
 .theme-dark {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #141414;
-  --card-foreground: #fafafa;
-  --muted: #1a1a1a;
-  --muted-foreground: #a1a1a1;
-  --border: #262626;
-  --primary: #fafafa;
-  --primary-foreground: #0a0a0a;
+  --background: #1a1a1a;
+  --foreground: #eaeaea;
+  --card: #2c2c2c;
+  --card-foreground: #eaeaea;
+  --muted: #3a3a3a;
+  --muted-foreground: #9e9e9e;
+  --border: #4a4a4a;
+  --primary: #4682b4;
+  --primary-foreground: #ffffff;
+}
+.theme-dark ::selection {
+  background: #00ffff;
+  color: #1a1a1a;
+}
+.theme-dark a:hover {
+  color: #00ffff;
+}
+.theme-dark .glass {
+  background: rgba(44, 44, 44, 0.72);
+  border: 1px solid rgba(70, 130, 180, 0.3);
+}
+.theme-dark input:focus-visible,
+.theme-dark button:focus-visible {
+  outline-color: #00ffff;
+  outline-width: 2px;
 }
 
 /* legacy .dark support */
 .dark {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #141414;
-  --card-foreground: #fafafa;
-  --muted: #1a1a1a;
-  --muted-foreground: #a1a1a1;
-  --border: #262626;
-  --primary: #fafafa;
-  --primary-foreground: #0a0a0a;
+  --background: #1a1a1a;
+  --foreground: #eaeaea;
+  --card: #2c2c2c;
+  --card-foreground: #eaeaea;
+  --muted: #3a3a3a;
+  --muted-foreground: #9e9e9e;
+  --border: #4a4a4a;
+  --primary: #4682b4;
+  --primary-foreground: #ffffff;
 }
 
 /* Theme: Glass — modern gradient mixture of colors (aurora glassmorphism) */
