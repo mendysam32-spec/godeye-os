@@ -1,4 +1,4 @@
-export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'groq' | 'together' | 'perplexity' | 'cohere' | 'atria';
+export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'agentrouter' | 'together' | 'perplexity' | 'cohere' | 'atria';
 
 export interface ProviderModel {
   id: string;
@@ -79,12 +79,12 @@ export const PROVIDERS: Provider[] = [
     ]
   },
   {
-    id: 'groq', name: 'Groq', icon: '⚡', color: '#f55036',
-    baseUrl: 'https://api.groq.com/openai/v1',
-    keyPlaceholder: 'gsk_...',
+    id: 'agentrouter', name: 'AgentRouter', icon: '◈', color: '#a855f7',
+    baseUrl: 'https://agentrouter.org/v1',
+    keyPlaceholder: 'ak-...',
     models: [
-      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', context: '128K', starred: true },
-      { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', context: '32K' },
+      { id: 'gpt-5.5', name: 'GPT-5.5', context: '400K', starred: true },
+      { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K' },
     ]
   },
   {

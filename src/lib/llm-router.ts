@@ -25,7 +25,7 @@ function providerConfig(provider: ProviderId) {
   return p;
 }
 
-// OpenAI-compatible call (covers OpenAI, Nvidia NIM, OpenRouter, OmeRoute, Groq, Together, Mistral, Perplexity-ish)
+// OpenAI-compatible call (covers OpenAI, Nvidia NIM, OpenRouter, OmeRoute, Together, Mistral, Perplexity-ish)
 async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: string, overrideBaseUrl?: string): Promise<LLMResult> {
   const t0 = Date.now();
   // NVCF deployment URLs (https://api.nvcf.nvidia.com/v2/nvcf/deployments/functions/{id}/versions/{v})
@@ -126,11 +126,48 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   return { provider: call.provider, model: call.model, content, latencyMs: Date.now() - t0 };
 }
 
+// AgentRouter uses the OpenAI Responses wire API (POST /responses), not chat completions.
+async function callResponses(call: LLMCall, apiKey: string, baseUrl: string): Promise<LLMResult> {
+  const t0 = Date.now();
+  const instructions = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const input = call.messages.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content }));
+  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: call.model,
+      input,
+      instructions: instructions || undefined,
+      temperature: call.temperature ?? 0.5,
+      max_output_tokens: call.maxTokens ?? 2048,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`${call.provider} ${res.status}: ${txt.slice(0, 800)}`);
+  }
+  const json: unknown = await res.json();
+  const resp = json as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: unknown };
+  let content: string = resp.output_text ?? "";
+  if (!content && Array.isArray(resp.output)) {
+    content = resp.output
+      .flatMap((o) => o.content ?? [])
+      .filter((c) => typeof c?.text === "string")
+      .map((c) => c.text as string)
+      .join("");
+  }
+  return { provider: call.provider, model: call.model, content, usage: resp.usage as LLMResult["usage"], latencyMs: Date.now() - t0 };
+}
+
 export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
   const cfg = providerConfig(call.provider);
   // route by provider type
   if (call.provider === "anthropic") return callAnthropic(call, apiKey);
   if (call.provider === "google") return callGoogle(call, apiKey);
+  if (call.provider === "agentrouter") return callResponses(call, apiKey, opts?.baseUrl || cfg.baseUrl);
   if (call.provider === "cohere") {
     // Cohere chat
     const t0 = Date.now();
@@ -143,13 +180,13 @@ export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: 
     const j: any = await res.json();
     return { provider: call.provider, model: call.model, content: j.text || j.reply || "", latencyMs: Date.now() - t0 };
   }
-  // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, groq, mistral, together, perplexity)
+  // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, mistral, together, perplexity)
   return callOpenAICompatible(call, apiKey, cfg.baseUrl, opts?.baseUrl);
 }
 
 // Fetch the live model list a provider exposes for a given API key.
 // Covers OpenAI-compatible /v1/models (nvidia, openrouter, omeroute, openai,
-// groq, mistral, together, perplexity, cohere...) plus anthropic and google.
+// mistral, together, perplexity, agentrouter, cohere...) plus anthropic and google.
 // NVCF deployment URLs are single-function endpoints with no /models listing.
 export async function fetchProviderModels(provider: ProviderId, apiKey: string, endpoint?: string): Promise<ProviderModel[]> {
   const cfg = providerConfig(provider);

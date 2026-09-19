@@ -249,7 +249,35 @@ export const useGodEye = create<GodEyeState>()(
       setProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
 
       settings: freshSettings(),
-      setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
+      setSettings: (patch) => {
+        const stamp = new Date().toISOString();
+        set((s) => ({ settings: { ...s.settings, ...patch }, wsUpdatedAt: stamp }));
+        // persist immediately to per-user slot + server so a refresh/logout keeps the last settings
+        const s = get();
+        if (s.currentUser) {
+          try {
+            localStorage.setItem(
+              workspaceKey(s.currentUser.id),
+              JSON.stringify({
+                profile: s.profile,
+                settings: s.settings,
+                vault: s.vault,
+                agents: s.agents,
+                chats: s.chats,
+                projects: s.projects,
+                folders: s.folders,
+                activeChatId: s.activeChatId,
+                updatedAt: s.wsUpdatedAt,
+              })
+            );
+          } catch { /* ignore */ }
+          fetch("/api/auth/workspace", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: s.collectWorkspace() }),
+          }).catch(() => { /* offline — local copy keeps it */ });
+        }
+      },
 
       vault: {} as Record<ProviderId, VaultKey>,
       setVaultKey: (provider, key, connected, endpoint, models) => {
@@ -366,7 +394,10 @@ export const useGodEye = create<GodEyeState>()(
         })();
         const base = {
           profile: data?.profile ?? fallback.profile,
-          settings: data?.settings ?? fallback.settings,
+          // Settings: prefer the freshly rehydrated local state (last session's values)
+          // over a possibly-stale per-user slot, same as the vault union below. Fresh
+          // browsers fall back to the slot/server values.
+          settings: hasData ? fallback.settings : (data?.settings ?? fallback.settings),
           vault: mergedVault,
           agents: data?.agents ?? fallback.agents,
           chats: data?.chats ?? fallback.chats,
