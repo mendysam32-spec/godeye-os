@@ -42,6 +42,18 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
     headers["HTTP-Referer"] = "https://godeye.sandpgroup.com";
     headers["X-Title"] = "GodEye OS";
   }
+  // AgentRouter rejects generic clients with `401 unauthorized client detected`.
+  // It only serves requests that carry the OpenAI-SDK / Roo Code identity headers.
+  if (call.provider === "agentrouter") {
+    headers["X-Stainless-OS"] = "Linux";
+    headers["X-Stainless-Arch"] = "x64";
+    headers["X-Stainless-Lang"] = "js";
+    headers["X-Stainless-Runtime"] = "node";
+    headers["X-Stainless-Runtime-Version"] = "v22.22.1";
+    headers["HTTP-Referer"] = "https://github.com/RooVetGit/Roo-Cline";
+    headers["X-Title"] = "Roo Code";
+    headers["User-Agent"] = "RooCode/3.53.0";
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -126,48 +138,11 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   return { provider: call.provider, model: call.model, content, latencyMs: Date.now() - t0 };
 }
 
-// AgentRouter uses the OpenAI Responses wire API (POST /responses), not chat completions.
-async function callResponses(call: LLMCall, apiKey: string, baseUrl: string): Promise<LLMResult> {
-  const t0 = Date.now();
-  const instructions = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
-  const input = call.messages.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content }));
-  const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/responses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: call.model,
-      input,
-      instructions: instructions || undefined,
-      temperature: call.temperature ?? 0.5,
-      max_output_tokens: call.maxTokens ?? 2048,
-    }),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`${call.provider} ${res.status}: ${txt.slice(0, 800)}`);
-  }
-  const json: unknown = await res.json();
-  const resp = json as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }>; usage?: unknown };
-  let content: string = resp.output_text ?? "";
-  if (!content && Array.isArray(resp.output)) {
-    content = resp.output
-      .flatMap((o) => o.content ?? [])
-      .filter((c) => typeof c?.text === "string")
-      .map((c) => c.text as string)
-      .join("");
-  }
-  return { provider: call.provider, model: call.model, content, usage: resp.usage as LLMResult["usage"], latencyMs: Date.now() - t0 };
-}
-
 export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
   const cfg = providerConfig(call.provider);
   // route by provider type
   if (call.provider === "anthropic") return callAnthropic(call, apiKey);
   if (call.provider === "google") return callGoogle(call, apiKey);
-  if (call.provider === "agentrouter") return callResponses(call, apiKey, opts?.baseUrl || cfg.baseUrl);
   if (call.provider === "cohere") {
     // Cohere chat
     const t0 = Date.now();
@@ -206,6 +181,17 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
     } else {
       url = `${rawBase}/models`;
       headers = { Authorization: `Bearer ${apiKey}` };
+      // AgentRouter only serves clients that carry the OpenAI-SDK / Roo Code identity headers.
+      if (provider === "agentrouter") {
+        headers["X-Stainless-OS"] = "Linux";
+        headers["X-Stainless-Arch"] = "x64";
+        headers["X-Stainless-Lang"] = "js";
+        headers["X-Stainless-Runtime"] = "node";
+        headers["X-Stainless-Runtime-Version"] = "v22.22.1";
+        headers["HTTP-Referer"] = "https://github.com/RooVetGit/Roo-Cline";
+        headers["X-Title"] = "Roo Code";
+        headers["User-Agent"] = "RooCode/3.53.0";
+      }
     }
 
     const res = await fetch(url, { headers });
