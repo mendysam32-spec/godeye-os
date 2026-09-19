@@ -252,7 +252,8 @@ export const useGodEye = create<GodEyeState>()(
       setSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
 
       vault: {} as Record<ProviderId, VaultKey>,
-      setVaultKey: (provider, key, connected, endpoint, models) =>
+      setVaultKey: (provider, key, connected, endpoint, models) => {
+        const stamp = new Date().toISOString();
         set((s) => ({
           vault: {
             ...s.vault,
@@ -262,16 +263,70 @@ export const useGodEye = create<GodEyeState>()(
               connected,
               ...(endpoint ? { endpoint } : {}),
               ...(models && models.length ? { models } : {}),
-              lastTested: new Date().toISOString(),
+              lastTested: stamp,
             },
           },
-        })),
-      clearVaultKey: (provider) =>
+          wsUpdatedAt: stamp,
+        }));
+        // persist immediately to per-user slot + server so a refresh keeps the key
+        const s = get();
+        if (s.currentUser) {
+          try {
+            localStorage.setItem(
+              workspaceKey(s.currentUser.id),
+              JSON.stringify({
+                profile: s.profile,
+                settings: s.settings,
+                vault: s.vault,
+                agents: s.agents,
+                chats: s.chats,
+                projects: s.projects,
+                folders: s.folders,
+                activeChatId: s.activeChatId,
+                updatedAt: s.wsUpdatedAt,
+              })
+            );
+          } catch { /* ignore */ }
+          // fire-and-forget server sync (vault is small)
+          fetch("/api/auth/workspace", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: s.collectWorkspace() }),
+          }).catch(() => { /* offline — local copy keeps it */ });
+        }
+      },
+      clearVaultKey: (provider) => {
+        const stamp = new Date().toISOString();
         set((s) => {
           const v = { ...s.vault };
           delete v[provider];
-          return { vault: v };
-        }),
+          return { vault: v, wsUpdatedAt: stamp };
+        });
+        const s = get();
+        if (s.currentUser) {
+          try {
+            localStorage.setItem(
+              workspaceKey(s.currentUser.id),
+              JSON.stringify({
+                profile: s.profile,
+                settings: s.settings,
+                vault: s.vault,
+                agents: s.agents,
+                chats: s.chats,
+                projects: s.projects,
+                folders: s.folders,
+                activeChatId: s.activeChatId,
+                updatedAt: s.wsUpdatedAt,
+              })
+            );
+          } catch { /* ignore */ }
+          fetch("/api/auth/workspace", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: s.collectWorkspace() }),
+          }).catch(() => {});
+        }
+      },
 
       agents: freshAgents(),
       addAgent: (a) => set((s) => ({ agents: [...s.agents, a] })),
@@ -294,17 +349,42 @@ export const useGodEye = create<GodEyeState>()(
           current.settings.theme !== "light" ||
           current.settings.accent !== "amber";
         // Priority: saved per-user workspace > current (persist-rehydrated) state > fresh defaults.
-        // Never clobber rehydrated data just because the per-user localStorage slot is empty.
+        // Never clobber rehydrated data just because the per-user localStorage slot is empty or stale.
         const fallback = hasData ? current : freshScopedState();
+        // Vault needs union merge — per-user slot can be stale (Connect wrote only to
+        // godeye-os-v1 before). Rehydrated current has the just-connected keys.
+        const mergedVault = (() => {
+          const a = data?.vault as Record<ProviderId, VaultKey> | undefined;
+          const b = fallback.vault as Record<ProviderId, VaultKey> | undefined;
+          const aEmpty = !a || Object.keys(a).length === 0;
+          const bEmpty = !b || Object.keys(b).length === 0;
+          if (aEmpty && bEmpty) return {} as Record<ProviderId, VaultKey>;
+          if (aEmpty) return b!;
+          if (bEmpty) return a!;
+          // both have data — union, with rehydrated (b) winning on conflict
+          return { ...a, ...b } as Record<ProviderId, VaultKey>;
+        })();
         const base = {
           profile: data?.profile ?? fallback.profile,
           settings: data?.settings ?? fallback.settings,
-          vault: data?.vault ?? fallback.vault,
+          vault: mergedVault,
           agents: data?.agents ?? fallback.agents,
           chats: data?.chats ?? fallback.chats,
           projects: data?.projects ?? fallback.projects,
           folders: data?.folders ?? fallback.folders,
         };
+        // wsUpdatedAt: keep the newest stamp so syncWorkspace comparison doesn't flip
+        const candidates = [data?.updatedAt as string | undefined, current.wsUpdatedAt].filter(Boolean) as string[];
+        let wsUpdatedAt = "";
+        if (candidates.length) {
+          let best = candidates[0];
+          let bestT = Date.parse(best) || 0;
+          for (const c of candidates.slice(1)) {
+            const t = Date.parse(c) || 0;
+            if (t > bestT) { best = c; bestT = t; }
+          }
+          wsUpdatedAt = best;
+        }
         set({
           ...base,
           profile: {
@@ -314,7 +394,7 @@ export const useGodEye = create<GodEyeState>()(
           },
           activeChatId: data?.activeChatId ?? (hasData ? current.activeChatId : null),
           currentUser: u,
-          wsUpdatedAt: data?.updatedAt || current.wsUpdatedAt || "",
+          wsUpdatedAt,
         });
         // Make the merge durable right away so a reload without an explicit logout
         // still finds this user's data locally.
@@ -356,10 +436,19 @@ export const useGodEye = create<GodEyeState>()(
         const u = get().currentUser;
         set((s) => {
           const base = freshScopedState();
+          // Vault union: keep local-only keys when remote is newer but missing them
+          // Remote wins on same provider, local-only keys are preserved.
+          const remoteVault = (data.vault as Record<string, VaultKey> | undefined);
+          const localVault = s.vault as Record<string, VaultKey>;
+          const mergedVault = (() => {
+            if (!remoteVault || Object.keys(remoteVault).length === 0) return remoteVault ?? base.vault;
+            if (!localVault || Object.keys(localVault).length === 0) return remoteVault;
+            return { ...localVault, ...remoteVault } as Record<ProviderId, VaultKey>;
+          })();
           const merged = {
             profile: data.profile ?? base.profile,
             settings: data.settings ?? base.settings,
-            vault: data.vault ?? base.vault,
+            vault: mergedVault,
             agents: data.agents ?? base.agents,
             chats: data.chats ?? base.chats,
             projects: data.projects ?? base.projects,
@@ -380,7 +469,8 @@ export const useGodEye = create<GodEyeState>()(
         });
         if (u) {
           try {
-            localStorage.setItem(workspaceKey(u.id), JSON.stringify({ ...data, updatedAt: get().wsUpdatedAt }));
+            const after = get();
+            localStorage.setItem(workspaceKey(u.id), JSON.stringify({ ...after.collectWorkspace(), updatedAt: after.wsUpdatedAt }));
           } catch {
             /* ignore */
           }

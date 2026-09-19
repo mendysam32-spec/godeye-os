@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { useGodEye, type ChatMode } from "@/lib/store";
 import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Folder as FolderIcon, ArrowLeft, ChevronDown, FolderKanban } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Folder as FolderIcon, ArrowLeft, ChevronDown, FolderKanban, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
 
 const MODES: { id: ChatMode; label: string; icon: any }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -36,10 +36,15 @@ export default function FolderPage() {
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showComposerMenu, setShowComposerMenu] = useState(false);
+  const [railHidden, setRailHidden] = useState(false);
+  const [mobileRailOpen, setMobileRailOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const composerMenuRef = useRef<HTMLDivElement>(null);
 
   const subFolders = useMemo(() => folders.filter(f => f.parentId === folderId), [folders, folderId]);
   const folderProjects = useMemo(() => projects.filter(p => p.folderId === folderId), [projects, folderId]);
@@ -80,10 +85,11 @@ export default function FolderPage() {
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) setShowModelMenu(false);
+      if (composerMenuRef.current && !composerMenuRef.current.contains(e.target as Node)) setShowComposerMenu(false);
     }
-    if (showModelMenu) document.addEventListener("mousedown", handleClick);
+    if (showModelMenu || showComposerMenu) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [showModelMenu]);
+  }, [showModelMenu, showComposerMenu]);
 
   if (!folder) {
     return (
@@ -247,31 +253,71 @@ export default function FolderPage() {
         </div>
 
         <div className="flex-1 flex min-h-0">
-          {/* folder chat rail */}
-          <aside className="hidden md:flex w-[240px] shrink-0 flex-col border-r bg-card/30">
-            <div className="p-3 border-b flex items-center justify-between">
-              <div className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Folder chats</div>
-              <button onClick={newChat} className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-2.5 py-1 text-xs"><Plus className="h-3 w-3" /> New</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {folderChats.length === 0 && <div className="text-xs text-muted-foreground p-3">No chats yet — start one.</div>}
-              {folderChats.map(c => (
-                <div key={c.id} onClick={() => setLocalChat(c.id)} className={`group flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer ${activeChat?.id === c.id ? "bg-foreground text-background" : "hover:bg-muted"}`}>
-                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm truncate">{c.title}</div>
-                    <div className={`text-[11px] truncate ${activeChat?.id === c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.model.split("/").pop()}</div>
+          {/* mobile rail overlay */}
+          {mobileRailOpen && <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden" onClick={() => setMobileRailOpen(false)} />}
+          {/* mobile drawer for folder chats */}
+          {mobileRailOpen && (
+            <aside className="fixed inset-y-0 left-0 z-50 flex w-[85vw] max-w-[280px] flex-col border-r bg-card md:hidden">
+              <div className="p-3 border-b flex items-center justify-between">
+                <div className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Folder chats</div>
+                <button onClick={() => setMobileRailOpen(false)} className="p-1.5 rounded-lg border hover:bg-muted"><X className="h-3.5 w-3.5" /></button>
+              </div>
+              <div className="p-3 border-b">
+                <button onClick={() => { newChat(); setMobileRailOpen(false); }} className="w-full inline-flex items-center justify-center gap-1 rounded-full bg-foreground text-background px-3 py-2 text-xs"><Plus className="h-3 w-3" /> New chat</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {folderChats.length === 0 && <div className="text-xs text-muted-foreground p-3">No chats yet — start one.</div>}
+                {folderChats.map(c => (
+                  <div key={c.id} onClick={() => { setLocalChat(c.id); setMobileRailOpen(false); }} className={`group flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer ${activeChat?.id === c.id ? "bg-foreground text-background" : "hover:bg-muted"}`}>
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm truncate">{c.title}</div>
+                      <div className={`text-[11px] truncate ${activeChat?.id === c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.model.split("/").pop()}</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); deleteChat(c.id); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
-                  <button onClick={e => { e.stopPropagation(); deleteChat(c.id); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
-              ))}
-            </div>
-          </aside>
+                ))}
+              </div>
+            </aside>
+          )}
+          {/* folder chat rail - desktop */}
+          {!focused && !railHidden && (
+            <aside className="hidden md:flex w-[240px] shrink-0 flex-col border-r bg-card/30">
+              <div className="p-3 border-b flex items-center justify-between">
+                <div className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Folder chats</div>
+                <button onClick={newChat} className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-2.5 py-1 text-xs"><Plus className="h-3 w-3" /> New</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {folderChats.length === 0 && <div className="text-xs text-muted-foreground p-3">No chats yet — start one.</div>}
+                {folderChats.map(c => (
+                  <div key={c.id} onClick={() => setLocalChat(c.id)} className={`group flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer ${activeChat?.id === c.id ? "bg-foreground text-background" : "hover:bg-muted"}`}>
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm truncate">{c.title}</div>
+                      <div className={`text-[11px] truncate ${activeChat?.id === c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.model.split("/").pop()}</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); deleteChat(c.id); }} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            </aside>
+          )}
 
           {/* chat main */}
           <section className="flex-1 min-w-0 flex flex-col">
             {/* mode pills + model picker */}
             <div className="h-14 border-b flex items-center gap-2 px-3 md:px-4 bg-background/80 backdrop-blur shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => setMobileRailOpen(!mobileRailOpen)} className="md:hidden p-2 rounded-xl border bg-card hover:bg-muted" title="Folder chats">
+                  {mobileRailOpen ? <PanelLeftClose className="h-4 w-4"/> : <PanelLeftOpen className="h-4 w-4"/>}
+                </button>
+                <button onClick={() => setRailHidden(!railHidden)} className="hidden md:inline-flex p-2 rounded-xl border bg-card hover:bg-muted" title={railHidden ? "Show folder chats" : "Hide folder chats"}>
+                  {railHidden ? <PanelLeftOpen className="h-4 w-4"/> : <PanelLeftClose className="h-4 w-4"/>}
+                </button>
+                <button onClick={() => setFocused(!focused)} className={`hidden md:inline-flex p-2 rounded-xl border ${focused ? "bg-foreground text-background" : "bg-card hover:bg-muted"}`} title={focused ? "Exit focus" : "Focus chat"}>
+                  {focused ? <Minimize2 className="h-4 w-4"/> : <Maximize2 className="h-4 w-4"/>}
+                </button>
+              </div>
               <div className="flex items-center gap-1 overflow-auto">
                 {MODES.map(m => (
                   <button key={m.id} onClick={() => setMode(m.id)} className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs whitespace-nowrap ${mode === m.id ? "bg-foreground text-background" : "bg-card hover:bg-muted"}`}>
@@ -280,18 +326,38 @@ export default function FolderPage() {
                 ))}
               </div>
               <div className="ml-auto flex items-center gap-2 shrink-0 relative" ref={modelMenuRef}>
-                <span className="hidden sm:inline text-xs text-muted-foreground max-w-[180px] truncate">{providerObj?.name} / {model.split("/").pop()}</span>
-                <button onClick={() => setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl border bg-card hover:bg-muted shrink-0" title="Switch model"><ChevronDown className="h-4 w-4" /></button>
+                <span className="hidden lg:inline text-xs text-muted-foreground max-w-[140px] truncate">{providerObj?.name} / {model.split("/").pop()}</span>
+                <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1">
+                  <span className="h-2 w-2 rounded-full" style={{background: providerObj?.color}}/>
+                  <select value={provider} onChange={e=>{ const pid=e.target.value as ProviderId; const prov=PROVIDERS.find(p=>p.id===pid); const list=modelsFor(prov, vault[pid]?.models); setProvider(pid); if(list[0]?.id) setModel(list[0].id);}} className="bg-transparent text-xs outline-none max-w-[100px]">
+                    {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <span className="text-muted-foreground">/</span>
+                  <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[110px]">
+                    {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+                <Link href="/vault" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline">Vault</Link>
+                <button onClick={() => setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl border bg-card hover:bg-muted shrink-0 md:hidden" title="Switch provider/model"><ChevronDown className="h-4 w-4" /></button>
                 {showModelMenu && (
-                  <div className="absolute bottom-full right-0 mb-2 w-64 rounded-2xl border bg-card shadow-xl p-2 z-50">
-                    <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models</div>
-                    {modelList.map(m => (
-                      <button key={m.id} onClick={() => { setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model === m.id ? "bg-foreground text-background" : ""}`}>
-                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: providerObj?.color }} />
-                        <span className="truncate">{m.name}</span>
-                        <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
-                      </button>
-                    ))}
+                  <div className="absolute top-full right-0 mt-2 w-72 rounded-2xl border bg-card shadow-xl p-2 z-50">
+                    <div className="px-2 py-1.5">
+                      <div className="text-[11px] text-muted-foreground font-medium mb-1">Provider</div>
+                      <select value={provider} onChange={e=>{const pid=e.target.value as ProviderId; const prov=PROVIDERS.find(p=>p.id===pid); const list=modelsFor(prov, vault[pid]?.models); setProvider(pid); setModel(list[0]?.id||"");}} className="w-full rounded-lg border bg-muted px-2 py-1.5 text-sm outline-none">
+                        {PROVIDERS.map(p=>(<option key={p.id} value={p.id}>{p.name}{vault[p.id]?.connected ? "" : " • needs key"}</option>))}
+                      </select>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto mt-1">
+                      <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models ({modelList.length})</div>
+                      {modelList.map(m => (
+                        <button key={m.id} onClick={() => { setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model === m.id ? "bg-foreground text-background" : ""}`}>
+                          <span className="h-2 w-2 rounded-full shrink-0" style={{ background: providerObj?.color }} />
+                          <span className="truncate">{m.name}</span>
+                          <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                        </button>
+                      ))}
+                      {modelList.length===0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
+                    </div>
                   </div>
                 )}
               </div>
@@ -349,7 +415,35 @@ export default function FolderPage() {
                     <button onClick={() => fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4" /></button>
                     <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles} />
                     <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!running) send(); } }} placeholder={`Message ${folder.name} • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-sm resize-none py-2 max-h-32" />
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 relative" ref={composerMenuRef}>
+                      <button onClick={()=>setShowComposerMenu(!showComposerMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Models • ${providerObj?.name}`}><Plus className="h-4 w-4"/></button>
+                      {showComposerMenu && (
+                        <div className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl border bg-card shadow-xl p-2 z-50">
+                          <div className="px-2 py-1.5">
+                            <div className="text-[11px] text-muted-foreground font-medium mb-1">Provider</div>
+                            <select value={provider} onChange={e=>{
+                              const pid = e.target.value as ProviderId;
+                              const prov = PROVIDERS.find(p=>p.id===pid);
+                              const list = modelsFor(prov, vault[pid]?.models);
+                              setProvider(pid);
+                              setModel(list[0]?.id || "");
+                            }} className="w-full rounded-lg border bg-muted px-2 py-1.5 text-sm outline-none">
+                              {PROVIDERS.map(p=>(<option key={p.id} value={p.id}>{p.name}{vault[p.id]?.connected ? "" : " • needs key"}</option>))}
+                            </select>
+                          </div>
+                          <div className="max-h-80 overflow-y-auto mt-1">
+                            <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models ({modelList.length})</div>
+                            {modelList.map(m=>(
+                              <button key={m.id} onClick={()=>{ setModel(m.id); setShowComposerMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
+                                <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                                <span className="truncate">{m.name}</span>
+                                <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                              </button>
+                            ))}
+                            {modelList.length === 0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
+                          </div>
+                        </div>
+                      )}
                       {running ? (
                         <button onClick={stop} className="inline-flex items-center gap-1.5 rounded-full bg-red-600 text-white px-3 sm:px-4 py-2 text-sm shrink-0"><Square className="h-3.5 w-3.5 fill-white" /><span className="hidden sm:inline">Stop</span></button>
                       ) : (
