@@ -64,6 +64,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true, message: next ? `"${user.username}" enabled.` : `"${user.username}" disabled.` });
   }
 
+  if (body.tokenLimit !== undefined && body.tokenLimit !== null) {
+    const n = Math.floor(Number(body.tokenLimit));
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000_000_000) {
+      return NextResponse.json({ error: "Token limit must be 0 (unlimited) or a positive number." }, { status: 400 });
+    }
+    user.tokenLimit = n;
+    user.updatedAt = new Date().toISOString();
+    await saveState(state);
+    return NextResponse.json({
+      ok: true,
+      message: n === 0 ? `Token limit for "${user.username}" cleared (unlimited).` : `Token limit for "${user.username}" set to ${n.toLocaleString()}.`,
+    });
+  }
+
+  if (body.resetUsage === true) {
+    user.tokensUsed = 0;
+    user.updatedAt = new Date().toISOString();
+    await saveState(state);
+    return NextResponse.json({ ok: true, message: `Token usage for "${user.username}" reset to 0.` });
+  }
+
   return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
 }
 

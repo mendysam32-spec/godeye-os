@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callLLM } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
-import { requireUser } from "@/lib/auth";
+import { authedRecord, saveState } from "@/lib/auth";
 import { GODEYE_TOOLS, isToolProvider } from "@/lib/tools";
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
@@ -16,8 +16,17 @@ const MODE_PROMPTS: Record<ChatMode, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const user = await requireUser(req);
-  if (!user) return NextResponse.json({ error: "Login required" }, { status: 401 });
+  const auth = await authedRecord(req);
+  if (!auth) return NextResponse.json({ error: "Login required" }, { status: 401 });
+  const { state, user } = auth;
+
+  const isAdmin = user.role === "admin";
+  const tokenLimit = isAdmin ? 0 : (user.tokenLimit ?? 0);
+  if (tokenLimit > 0 && (user.tokensUsed ?? 0) >= tokenLimit) {
+    return NextResponse.json({
+      error: `You have reached your token limit (${user.tokensUsed}/${tokenLimit}). Ask the admin to raise your limit.`,
+    }, { status: 429 });
+  }
 
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -79,12 +88,22 @@ export async function POST(req: NextRequest) {
   const tools = toolsEnabledActually ? GODEYE_TOOLS : undefined;
   const llmOpts = { temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500, tools };
 
+  function recordUsage(usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }) {
+    const total = usage?.total_tokens;
+    if (!isAdmin && total) {
+      user.tokensUsed = (user.tokensUsed ?? 0) + total;
+      user.updatedAt = new Date().toISOString();
+    }
+  }
+
   // streaming via SSE if requested
   if (stream) {
     // For simplicity, we do non-streaming then fake stream chunks - providers not all stream same
     // If client wants real streaming, we'd pipe provider stream. For now chunked response:
     try {
       const r = await callLLM({ provider, model, messages: llmMessages, ...llmOpts }, apiKey, endpointOverride);
+      recordUsage(r.usage);
+      await saveState(state);
       if (r.toolCalls?.length) {
         return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
       }
@@ -108,6 +127,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const r = await callLLM({ provider, model, messages: llmMessages, ...llmOpts }, apiKey, endpointOverride);
+    recordUsage(r.usage);
+    await saveState(state);
     if (r.toolCalls?.length) {
       return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
     }

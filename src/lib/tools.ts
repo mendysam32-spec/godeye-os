@@ -148,9 +148,9 @@ export const GODEYE_TOOLS: GodEyeToolFunction[] = [
   },
 ];
 
-// Providers whose OpenAI-compatible endpoints accept `tools`/tool_calls.
-// Anthropic, Google and Cohere speak different tool formats and are kept out
-// of the auto-tool loop (manual Save / Run still work for them).
+// Providers with native (or OpenAI-compatible) `tools`/tool_calls support.
+// Anthropic, Google and Cohere speak their own tool formats which the router
+// translates (see llm-router.ts), so they take part in the auto-tool loop too.
 export const TOOLS_SUPPORTED_PROVIDERS = [
   "openai",
   "nvidia",
@@ -160,6 +160,9 @@ export const TOOLS_SUPPORTED_PROVIDERS = [
   "together",
   "agentrouter",
   "atria",
+  "anthropic",
+  "google",
+  "cohere",
 ] as const;
 
 export function isToolProvider(provider: string | undefined | null): boolean {

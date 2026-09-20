@@ -38,6 +38,24 @@ function providerConfig(provider: ProviderId) {
   return p;
 }
 
+// OpenAI-style tools ({type:"function", function:{name, description, parameters}})
+// as passed by the API route from GODEYE_TOOLS. Providers that speak their own
+// tool format translate them below.
+interface WireTool { type?: string; function?: { name?: string; description?: string; parameters?: unknown } }
+function wireTools(tools?: unknown[]): WireTool[] {
+  if (!Array.isArray(tools)) return [];
+  return tools.filter((t): t is WireTool => !!t && typeof t === "object");
+}
+function parseArgs(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  try {
+    const p = JSON.parse(String(raw ?? "{}"));
+    return p && typeof p === "object" ? p : {};
+  } catch {
+    return {};
+  }
+}
+
 // OpenAI-compatible call (covers OpenAI, Nvidia NIM, OpenRouter, OmeRoute, Together, Mistral, Perplexity-ish)
 async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: string, overrideBaseUrl?: string): Promise<LLMResult> {
   const t0 = Date.now();
@@ -112,7 +130,30 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
   const t0 = Date.now();
   // Anthropic messages API
   const system = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
-  const messages = call.messages.filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content }));
+  const tools = wireTools(call.tools).map((t) => ({
+    name: t.function?.name ?? "",
+    description: t.function?.description,
+    input_schema: t.function?.parameters ?? { type: "object", properties: {} },
+  })).filter((t) => t.name);
+
+  const messages: any[] = [];
+  for (const m of call.messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: String(m.content ?? "") }] });
+    } else if (m.role === "assistant" && m.tool_calls?.length) {
+      messages.push({
+        role: "assistant",
+        content: [
+          ...(m.content ? [{ type: "text", text: m.content }] : []),
+          ...m.tool_calls.map((tc) => ({ type: "tool_use", id: tc.id, name: tc.function?.name ?? "", input: parseArgs(tc.function?.arguments) })),
+        ],
+      });
+    } else {
+      messages.push({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "") });
+    }
+  }
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -126,6 +167,7 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
       system: system || undefined,
       messages,
       temperature: call.temperature ?? 0.5,
+      ...(tools.length ? { tools, tool_choice: { type: "auto" } } : {}),
     }),
   });
   if (!res.ok) {
@@ -133,26 +175,61 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
     throw new Error(`anthropic ${res.status}: ${txt.slice(0, 800)}`);
   }
   const json: any = await res.json();
-  const content = (json.content || []).map((c: any) => c.text || "").join("");
+  const blocks: any[] = Array.isArray(json.content) ? json.content : [];
+  const content = blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("");
+  const uses = blocks.filter((b: any) => b?.type === "tool_use");
+  const toolCalls: ToolCallResult[] | undefined = uses.length
+    ? uses.map((b: any) => ({ id: b.id, name: b.name, arguments: parseArgs(b.input) }))
+    : undefined;
+  const inputTokens = json.usage?.input_tokens ?? 0;
+  const outputTokens = json.usage?.output_tokens ?? 0;
   return {
     provider: call.provider,
     model: call.model,
     content,
-    usage: json.usage ? { prompt_tokens: json.usage.input_tokens, completion_tokens: json.usage.output_tokens, total_tokens: (json.usage.input_tokens + json.usage.output_tokens) } : undefined,
+    usage: json.usage ? { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens } : undefined,
     latencyMs: Date.now() - t0,
+    ...(toolCalls ? { toolCalls } : {}),
   };
 }
 
 async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   const t0 = Date.now();
-  // Gemini generateContent - flatten messages
-  const prompt = call.messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+  const system = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const tools = wireTools(call.tools).map((t) => ({
+    name: t.function?.name ?? "",
+    description: t.function?.description,
+    parameters: t.function?.parameters ?? { type: "object", properties: {} },
+  })).filter((t) => t.name);
+
+  // Gemini alternates model/user turns and a function call must be answered by
+  // a functionResponse whose name matches the call. Track call id -> name.
+  const lastCallName = new Map<string, string>();
+  const contents: { role: "user" | "model"; parts: unknown[] }[] = [];
+  for (const m of call.messages) {
+    if (m.role === "system") continue;
+    if (m.role === "tool") {
+      contents.push({ role: "user", parts: [{ functionResponse: { name: m.tool_call_id ? lastCallName.get(m.tool_call_id) ?? "tool" : "tool", response: { output: String(m.content ?? "") } } }] });
+    } else if (m.role === "assistant" && m.tool_calls?.length) {
+      for (const tc of m.tool_calls) lastCallName.set(tc.id, tc.function?.name ?? "tool");
+      contents.push({
+        role: "model",
+        parts: m.tool_calls.map((tc) => ({ functionCall: { name: tc.function?.name ?? "tool", args: parseArgs(tc.function?.arguments) } })),
+      });
+    } else {
+      contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content ?? "") }] });
+    }
+  }
+
+  // Gemini generateContent
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(call.model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents,
+      ...(tools.length ? { tools: [{ functionDeclarations: tools }] } : {}),
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
       generationConfig: { temperature: call.temperature ?? 0.5, maxOutputTokens: call.maxTokens ?? 2048 },
     }),
   });
@@ -161,8 +238,93 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
     throw new Error(`google ${res.status}: ${txt.slice(0, 800)}`);
   }
   const json: any = await res.json();
-  const content = json.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
-  return { provider: call.provider, model: call.model, content, latencyMs: Date.now() - t0 };
+  const parts: any[] = json.candidates?.[0]?.content?.parts ?? [];
+  const content = parts.filter((p: any) => typeof p?.text === "string").map((p: any) => p.text).join("");
+  const calls = parts.filter((p: any) => p?.functionCall).map((p: any, i: number) => ({
+    id: `call_${i}`,
+    name: p.functionCall.name,
+    arguments: parseArgs(p.functionCall.args),
+  }));
+  const promptTokens = json.usageMetadata?.promptTokenCount ?? 0;
+  const completionTokens = json.usageMetadata?.candidatesTokenCount ?? 0;
+  return {
+    provider: call.provider,
+    model: call.model,
+    content,
+    usage: json.usageMetadata ? { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens } : undefined,
+    latencyMs: Date.now() - t0,
+    ...(calls.length ? { toolCalls: calls } : {}),
+  };
+}
+
+async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
+  const t0 = Date.now();
+  const tools = wireTools(call.tools).map((t) => ({
+    type: "function",
+    function: {
+      name: t.function?.name ?? "",
+      description: t.function?.description,
+      parameters: t.function?.parameters ?? { type: "object", properties: {} },
+    },
+  })).filter((t) => t.function.name);
+
+  const messages: any[] = [];
+  for (const m of call.messages) {
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      messages.push({
+        role: "assistant",
+        content: m.content ? [{ type: "text", text: String(m.content) }] : [],
+        tool_calls: m.tool_calls.map((tc) => ({
+          id: tc.id,
+          type: "function",
+          function: { name: tc.function?.name ?? "", arguments: String(tc.function?.arguments ?? "{}") },
+        })),
+      });
+    } else if (m.role === "tool") {
+      messages.push({
+        role: "tool",
+        tool_call_id: m.tool_call_id ?? "",
+        content: [{ type: "text", text: String(m.content ?? "") }],
+      });
+    } else {
+      messages.push({ role: m.role, content: [{ type: "text", text: String(m.content ?? "") }] });
+    }
+  }
+
+  // Cohere v2 chat (native tool support).
+  const res = await fetch("https://api.cohere.ai/v2/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: call.model,
+      messages,
+      ...(tools.length ? { tools } : {}),
+      temperature: call.temperature ?? 0.5,
+      max_tokens: call.maxTokens ?? 2048,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`cohere ${res.status}: ${txt.slice(0, 800)}`);
+  }
+  const j: any = await res.json();
+  const blocks: any[] = Array.isArray(j.message?.content) ? j.message.content : [];
+  const plan = typeof j.message?.tool_plan === "string" ? j.message.tool_plan : "";
+  const content = blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("");
+  const calls = blocks.flatMap((b: any) => (b?.type === "tool_calls" ? b.tool_calls ?? [] : []));
+  const toolCalls: ToolCallResult[] | undefined = calls.length
+    ? calls.map((tc: any) => ({ id: tc.id, name: tc.function?.name, arguments: parseArgs(tc.function?.arguments) }))
+    : undefined;
+  const inputTokens = j.usage?.tokens?.input_tokens ?? j.usage?.input_tokens ?? 0;
+  const outputTokens = j.usage?.tokens?.output_tokens ?? j.usage?.output_tokens ?? 0;
+  return {
+    provider: call.provider,
+    model: call.model,
+    content: plan ? `${plan}\n\n${content}`.trim() : content,
+    usage: j.usage && (inputTokens || outputTokens) ? { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens } : undefined,
+    latencyMs: Date.now() - t0,
+    ...(toolCalls ? { toolCalls } : {}),
+  };
 }
 
 export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
@@ -170,18 +332,7 @@ export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: 
   // route by provider type
   if (call.provider === "anthropic") return callAnthropic(call, apiKey);
   if (call.provider === "google") return callGoogle(call, apiKey);
-  if (call.provider === "cohere") {
-    // Cohere chat
-    const t0 = Date.now();
-    const res = await fetch("https://api.cohere.ai/v1/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: call.model, message: call.messages[call.messages.length - 1]?.content, preamble: call.messages.find(m => m.role === "system")?.content }),
-    });
-    if (!res.ok) throw new Error(`cohere ${res.status}: ${await res.text().catch(() => "")}`);
-    const j: any = await res.json();
-    return { provider: call.provider, model: call.model, content: j.text || j.reply || "", latencyMs: Date.now() - t0 };
-  }
+  if (call.provider === "cohere") return callCohere(call, apiKey);
   // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, mistral, together, perplexity)
   return callOpenAICompatible(call, apiKey, cfg.baseUrl, opts?.baseUrl);
 }

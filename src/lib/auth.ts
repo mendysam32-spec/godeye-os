@@ -16,6 +16,9 @@ export interface AuthUser {
   lockUntil?: string;
   createdAt: string;
   updatedAt: string;
+  // 0 / missing = unlimited. Only enforced for non-admin accounts.
+  tokenLimit?: number;
+  tokensUsed?: number;
 }
 
 export interface AccessRequest {
@@ -48,6 +51,8 @@ export interface PublicUser {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  tokenLimit: number;
+  tokensUsed: number;
 }
 
 export function sanitizeUser(u: AuthUser): PublicUser {
@@ -60,6 +65,8 @@ export function sanitizeUser(u: AuthUser): PublicUser {
     enabled: u.enabled,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
+    tokenLimit: u.tokenLimit ?? 0,
+    tokensUsed: u.tokensUsed ?? 0,
   };
 }
 
@@ -305,6 +312,8 @@ export async function ensureSeed(): Promise<void> {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     passwordHash: await hashPassword("venom123"),
+    tokenLimit: 0,
+    tokensUsed: 0,
   });
   await saveState(state);
 }
@@ -325,7 +334,15 @@ export async function deleteSession(token: string): Promise<void> {
   await saveState(state);
 }
 
-export async function requireUser(req: NextRequest): Promise<PublicUser | null> {
+export interface AuthedRecord {
+  state: AuthState;
+  user: AuthUser;
+}
+
+// Validate the session cookie and return the full user record + state so the
+// caller can enforce limits and record token usage. Mutates the session expiry
+// (rolling) but does NOT save — the caller saves once it has updated usage.
+export async function authedRecord(req: NextRequest): Promise<AuthedRecord | null> {
   await ensureSeed();
   const token = req.cookies.get(COOKIE_NAME)?.value;
   if (!token) return null;
@@ -334,10 +351,15 @@ export async function requireUser(req: NextRequest): Promise<PublicUser | null> 
   if (!session || session.exp < Date.now()) return null;
   const user = state.users.find((u) => u.id === session.uid && u.enabled);
   if (!user) return null;
-  // rolling session
   session.exp = Date.now() + SESSION_TTL_MS;
-  await saveState(state);
-  return sanitizeUser(user);
+  return { state, user };
+}
+
+export async function requireUser(req: NextRequest): Promise<PublicUser | null> {
+  const rec = await authedRecord(req);
+  if (!rec) return null;
+  await saveState(rec.state);
+  return sanitizeUser(rec.user);
 }
 
 export async function requireAdmin(req: NextRequest): Promise<PublicUser | null> {

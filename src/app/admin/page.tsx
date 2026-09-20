@@ -12,6 +12,8 @@ interface AdminUser {
   role: string;
   enabled: boolean;
   createdAt: string;
+  tokenLimit: number;
+  tokensUsed: number;
 }
 
 interface AccessRequestItem {
@@ -36,6 +38,8 @@ export default function AdminPage() {
 
   // create form
   const [form, setForm] = useState({ username: "", email: "", password: "", role: "user", displayName: "" });
+  // per-account token limit inputs (pending values before "Save")
+  const [limits, setLimits] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/users", { cache: "no-store" });
@@ -43,6 +47,7 @@ export default function AdminPage() {
       const j = await res.json();
       setUsers(j.users);
       setRequests(j.requests);
+      setLimits(Object.fromEntries((j.users as AdminUser[]).map((u) => [u.id, String(u.tokenLimit ?? 0)])));
     }
     setLoaded(true);
   }, []);
@@ -109,6 +114,35 @@ export default function AdminPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !u.enabled }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setMsg(res.ok ? { text: j.message, kind: "ok" } : { text: j.error || "Failed.", kind: "err" });
+    await refresh();
+  }
+
+  async function saveLimit(u: AdminUser) {
+    const raw = (limits[u.id] ?? "").replace(/[^\d]/g, "");
+    const n = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      setMsg({ text: "Token limit must be 0 (unlimited) or a positive number.", kind: "err" });
+      return;
+    }
+    const res = await fetch(`/api/users/${u.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokenLimit: n }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setMsg(res.ok ? { text: j.message, kind: "ok" } : { text: j.error || "Failed.", kind: "err" });
+    await refresh();
+  }
+
+  async function resetUsage(u: AdminUser) {
+    if (!window.confirm(`Reset the token counter for "${u.username}" to 0?`)) return;
+    const res = await fetch(`/api/users/${u.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resetUsage: true }),
     });
     const j = await res.json().catch(() => ({}));
     setMsg(res.ok ? { text: j.message, kind: "ok" } : { text: j.error || "Failed.", kind: "err" });
@@ -250,6 +284,38 @@ export default function AdminPage() {
                         {u.id === currentUser?.id && <span className="text-[10px] rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5 leading-none">you</span>}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] text-muted-foreground" title="Total tokens used this period">
+                          Tokens {Number(u.tokensUsed ?? 0).toLocaleString()}
+                          <span className="mx-1">/</span>
+                          {u.tokenLimit > 0 ? Number(u.tokenLimit).toLocaleString() : "unlimited"}
+                        </span>
+                        {u.role !== "admin" && (
+                          <>
+                            <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              Limit
+                              <input
+                                type="number"
+                                min={0}
+                                step={1000}
+                                value={limits[u.id] ?? "0"}
+                                onChange={(e) => setLimits({ ...limits, [u.id]: e.target.value })}
+                                className="w-24 rounded-lg border bg-muted px-2 py-1 text-xs outline-none"
+                                placeholder="0 = unlimited"
+                              />
+                            </label>
+                            <button onClick={() => saveLimit(u)} title="Save token limit" className="rounded-full border px-2.5 py-1 text-[11px] hover:bg-muted">
+                              Save
+                            </button>
+                            <button onClick={() => resetUsage(u)} title="Reset token usage to 0" className="rounded-full border px-2.5 py-1 text-[11px] text-muted-foreground hover:text-red-600">
+                              Reset usage
+                            </button>
+                          </>
+                        )}
+                        {u.role === "admin" && (
+                          <span className="text-[11px] italic text-muted-foreground">Admin — never limited</span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-1.5 shrink-0">
                       <button onClick={() => handleReset(u.id)} title="Reset password" className="p-2 rounded-lg border bg-background hover:bg-muted"><KeyRound className="h-3.5 w-3.5" /></button>
@@ -267,7 +333,7 @@ export default function AdminPage() {
             <div>
               <div className="font-medium">How access works</div>
               <div className="mt-1 text-xs opacity-75 leading-relaxed">
-                New users must request through you. Only your admin account can create users or reset forgotten passwords (they email mendysam32@gmail.com). Each account only ever sees its own chats, projects and providers — nobody else&apos;s saved work.
+                New users must request through you. Only your admin account can create users or reset forgotten passwords (they email mendysam32@gmail.com). Each account only ever sees its own chats, projects and providers — nobody else&apos;s saved work. Token limits are per user, unlimited by default, and never apply to admin accounts.
               </div>
             </div>
           </div>

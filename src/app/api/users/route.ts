@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
     failedAttempts: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    tokenLimit: 0,
+    tokensUsed: 0,
     passwordHash: await hashPassword(finalPassword),
   };
 
