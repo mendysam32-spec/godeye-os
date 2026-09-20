@@ -1,8 +1,10 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
-import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck } from "lucide-react";
-import { useRef, useState } from "react";
+import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { isDesktop, desktopBridge } from "@/lib/desktop";
+import type { GodEyeSystemInfo } from "@/types/desktop";
 
 const THEMES = [
   {
@@ -63,6 +65,13 @@ export default function SettingsPage() {
   const { profile, setProfile, settings, setSettings, vault, agents, chats, projects } = useGodEye() as any;
   const fileRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [sysInfo, setSysInfo] = useState<GodEyeSystemInfo | null>(null);
+  const desktop = isDesktop();
+
+  useEffect(() => {
+    const b = desktopBridge();
+    if (b) b.systemInfo().then(setSysInfo).catch(() => setSysInfo(null));
+  }, []);
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -222,6 +231,37 @@ export default function SettingsPage() {
               <label className="flex items-center gap-2"><input type="checkbox" checked={settings.autoSave} onChange={e=>setSettings({autoSave:e.target.checked})}/> Auto-save</label>
               <label className="flex items-center gap-2"><input type="checkbox" checked={settings.soundEffects} onChange={e=>setSettings({soundEffects:e.target.checked})}/> Sound effects</label>
               <label className="flex items-center gap-2"><input type="checkbox" checked={settings.telemetry} onChange={e=>setSettings({telemetry:e.target.checked})}/> Telemetry</label>
+            </div>
+          </div>
+
+          {/* Power */}
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2 font-medium"><Zap className="h-4 w-4" style={{color:'var(--accent)'}}/> Power — files & commands</div>
+            <p className="text-xs text-muted-foreground mt-1">When tools are ON, GodEye can create/read files on your computer, run commands, and verify its own work. Full power needs the desktop app; in the browser files download instead.</p>
+
+            <div className="mt-4 flex flex-col sm:flex-row gap-4">
+              <label className="flex items-center gap-2 text-sm rounded-xl border bg-muted px-3 py-2.5 cursor-pointer hover:bg-muted/80">
+                <input type="checkbox" checked={settings.agentTools !== false} onChange={e=>setSettings({ agentTools: e.target.checked })} className="rounded"/>
+                Agent tools <span className="text-muted-foreground">(save file • read file • run command)</span>
+              </label>
+              <div className="text-xs text-muted-foreground self-center">{settings.agentTools !== false ? "ON — ask GodEye to save or run code." : "OFF — text only."}</div>
+            </div>
+
+            <div className="mt-4 rounded-xl border bg-muted p-4">
+              <div className="flex items-center gap-2 text-sm font-medium"><HardDrive className="h-4 w-4"/> Desktop bridge</div>
+              {desktop ? (
+                <div className="mt-2 grid md:grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg border bg-card px-3 py-2">Platform: <b>{sysInfo?.platform || "…"} · {sysInfo?.arch || "…"}</b></div>
+                  <div className="rounded-lg border bg-card px-3 py-2">Electron: <b>{sysInfo?.versions?.electron || "…"}</b> · Chrome {sysInfo?.versions?.chrome || "…"}</div>
+                  <div className="rounded-lg border bg-card px-3 py-2 md:col-span-2 break-all">GodEye folder: <b>{sysInfo?.baseFolder || "…"}</b></div>
+                  <button onClick={async () => { const b = desktopBridge(); if (b) b.openPath(sysInfo?.baseFolder || ""); }} className="inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-xs font-medium"><HardDrive className="h-3.5 w-3.5"/> Open folder</button>
+                  {settings.agentTools !== false && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5"/> Tools live — files & commands run on this PC.</div>}
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">Running in browser — Save still works (downloads). Open the <b>GodEye OS desktop app</b> for run-command + read-file power.</span>
+                </div>
+              )}
             </div>
           </div>
 

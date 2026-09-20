@@ -3,6 +3,7 @@ import { callLLM } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
 import { requireUser } from "@/lib/auth";
+import { GODEYE_TOOLS, isToolProvider } from "@/lib/tools";
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
   coding: "You are an expert coder in GodEye OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable.",
@@ -21,8 +22,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, referenceFiles, vault, settings, stream } = body as {
-    messages: { role: "user" | "assistant" | "system"; content: string }[];
+  const { messages, provider, model, mode, referenceFiles, vault, settings, stream, toolsEnabled } = body as {
+    messages: { role: "user" | "assistant" | "system" | "tool"; content: string; tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[]; tool_call_id?: string }[];
     provider: ProviderId;
     model: string;
     mode?: ChatMode;
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
     vault?: Record<string, any>;
     settings?: any;
     stream?: boolean;
+    toolsEnabled?: boolean;
   };
 
   if (!messages?.length || !provider || !model) {
@@ -66,14 +68,26 @@ export async function POST(req: NextRequest) {
     content: `${modePrompt}\n${behavior} ${codeStyle}\nYou are running inside GodEye OS by S&P Group. Current mode: ${mode || "chat"}.\nProvider: ${provider}, Model: ${model}.${referenceBlock}`.trim(),
   };
 
-  const llmMessages = [systemMsg, ...messages.map(m => ({ role: m.role as any, content: m.content }))];
+  const llmMessages = [systemMsg, ...messages.map(m => ({
+    role: m.role,
+    content: m.content,
+    ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+  }))];
+
+  const toolsEnabledActually = !!toolsEnabled && isToolProvider(provider);
+  const tools = toolsEnabledActually ? GODEYE_TOOLS : undefined;
+  const llmOpts = { temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500, tools };
 
   // streaming via SSE if requested
   if (stream) {
     // For simplicity, we do non-streaming then fake stream chunks - providers not all stream same
     // If client wants real streaming, we'd pipe provider stream. For now chunked response:
     try {
-      const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey, endpointOverride);
+      const r = await callLLM({ provider, model, messages: llmMessages, ...llmOpts }, apiKey, endpointOverride);
+      if (r.toolCalls?.length) {
+        return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
+      }
       const encoder = new TextEncoder();
       const readable = new ReadableStream({
         async start(controller) {
@@ -93,7 +107,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const r = await callLLM({ provider, model, messages: llmMessages, temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500 }, apiKey, endpointOverride);
+    const r = await callLLM({ provider, model, messages: llmMessages, ...llmOpts }, apiKey, endpointOverride);
+    if (r.toolCalls?.length) {
+      return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
+    }
     return NextResponse.json({ content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "LLM failed" }, { status: 500 });

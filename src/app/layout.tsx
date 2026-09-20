@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -11,6 +11,15 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "GodEye — Workforce OS",
   description: "GodEye by S&P Group. Build, run and scale AI workforces with any LLM provider.",
+};
+
+// Fixed viewport for phones/tablets: keep the page at device width, never let
+// the visual viewport shrink (keyboard/zoom) so chat doesn't randomly zoom out.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

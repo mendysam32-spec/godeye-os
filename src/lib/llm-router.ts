@@ -1,7 +1,12 @@
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 
-export type ChatRole = "system" | "user" | "assistant";
-export interface ChatMessage { role: ChatRole; content: string; }
+export type ChatRole = "system" | "user" | "assistant" | "tool";
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+  tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[];
+  tool_call_id?: string;
+}
 
 export interface LLMCall {
   provider: ProviderId;
@@ -9,6 +14,13 @@ export interface LLMCall {
   messages: ChatMessage[];
   temperature?: number;
   maxTokens?: number;
+  tools?: unknown[];
+}
+
+export interface ToolCallResult {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
 }
 
 export interface LLMResult {
@@ -17,6 +29,7 @@ export interface LLMResult {
   content: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   latencyMs: number;
+  toolCalls?: ToolCallResult[];
 }
 
 function providerConfig(provider: ProviderId) {
@@ -63,6 +76,7 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
       messages: call.messages,
       temperature: call.temperature ?? 0.5,
       max_tokens: call.maxTokens ?? 2048,
+      ...(call.tools && call.tools.length ? { tools: call.tools, tool_choice: "auto" } : {}),
     }),
   });
 
@@ -71,13 +85,26 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
     throw new Error(`${call.provider} ${res.status}: ${txt.slice(0, 800)}`);
   }
   const json: any = await res.json();
-  const content = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? "";
+  const message = json.choices?.[0]?.message;
+  const content = message?.content ?? json.choices?.[0]?.text ?? "";
+  let toolCalls: ToolCallResult[] | undefined;
+  if (Array.isArray(message?.tool_calls) && message.tool_calls.length) {
+    toolCalls = message.tool_calls.map((tc: { id: string; function?: { name?: string; arguments?: string } }) => {
+      let args: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(tc.function?.arguments || "{}");
+        if (parsed && typeof parsed === "object") args = parsed;
+      } catch { /* keep empty */ }
+      return { id: tc.id, name: tc.function?.name, arguments: args };
+    });
+  }
   return {
     provider: call.provider,
     model: call.model,
-    content,
+    content: content ?? "",
     usage: json.usage,
     latencyMs: Date.now() - t0,
+    ...(toolCalls ? { toolCalls } : {}),
   };
 }
 

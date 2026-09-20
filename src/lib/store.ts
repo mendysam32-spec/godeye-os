@@ -50,6 +50,7 @@ export interface ProgramSettings {
   animations: boolean;
   soundEffects: boolean;
   autoSave: boolean;
+  agentTools: boolean;
   defaultProvider: ProviderId;
   agentBehavior: "balanced" | "creative" | "precise" | "autonomous";
   codeStyle: "concise" | "verbose" | "documented";
@@ -161,6 +162,7 @@ function freshSettings(): ProgramSettings {
     animations: true,
     soundEffects: false,
     autoSave: true,
+    agentTools: true,
     defaultProvider: "openrouter",
     agentBehavior: "balanced",
     codeStyle: "documented",
