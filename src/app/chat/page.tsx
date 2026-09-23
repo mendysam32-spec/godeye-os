@@ -113,7 +113,7 @@ export default function ChatPage() {
     const remembered = useGodEye.getState().lastModelByProvider?.[pid];
     const list = modelsFor(PROVIDERS.find(p => p.id === pid), vault[pid]?.models);
     if (remembered && list.some(m => m.id === remembered)) return remembered;
-    return list[0]?.id || "anthropic/claude-3.5-sonnet";
+    return list[0]?.id || "anthropic/claude-sonnet-4";
   });
   const [files, setFiles] = useState<{ name: string; type: string; size: number; content: string; preview?: string }[]>([]);
   const [running, setRunning] = useState(false);

@@ -212,7 +212,7 @@ function freshSettings(): ProgramSettings {
 function freshAgents(): Agent[] {
   return [
     { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.3-70b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
-    { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-3.5-sonnet", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
+    { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-sonnet-4", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
     { id: "3", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content.", temperature: 0.8, color: "#ff6b35" },
   ];
 }
@@ -597,7 +597,7 @@ export const useGodEye = create<GodEyeState>()(
         const remembered = opts?.model || s.lastModelByProvider?.[provider];
         const fallback = PROVIDERS.find(p => p.id === provider)?.models.find(m => m.id === remembered)?.id
           || PROVIDERS.find(p => p.id === provider)?.models[0]?.id
-          || "anthropic/claude-3.5-sonnet";
+          || "anthropic/claude-sonnet-4";
         const model = remembered || fallback;
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const now = new Date().toISOString();

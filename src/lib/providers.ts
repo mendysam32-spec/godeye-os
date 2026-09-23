@@ -91,7 +91,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     keyPlaceholder: 'sk-or-v1-...',
     models: [
-      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude via OR', context: '200K', reasoning: true },
+      { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4 via OR', context: '200K', reasoning: true, starred: true },
       { id: 'openai/gpt-4o', name: 'GPT-4o via OR', context: '128K' },
       { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: '1M', starred: true },
       { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (thinking)', context: '1M', reasoning: true, starred: true },

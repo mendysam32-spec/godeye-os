@@ -64,7 +64,7 @@ export default function Home() {
               <div className="w-full rounded-2xl border bg-card p-4 font-mono text-xs leading-relaxed">
                 <div className="text-muted-foreground">// Agents loaded by provider</div>
                 <div><span className="text-violet-600">Architect</span> → nvidia/llama-3.3-70b</div>
-                <div><span className="text-blue-600">Coder</span> → openrouter/claude-3.5-sonnet</div>
+                <div><span className="text-blue-600">Coder</span> → openrouter/claude-sonnet-4</div>
                 <div><span className="text-orange-600">Writer</span> → omeroute/auto</div>
                 <div className="mt-3 rounded-xl bg-muted p-3">Output: production PR + docs + blog draft</div>
               </div>
