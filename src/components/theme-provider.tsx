@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { useGodEye } from "@/lib/store";
 
-const THEMES = ["light", "dark", "glass", "midnight", "aurora", "motion"] as const;
+const THEMES = ["light", "dark", "glass", "blacklime", "aurora", "indigoblack"] as const;
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { settings, setSettings } = useGodEye();
@@ -20,7 +20,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const theme = settings.theme;
     root.classList.add(`theme-${theme}`);
     // keep .dark for compatibility on dark-like themes
-    if (theme === "dark" || theme === "midnight") {
+    if (theme === "dark" || theme === "blacklime" || theme === "indigoblack") {
       root.classList.add("dark");
     }
 

@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 
-export type Theme = "light" | "dark" | "glass" | "midnight" | "aurora" | "motion";
+export type Theme = "light" | "dark" | "glass" | "blacklime" | "aurora" | "indigoblack";
 export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
 
 // Capability plugins. Each toggles a behavior that hooks into whatever model is
@@ -107,6 +107,7 @@ export interface ChatSession {
   model: string;
   projectId?: string;
   folderId?: string;
+  incognito?: boolean;
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
@@ -159,12 +160,16 @@ interface GodEyeState {
   markWorkspaceSynced: () => void;
   chats: ChatSession[];
   activeChatId: string | null;
-  createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId">>) => string;
+  incognito: boolean;
+  setIncognito: (b: boolean) => void;
+  purgeIncognito: () => void;
+  createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId" | "incognito">>) => string;
   setActiveChat: (id: string | null) => void;
   addMessage: (chatId: string, msg: ChatMessage) => void;
   updateLastMessage: (chatId: string, content: string | undefined, extra?: Partial<ChatMessage>) => void;
   deleteChat: (id: string) => void;
   renameChat: (id: string, title: string) => void;
+  markChatIncognito: (id: string, b: boolean) => void;
   projects: Project[];
   addProject: (p: Project) => void;
   updateProject: (id: string, patch: Partial<Project>) => void;
@@ -500,7 +505,8 @@ export const useGodEye = create<GodEyeState>()(
           settings: s.settings,
           vault: s.vault,
           agents: s.agents,
-          chats: s.chats,
+          // incognito chats never leave memory — filtered from every local + cloud write
+          chats: s.chats.filter((c) => !c.incognito),
           projects: s.projects,
           folders: s.folders,
           lastProvider: s.lastProvider,
@@ -574,6 +580,17 @@ export const useGodEye = create<GodEyeState>()(
 
       chats: [],
       activeChatId: null,
+      incognito: false,
+      setIncognito: (b) => set({ incognito: b }),
+      purgeIncognito: () =>
+        set((s) => {
+          const doomed = new Set(s.chats.filter((c) => c.incognito).map((c) => c.id));
+          if (!doomed.size) return { activeChatId: s.activeChatId };
+          return {
+            chats: s.chats.filter((c) => !doomed.has(c.id)),
+            activeChatId: s.activeChatId && doomed.has(s.activeChatId) ? s.chats.find((c) => !doomed.has(c.id))?.id ?? null : s.activeChatId,
+          };
+        }),
       createChat: (opts) => {
         const s = get();
         const provider = opts?.provider || s.lastProvider || "openrouter";
@@ -592,6 +609,7 @@ export const useGodEye = create<GodEyeState>()(
           model,
           projectId: opts?.projectId,
           folderId: opts?.folderId,
+          incognito: opts?.incognito ?? s.incognito,
           messages: [],
           createdAt: now,
           updatedAt: now,
@@ -620,6 +638,7 @@ export const useGodEye = create<GodEyeState>()(
         })),
       deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id), activeChatId: s.activeChatId === id ? s.chats[0]?.id || null : s.activeChatId })),
       renameChat: (id, title) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) })),
+      markChatIncognito: (id, b) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, incognito: b } : c)) })),
 
       projects: freshProjects(),
       addProject: (p) => set((s) => ({ projects: [p, ...s.projects] })),
@@ -648,6 +667,6 @@ export const useGodEye = create<GodEyeState>()(
           };
         }),
     }),
-    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
+    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );

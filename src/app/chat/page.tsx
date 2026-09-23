@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
@@ -83,8 +83,23 @@ async function downloadMedia(md: ChatMedia) {
   a.remove();
 }
 
+// Turn generated media (data: URLs) into downloadable ToolFiles registered under
+// the assistant message's "Created files" panel — lets image/video-capable models
+// produce files you can save to disk (desktop) or download (browser).
+async function mediaToToolFile(md: ChatMedia): Promise<ToolFile | null> {
+  if (!md.src.startsWith("data:")) return null; // remote signed URLs keep the inline download button
+  const comma = md.src.indexOf(",");
+  if (comma < 0) return null;
+  const mime = /^data:([^;]+)/.exec(md.src)?.[1] || md.mime || (md.kind === "image" ? "image/png" : "video/mp4");
+  const base64 = md.src.slice(comma + 1);
+  const name = md.filename || (md.kind === "image" ? "godeye-image.png" : "godeye-video.mp4");
+  const r = await runGodEyeTool("godeye_saveFile", { name, base64, type: mime });
+  if (r.files?.length) return r.files[0];
+  return { name, base64, type: mime };
+}
+
 export default function ChatPage() {
-  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection } = useGodEye();
+  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito } = useGodEye();
   const activeChat = chats.find(c => c.id === activeChatId) || null;
 
   const plugins = settings.plugins || { ...DEFAULT_PLUGINS };
@@ -179,11 +194,34 @@ export default function ChatPage() {
 
   useEffect(() => { listRef.current?.scrollTo(0, listRef.current.scrollHeight); }, [activeChat?.messages, running, runOut]);
 
+function selectChat(id: string) {
+    const prev = activeChat;
+    setActiveChat(id);
+    if (prev?.incognito) deleteChat(prev.id); // incognito chat auto-deletes when you leave it
+  }
+
   function newChat() {
-    const id = createChat({ mode, provider, model });
+    const prev = activeChat;
+    const id = createChat({ mode, provider, model, incognito });
     setFiles([]);
-    setLogs([`[${new Date().toLocaleTimeString()}] new chat ${id}`]);
-    toast("New chat started", "info");
+    setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] new chat ${id}${incognito ? " (incognito)" : ""}`]);
+    if (prev?.incognito) deleteChat(prev.id);
+    toast(incognito ? "New incognito chat — nothing is saved" : "New chat started", "info");
+  }
+
+  // Incognito: when this chat page unmounts (you navigate away), wipe every
+  // incognito chat from memory. Nothing was ever written to storage.
+  useEffect(() => {
+    const purge = () => useGodEye.getState().purgeIncognito();
+    return () => purge();
+  }, []);
+
+  function toggleIncognito() {
+    const next = !incognito;
+    setIncognito(next);
+    if (activeChatId) markChatIncognito(activeChatId, next);
+    setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] 🕵 incognito ${next ? "ON — chats delete on exit, never saved" : "OFF"}`]);
+    toast(next ? "Incognito ON — this chat won't be saved and auto-deletes when you leave it" : "Incognito OFF — chats save again", "info");
   }
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -317,8 +355,19 @@ export default function ChatPage() {
     }
   }
 
-  async function generateMedia(chatId: string, prompt: string, isImage: boolean, controller: AbortController, genMode: ChatMode) {
+  async function generateMedia(chatId: string, prompt: string, isImage: boolean, controller: AbortController, genMode: ChatMode, asstId: string) {
     const decryptedVault = await getDecryptedVaultForApi(vault);
+    async function registerMediaFiles(media: ChatMedia[]) {
+      const files: ToolFile[] = [];
+      for (const md of media) {
+        const tf = await mediaToToolFile(md);
+        if (tf) files.push(tf);
+      }
+      if (files.length) {
+        setCreatedFiles(prev => ({ ...prev, [asstId]: [...(prev[asstId] || []), ...files] }));
+        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] 💾 ${files.length} media file(s) ready${files[0]?.savedPath ? ` → ${files[0].savedPath}` : " — downloads available"}`]);
+      }
+    }
     if (isImage) {
       updateLastMessage(chatId, `_Generating image with ${model}…_`);
       const res = await fetch("/api/generate/image", {
@@ -342,6 +391,7 @@ export default function ChatPage() {
       if (!media.length) throw new Error("No image returned");
       updateLastMessage(chatId, "**Image generated**", { media, provider, model, mode: genMode });
       setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F5BC} ${media.length} image(s) via ${model}`]);
+      await registerMediaFiles(media);
       return;
     }
 
@@ -384,6 +434,7 @@ export default function ChatPage() {
         if (!media.length) throw new Error("No video returned");
         updateLastMessage(chatId, "**Video generated**", { media, provider, model, mode: genMode });
         setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F3AC} ${media.length} video(s) via ${model}`]);
+        await registerMediaFiles(media);
         return;
       }
       if (sj.status === "error" || sj.error) throw new Error(sj.error || "Video generation failed");
@@ -417,7 +468,7 @@ export default function ChatPage() {
       const directImage = mode === "image" && plugins.image && caps.image;
       const directVideo = mode === "video" && plugins.video && caps.video;
       if (directImage || directVideo) {
-        await generateMedia(chatId, userContent, directImage, controller, mode);
+        await generateMedia(chatId, userContent, directImage, controller, mode, asstId);
       } else {
         const fileBudget = (settings.reasoningEffort === "extra-high" ? 40000 : settings.reasoningEffort === "high" ? 25000 : 15000);
         const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, fileBudget), type: f.type }));
@@ -503,6 +554,7 @@ export default function ChatPage() {
         <div className="p-3 border-b flex items-center justify-between">
           <div className="font-semibold text-sm">Chats</div>
           <div className="flex items-center gap-1.5">
+            <button onClick={toggleIncognito} title={incognito ? "Incognito ON — turn off" : "Incognito OFF — this chat is saved"} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs ${incognito ? "bg-foreground text-background" : "hover:bg-muted"}`}><EyeOff className="h-3.5 w-3.5"/><span className="hidden md:inline">{incognito ? "Incognito" : "Private"}</span></button>
             <button onClick={() => {
               if (!activeChat?.messages?.length) return;
               const md = buildChatExport(activeChat.title || "Chat", activeChat.messages);
@@ -514,10 +566,10 @@ export default function ChatPage() {
         <div className="flex-1 overflow-auto p-2 space-y-1">
           {chats.length === 0 && <div className="text-xs text-muted-foreground p-3">No chats yet. Start one.</div>}
           {chats.map(c => (
-            <div key={c.id} onClick={()=>setActiveChat(c.id)} className={`group flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer ${activeChatId===c.id ? "bg-foreground text-background" : "hover:bg-muted"}`}>
+            <div key={c.id} onClick={()=>selectChat(c.id)} className={`group flex items-center gap-2 rounded-xl px-3 py-2.5 cursor-pointer ${activeChatId===c.id ? "bg-foreground text-background" : "hover:bg-muted"}`}>
               <div className="min-w-0 flex-1">
-                <div className="text-sm truncate font-medium">{c.title}</div>
-                <div className={`text-xs truncate ${activeChatId===c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.provider}/{c.model.split("/").pop()}</div>
+                <div className="text-sm truncate font-medium">{c.title}{c.incognito && <span className="opacity-70"> 🕵️</span>}</div>
+                <div className={`text-xs truncate ${activeChatId===c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.provider}/{c.model.split("/").pop()}{c.incognito ? " • incognito" : ""}</div>
               </div>
               <button onClick={(e)=>{e.stopPropagation(); deleteChat(c.id);}} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5"/></button>
             </div>
@@ -801,6 +853,7 @@ export default function ChatPage() {
                     <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max</option>
                   </select>
                 </label>
+                <button onClick={toggleIncognito} title="Incognito — chat is not saved and deletes when you leave" className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${incognito ? "bg-foreground text-background" : "hover:bg-muted"}`}><EyeOff className="h-3 w-3"/> <span className="hidden sm:inline">{incognito ? "Incognito" : "Private"}</span></button>
                 <button onClick={newChat} className="inline-flex items-center gap-1 hover:text-foreground"><Plus className="h-3 w-3"/> New chat</button>
               </span>
             </div>

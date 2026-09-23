@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut } from "lucide-react";
+import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap } from "lucide-react";
 import { useGodEye, type Folder, type Project } from "@/lib/store";
 import { toast } from "@/components/toast";
 import { useState } from "react";
@@ -10,6 +10,7 @@ const nav = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/dashboard", label: "Workforce", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/connectors", label: "Connectors", icon: PlugZap },
   { href: "/vault", label: "Providers", icon: KeyRound },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

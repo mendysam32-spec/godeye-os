@@ -30,11 +30,11 @@ const THEMES = [
     glass: true,
   },
   {
-    id: "midnight" as const,
-    label: "Midnight",
-    desc: "Navy • Premium",
+    id: "blacklime" as const,
+    label: "Black Lime",
+    desc: "Black • Neon Lime",
     icon: Stars,
-    preview: { bg: "#060a14", card: "#0f172a", muted: "#1e293b", dot: "#e8eefc", accent: "#8b5cf6" },
+    preview: { bg: "#000000", card: "#0b0e06", muted: "#131a09", dot: "#eef7d9", accent: "#a3e635" },
   },
   {
     id: "aurora" as const,
@@ -45,11 +45,11 @@ const THEMES = [
     glass: true,
   },
   {
-    id: "motion" as const,
-    label: "Motion",
-    desc: "Day Red • Gradient",
+    id: "indigoblack" as const,
+    label: "Indigo Black",
+    desc: "Indigo • Black Gradient",
     icon: Route,
-    preview: { bg: "#f0f9ff", card: "#ffffff", muted: "#e0f2fe", dot: "#0c4a6e", accent: "#0284c7", gradient: true },
+    preview: { bg: "#05010f", card: "#0e0a1f", muted: "#171233", dot: "#e6e6ff", accent: "#818cf8", gradient: true },
   },
 ] as const;
 
@@ -137,21 +137,21 @@ export default function SettingsPage() {
                     {t.id === "glass" && (
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/20 via-violet-400/10 to-cyan-400/15" />
                     )}
-                    {t.id === "midnight" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-violet-600/20 to-blue-600/10" />
+                    {t.id === "blacklime" && (
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-lime-400/25 to-green-500/10" />
                     )}
                     {t.id === "aurora" && (
                       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-400/25 via-violet-400/15 to-blue-400/20" />
                     )}
                     {(t as any).gradient && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-red-500/20 via-orange-400/15 to-rose-400/15" />
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-600/30 via-violet-500/15 to-blue-500/20" />
                     )}
                     <div className="relative mt-3 flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: t.id==="dark" || t.id==="midnight" || t.id==="aurora" ? "#fff" : "#0f0f0f" }}>
+                        <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: t.id==="dark" || t.id==="blacklime" || t.id==="aurora" || t.id==="indigoblack" ? "#fff" : "#0f0f0f" }}>
                           <Icon className="h-3.5 w-3.5" /> {t.label}
                         </div>
-                        <div className="text-xs" style={{ color: t.id==="dark" || t.id==="midnight" || t.id==="aurora" ? "rgba(255,255,255,0.6)" : "#6b6b6b" }}>{t.desc}</div>
+                        <div className="text-xs" style={{ color: t.id==="dark" || t.id==="blacklime" || t.id==="aurora" || t.id==="indigoblack" ? "rgba(255,255,255,0.6)" : "#6b6b6b" }}>{t.desc}</div>
                       </div>
                       <div className={`h-5 w-5 rounded-full border-2 grid place-items-center shrink-0 ${active ? "bg-foreground border-foreground" : "border-black/20 bg-white/50"}`} style={{ borderColor: active ? "var(--foreground)" : undefined }}>
                         {active && <Check className="h-3 w-3 text-background" />}
