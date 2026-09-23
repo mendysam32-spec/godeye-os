@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useRef, useState, Suspense } from "react";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
+import { toast } from "@/components/toast";
 
 type WorkResult = { agentId: string; agentName: string; provider: string; model: string; content?: string; error?: string; usage?: any; latencyMs?: number };
 
@@ -21,7 +22,7 @@ export default function DashboardPage() {
 function DashboardInner() {
   const searchParams = useSearchParams();
   const folderParam = searchParams.get("folder");
-  const { agents, vault, settings, projects, addProject, updateProject, removeProject, folders } = useGodEye();
+  const { agents, vault, settings, projects, addProject, updateProject, removeProject, folders, chats } = useGodEye();
   const [prompt, setPrompt] = useState("Build a landing page hero in React + Tailwind plus a blog post for our new AI feature launch");
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<WorkResult[] | null>(null);
@@ -67,13 +68,16 @@ function DashboardInner() {
       const res = await fetch("/api/workforce/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, agents, vault: decryptedVault, settings }),
+        body: JSON.stringify({ prompt, agents, vault: decryptedVault, settings, reasoningEffort: settings.reasoningEffort || "medium" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Workforce failed");
       setResults(j.results);
+      const ok = (j.results || []).filter((r: any) => !r.error).length;
+      toast(`Workforce done — ${ok}/${(j.results || []).length} succeeded`);
     } catch (e: any) {
       setResults([{ agentId: "error", agentName: "Workforce", provider: "system", model: "-", error: e.message }]);
+      toast(`Workforce failed: ${e.message}`, "error");
     } finally {
       setRunning(false);
     }
@@ -102,6 +106,7 @@ function DashboardInner() {
     });
     setNewProj({ name: "", description: "", color: "#f59e0b", status: "active", folderId: "" });
     setShowNew(false);
+    toast(`Project “${newProj.name.trim()}” created`);
   }
 
   const filteredProjects = projects.filter(p => {
@@ -130,6 +135,35 @@ function DashboardInner() {
         </div>
 
         <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
+          {/* Live stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: "Active projects", value: projects.filter(p => p.status === "active").length, sub: `${projects.length} total` },
+              { label: "Chats", value: chats.length, sub: `${chats.reduce((n, c) => n + c.messages.length, 0)} messages` },
+              { label: "Agents", value: agents.length, sub: `${new Set(agents.map(a => a.provider)).size} providers used` },
+              { label: "Providers live", value: connected, sub: `${PROVIDERS.length} supported` },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl border bg-card p-4">
+                <div className="text-2xl font-semibold">{s.value}</div>
+                <div className="text-xs font-medium mt-0.5">{s.label}</div>
+                <div className="text-[11px] text-muted-foreground">{s.sub}</div>
+              </div>
+            ))}
+          </div>
+          {/* Recent activity */}
+          {(chats.length > 0 || projects.length > 0) && (
+            <div className="rounded-2xl border bg-card p-4 md:p-5">
+              <div className="text-sm font-medium">Recent activity</div>
+              <div className="mt-2 space-y-1.5">
+                {[
+                  ...chats.slice(0, 3).map(c => ({ id: `c-${c.id}`, text: `💬 ${c.title || "Untitled chat"} — ${c.messages.length} msgs • ${c.provider}/${String(c.model).split("/").pop()}`, href: "/chat" as const })),
+                  ...[...projects].sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)).slice(0, 3).map(p => ({ id: `p-${p.id}`, text: `📁 ${p.name} — ${p.status} • updated ${new Date(p.updatedAt).toLocaleDateString()}`, href: `/projects/${p.id}` as const })),
+                ].slice(0, 5).map(a => (
+                  <Link key={a.id} href={a.href} className="block truncate rounded-xl bg-muted px-3 py-2 text-xs hover:bg-muted/70">{a.text}</Link>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Projects — create / view */}
           <div className="rounded-2xl border bg-card p-4 md:p-5">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -223,7 +257,14 @@ function DashboardInner() {
 
           {/* Workforce task — responsive */}
           <div className="rounded-2xl border bg-card p-4 md:p-5">
-            <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} /> New workforce task — multi-model execution</div>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} /> New workforce task — multi-model execution</div>
+              <label className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs">🧠
+                <select value={settings.reasoningEffort || "medium"} onChange={e => useGodEye.getState().setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent outline-none">
+                  <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max 🧠</option>
+                </select>
+              </label>
+            </div>
             <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={3} className="mt-3 w-full rounded-xl border bg-muted p-3 text-sm outline-none focus:ring-2 focus:ring-foreground/10" placeholder="Describe what the team should build: code, content, research..." />
             <div className="mt-3 flex flex-wrap gap-2">
               {agents.map(a => {

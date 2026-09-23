@@ -1,11 +1,13 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { useGodEye, type ChatMode, type ChatMessage } from "@/lib/store";
-import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
+import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
+import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
+import { Markdown } from "@/components/markdown";
+import { toast } from "@/components/toast";
 import { isDesktop, runGodEyeTool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
 import { isToolProvider } from "@/lib/tools";
 import { makeDocx, makePdf, makeZip, bufToBase64, MIME_DOCX } from "@/lib/file-builder";
@@ -14,10 +16,19 @@ const MODES: { id: ChatMode; label: string; icon: LucideIcon; desc: string }[] =
   { id: "chat", label: "Chat", icon: MessageSquare, desc: "General" },
   { id: "coding", label: "Coding", icon: Code2, desc: "Build code" },
   { id: "image", label: "Image", icon: ImageIcon, desc: "Generate images" },
+  { id: "video", label: "Video", icon: Clapperboard, desc: "Generate video" },
   { id: "plan", label: "Plan", icon: ListTree, desc: "Break into steps" },
   { id: "search", label: "Search", icon: Search, desc: "Research" },
   { id: "research", label: "Research", icon: Lightbulb, desc: "Deep dive" },
   { id: "terminal", label: "Terminal", icon: Terminal, desc: "Commands" },
+];
+
+const PLUGIN_DEFS: { id: PluginId; label: string; desc: string; icon: LucideIcon; iconClass: string }[] = [
+  { id: "image", label: "Image generation", desc: "Renders real images with image-capable models (DALL-E, FLUX, Imagen).", icon: ImageIcon, iconClass: "text-amber-500" },
+  { id: "video", label: "Video generation", desc: "Renders real videos with video-capable models (Sora, Veo).", icon: Clapperboard, iconClass: "text-violet-500" },
+  { id: "search", label: "Search & research", desc: "Grounds answers in research in Search/Research modes.", icon: Search, iconClass: "text-blue-500" },
+  { id: "tools", label: "Agent file tools", desc: "Let the model create files, docs, PDFs, ZIPs and run commands.", icon: Zap, iconClass: "text-amber-500" },
+  { id: "terminal", label: "Terminal", desc: "Run code blocks and commands from assistant replies.", icon: Terminal, iconClass: "text-green-500" },
 ];
 
 // ---------- markdown / code helpers ----------
@@ -50,19 +61,50 @@ function buildChatExport(title: string, messages: { role: string; content: strin
   }).join("");
 }
 
+async function downloadMedia(md: ChatMedia) {
+  const name = md.filename || (md.kind === "image" ? "godeye-image.png" : "godeye-video.mp4");
+  const a = document.createElement("a");
+  if (md.src.startsWith("data:")) {
+    a.href = md.src;
+    a.download = name;
+  } else {
+    try {
+      const r = await fetch(md.src);
+      const b = await r.blob();
+      a.href = URL.createObjectURL(b);
+      a.download = name;
+    } catch {
+      a.href = md.src;
+      a.target = "_blank";
+    }
+  }
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export default function ChatPage() {
-  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings } = useGodEye();
+  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection } = useGodEye();
   const activeChat = chats.find(c => c.id === activeChatId) || null;
+
+  const plugins = settings.plugins || { ...DEFAULT_PLUGINS };
 
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<ChatMode>(activeChat?.mode || "chat");
   const [provider, setProvider] = useState(activeChat?.provider || settings.defaultProvider);
-  const [model, setModel] = useState(activeChat?.model || PROVIDERS.find(p=>p.id===settings.defaultProvider)?.models[0].id || "anthropic/claude-3.5-sonnet");
+  const [model, setModel] = useState(() => {
+    if (activeChat?.model) return activeChat.model;
+    const pid = settings.defaultProvider;
+    const remembered = useGodEye.getState().lastModelByProvider?.[pid];
+    const list = modelsFor(PROVIDERS.find(p => p.id === pid), vault[pid]?.models);
+    if (remembered && list.some(m => m.id === remembered)) return remembered;
+    return list[0]?.id || "anthropic/claude-3.5-sonnet";
+  });
   const [files, setFiles] = useState<{ name: string; type: string; size: number; content: string; preview?: string }[]>([]);
   const [running, setRunning] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
-  const [toolsOn, setToolsOn] = useState<boolean>(settings.agentTools !== false);
+  const [toolsOn, setToolsOn] = useState<boolean>(settings.plugins?.tools !== false);
   const [runOut, setRunOut] = useState<Record<string, string>>({});
   const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -73,7 +115,46 @@ export default function ChatPage() {
   const [focused, setFocused] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches ? false : true));
   const [showModelMenu, setShowModelMenu] = useState(false);
+  const [menuTab, setMenuTab] = useState<"model" | "connector" | "plugins">("model");
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const lastModelByProvider = useGodEye((s) => s.lastModelByProvider);
+
+  // Last-selected model memory — new chats and provider switches default to the
+  // model you used last, falling back to the provider's first model.
+  function pickModel(pid: ProviderId): string {
+    const remembered = lastModelByProvider?.[pid];
+    const list = modelsFor(PROVIDERS.find(p => p.id === pid), vault[pid]?.models);
+    if (remembered && list.some(m => m.id === remembered)) return remembered;
+    return list[0]?.id || "";
+  }
+
+  function firstCapable(pid: ProviderId, kind: "image" | "video"): string | null {
+    const list = modelsFor(PROVIDERS.find(p => p.id === pid), vault[pid]?.models);
+    return list.find(m => m[kind])?.id || null;
+  }
+
+  function togglePlugin(id: PluginId) {
+    const next = { ...plugins, [id]: !plugins[id] };
+    setSettings({ plugins: next });
+    if (id === "tools") setToolsOn(next.tools);
+    if ((id === "image" || id === "video") && next[id]) {
+      const caps = modelCapabilities(provider, model, vault[provider]?.models);
+      if (!caps[id]) {
+        const capModel = firstCapable(provider, id);
+        if (capModel) {
+          setModel(capModel);
+          setLastSelection(provider, capModel);
+        }
+      }
+    }
+  }
+
+  function selectConnector(pid: ProviderId) {
+    const m = pickModel(pid) || PROVIDERS.find(p => p.id === pid)?.models[0]?.id || "";
+    setProvider(pid);
+    setModel(m);
+    setLastSelection(pid, m);
+  }
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -102,6 +183,7 @@ export default function ChatPage() {
     const id = createChat({ mode, provider, model });
     setFiles([]);
     setLogs([`[${new Date().toLocaleTimeString()}] new chat ${id}`]);
+    toast("New chat started", "info");
   }
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
@@ -137,11 +219,12 @@ export default function ChatPage() {
 
   async function runAgentLoop(chatId: string, asstId: string, userContent: string, referenceFiles: { name: string; content: string; type: string }[], controller: AbortController) {
     const decryptedVault = await getDecryptedVaultForApi(vault);
-    const useTools = toolsOn && isToolProvider(provider);
+    const useTools = plugins.tools && toolsOn && isToolProvider(provider);
+    const reasoningEffort = settings.reasoningEffort || "medium";
     const history: WireMsg[] = [...(activeChat?.messages || [])].map(normalizeMsg);
     history.push({ role: "user", content: userContent });
 
-    const MAX_TOOL_ITER = 6;
+    const MAX_TOOL_ITER = reasoningEffort === "extra-high" ? 8 : 6;
     let iterations = 0;
 
     while (iterations <= MAX_TOOL_ITER) {
@@ -150,7 +233,10 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: history,
-          provider, model, mode, referenceFiles, vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
+          provider, model,
+          mode: mode === "search" && !plugins.search ? "chat" : mode === "terminal" && !plugins.terminal ? "chat" : mode,
+          referenceFiles, vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
+          reasoningEffort,
         }),
         signal: controller.signal,
       });
@@ -231,6 +317,80 @@ export default function ChatPage() {
     }
   }
 
+  async function generateMedia(chatId: string, prompt: string, isImage: boolean, controller: AbortController, genMode: ChatMode) {
+    const decryptedVault = await getDecryptedVaultForApi(vault);
+    if (isImage) {
+      updateLastMessage(chatId, `_Generating image with ${model}…_`);
+      const res = await fetch("/api/generate/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, model, prompt, vault: decryptedVault }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(j.error || "Image generation failed");
+      }
+      const j = await res.json();
+      const media: ChatMedia[] = (j.images || []).map((img: { src: string; url?: string; mime?: string; filename?: string }) => ({
+        kind: "image",
+        src: img.src,
+        url: img.url,
+        mime: img.mime,
+        filename: img.filename,
+      }));
+      if (!media.length) throw new Error("No image returned");
+      updateLastMessage(chatId, "**Image generated**", { media, provider, model, mode: genMode });
+      setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F5BC} ${media.length} image(s) via ${model}`]);
+      return;
+    }
+
+    // video: submit a job, then poll status until the provider finishes.
+    updateLastMessage(chatId, `_Starting video generation with ${model}…_`);
+    const sub = await fetch("/api/generate/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, model, prompt, vault: decryptedVault }),
+      signal: controller.signal,
+    });
+    if (!sub.ok) {
+      const j = await sub.json().catch(() => ({ error: sub.statusText }));
+      throw new Error(j.error || "Video generation failed");
+    }
+    const { job } = await sub.json();
+    let attempts = 0;
+    // total budget: ~5 minutes of polling (8s cadence) — covers most Sora/Veo jobs
+    const MAX_POLLS = 38;
+    while (true) {
+      if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (attempts >= MAX_POLLS) throw new Error("Video generation timed out — check the providers job dashboard");
+      attempts++;
+      updateLastMessage(chatId, `_Generating video… (job ${attempts})_`);
+      const st = await fetch("/api/generate/video/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, model, job, vault: decryptedVault }),
+        signal: controller.signal,
+      });
+      const sj = await st.json().catch(() => ({ status: "error", error: "Status poll failed" }));
+      if (sj.status === "done") {
+        const media: ChatMedia[] = (sj.videos || []).map((v: { src: string; url?: string; mime?: string; filename?: string }) => ({
+          kind: "video",
+          src: v.src,
+          url: v.url,
+          mime: v.mime,
+          filename: v.filename,
+        }));
+        if (!media.length) throw new Error("No video returned");
+        updateLastMessage(chatId, "**Video generated**", { media, provider, model, mode: genMode });
+        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F3AC} ${media.length} video(s) via ${model}`]);
+        return;
+      }
+      if (sj.status === "error" || sj.error) throw new Error(sj.error || "Video generation failed");
+      await new Promise(r => setTimeout(r, 8000));
+    }
+  }
+
   async function send() {
     if (!input.trim() && files.length === 0) return;
     if (!activeChat) return;
@@ -253,8 +413,16 @@ export default function ChatPage() {
     abortRef.current = controller;
 
     try {
-      const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, 15000), type: f.type }));
-      await runAgentLoop(chatId, asstId, userContent, referenceFiles, controller);
+      const caps = modelCapabilities(provider, model, vault[provider]?.models);
+      const directImage = mode === "image" && plugins.image && caps.image;
+      const directVideo = mode === "video" && plugins.video && caps.video;
+      if (directImage || directVideo) {
+        await generateMedia(chatId, userContent, directImage, controller, mode);
+      } else {
+        const fileBudget = (settings.reasoningEffort === "extra-high" ? 40000 : settings.reasoningEffort === "high" ? 25000 : 15000);
+        const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, fileBudget), type: f.type }));
+        await runAgentLoop(chatId, asstId, userContent, referenceFiles, controller);
+      }
     } catch (e) {
       const err = e as Error;
       if (err.name === "AbortError") {
@@ -277,11 +445,13 @@ export default function ChatPage() {
   async function saveMessage(m: ChatMessage) {
     const f = suggestSaveFile(m.content, m.mode || mode, activeChat?.title || "chat");
     const r = await saveTextToDisk(f.content, f.name, `Save from ${m.mode || mode} chat`);
-    setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u2b93 ${f.name} \u2192 ${r.ok ? (r.path || r.summary.slice(0, 80)) : r.summary}`]);
-    if (r.ok) { setSavedMsg(m.id); setTimeout(() => setSavedMsg(null), 1600); }
+    setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] ⪽ ${f.name} → ${r.ok ? (r.path || r.summary.slice(0, 80)) : r.summary}`]);
+    if (r.ok) { setSavedMsg(m.id); setTimeout(() => setSavedMsg(null), 1600); toast(`Saved ${f.name}`); }
+    else toast(r.summary || "Save failed", "error");
   }
 
   async function runMessage(m: ChatMessage) {
+    if (!plugins.terminal) return;
     const blocks = extractCodeBlocks(m.content);
     const results: string[] = [];
     for (const b of blocks) {
@@ -319,6 +489,8 @@ export default function ChatPage() {
   const modelList = modelsFor(providerObj, vault[provider]?.models);
   const desktop = isDesktop();
   const toolCapable = desktop && isToolProvider(provider);
+  const genCaps = modelCapabilities(provider, model, vault[provider]?.models);
+  const genModeActive = (mode === "image" && plugins.image && genCaps.image) || (mode === "video" && plugins.video && genCaps.video);
 
   return (
     <div className="h-[100dvh] h-screen flex bg-background overflow-hidden">
@@ -387,13 +559,23 @@ export default function ChatPage() {
           </div>
           {/* model switch */}
           <div className="flex items-center gap-1.5 shrink-0">
+            <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1" title="Reasoning depth — how hard GodEye thinks">
+              <span className="text-xs">🧠</span>
+              <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-xs outline-none">
+                <option value="off">Fast</option>
+                <option value="low">Low</option>
+                <option value="medium">Think</option>
+                <option value="high">Deep</option>
+                <option value="extra-high">Max 🧠</option>
+              </select>
+            </div>
             <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1">
               <span className="h-2 w-2 rounded-full" style={{background: providerObj?.color}}/>
-              <select value={provider} onChange={e=>{ const pid=e.target.value as ProviderId; const prov=PROVIDERS.find(p=>p.id===pid); const list = modelsFor(prov, vault[pid]?.models); setProvider(pid); if(list[0]?.id) setModel(list[0].id); }} className="bg-transparent text-xs outline-none">
+              <select value={provider} onChange={e=>{ const pid=e.target.value as ProviderId; selectConnector(pid); }} className="bg-transparent text-xs outline-none">
                 {PROVIDERS.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <span className="text-muted-foreground">/</span>
-              <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[140px]">
+              <select value={model} onChange={e=>{ const m=e.target.value; setModel(m); setLastSelection(provider, m); }} className="bg-transparent text-xs outline-none max-w-[140px]">
                 {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </div>
@@ -422,7 +604,30 @@ export default function ChatPage() {
                     ))}
                   </div>
                 )}
-                <div className="whitespace-pre-wrap break-words">{m.content || (running && m.role==="assistant" ? "▊" : "")}</div>
+                {m.role === "user" ? (
+                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                ) : (
+                  <Markdown content={m.content || (running ? "▊" : "")} />
+                )}
+                {m.media && m.media.length>0 && (
+                  <div className="mt-2 space-y-2">
+                    {m.media.map((md, i)=>(
+                      <div key={`${md.filename || md.src.slice(0, 48)}-${i}`} className="overflow-hidden rounded-xl border bg-black/5">
+                        {md.kind==="image" ? (
+                          <img src={md.src} alt={`Generated image ${i+1}`} className="max-h-[28rem] w-full object-contain"/>
+                        ) : (
+                          <video src={md.src} controls playsInline preload="metadata" className="max-h-[28rem] w-full"/>
+                        )}
+                        <div className="flex items-center justify-between gap-2 border-t bg-foreground/5 px-3 py-2">
+                          <span className="truncate text-[11px] opacity-60">{md.filename || (md.kind==="image" ? "godeye-image.png" : "godeye-video.mp4")}</span>
+                          <button onClick={()=>downloadMedia(md)} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium opacity-70 hover:opacity-100">
+                            <Download className="h-3 w-3"/> Download
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {m.role==="assistant" && (
                   <div className="mt-2 space-y-2">
                     {createdFiles[m.id]?.length > 0 && (
@@ -469,7 +674,7 @@ export default function ChatPage() {
               </div>
             </div>
           ))}
-          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1"/> GodEye is thinking — {provider}/{model} • {mode}</div>}
+          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1"/> GodEye is thinking ({settings.reasoningEffort || "medium"}) — {provider}/{model} • {mode}</div>}
         </div>
 
         {/* composer - Codex style */}
@@ -487,37 +692,96 @@ export default function ChatPage() {
           <div className="max-w-3xl mx-auto">
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
               <div className="flex items-end gap-2">
-                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can save files, folders, Word docs, PDFs, ZIPs and run commands on your PC" : "GodEye can create files, folders, Word docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
+                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can save files, folders, Word docs, PDFs, ZIPs and run commands on your PC" : "GodEye can create files, folders, Word docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
                 <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
                 <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
                 <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
-                  <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Models • ${providerObj?.name}`}><Plus className="h-4 w-4"/></button>
+                  <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Model, connectors & plugins • ${providerObj?.name}/${model}`}><Plus className="h-4 w-4"/></button>
                   {showModelMenu && (
-                    <div className="absolute bottom-full right-0 mb-2 w-72 rounded-2xl border bg-card shadow-xl p-2 z-50">
-                      <div className="px-2 py-1.5">
-                        <div className="text-[11px] text-muted-foreground font-medium mb-1">Provider</div>
-                        <select value={provider} onChange={e=>{
-                          const pid = e.target.value as ProviderId;
-                          const prov = PROVIDERS.find(p=>p.id===pid);
-                          const list = modelsFor(prov, vault[pid]?.models);
-                          setProvider(pid);
-                          setModel(list[0]?.id || "");
-                        }} className="w-full rounded-lg border bg-muted px-2 py-1.5 text-sm outline-none">
-                          {PROVIDERS.map(p=>(<option key={p.id} value={p.id}>{p.name}{vault[p.id]?.connected ? "" : " • needs key"}</option>))}
-                        </select>
-                      </div>
-                      <div className="max-h-80 overflow-y-auto mt-1">
-                        <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models ({modelList.length})</div>
-                        {modelList.map(m=>(
-                          <button key={m.id} onClick={()=>{ setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
-                            <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
-                            <span className="truncate">{m.name}</span>
-                            <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                    <div className="absolute bottom-full right-0 mb-2 w-80 rounded-2xl border bg-card shadow-xl p-2 z-50">
+                      <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1 mb-1.5">
+                        {(["model", "connector", "plugins"] as const).map(t => (
+                          <button key={t} onClick={()=>setMenuTab(t)} className={`rounded-lg px-2 py-1.5 text-xs capitalize font-medium ${menuTab===t ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                            {t === "connector" ? "Connect" : t}
                           </button>
                         ))}
-                        {modelList.length === 0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
                       </div>
+
+                      {menuTab === "model" && (<>
+                        <div className="px-2 py-1.5 pb-0">
+                          <div className="text-[11px] text-muted-foreground font-medium mb-1">Connector / provider</div>
+                          <select value={provider} onChange={e=>{ selectConnector(e.target.value as ProviderId); }} className="w-full rounded-lg border bg-muted px-2 py-1.5 text-sm outline-none">
+                            {PROVIDERS.map(p=>(<option key={p.id} value={p.id}>{p.name}{vault[p.id]?.connected ? " ✓" : " • needs key"}</option>))}
+                          </select>
+                        </div>
+                        <div className="max-h-72 overflow-y-auto mt-1">
+                          <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">{providerObj?.name} models ({modelList.length})</div>
+                          {modelList.map(m=>(
+                            <button key={m.id} onClick={()=>{ setModel(m.id); setLastSelection(provider, m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
+                              <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
+                              <span className="truncate">{m.name}</span>
+                              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                {(m as any).reasoning && <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-emerald-600">🧠</span>}
+                                {m.image && <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-amber-600">img</span>}
+                                {m.video && <span className="rounded bg-violet-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-violet-600">vid</span>}
+                                <span className="text-[10px] opacity-50">{m.context}</span>
+                              </span>
+                            </button>
+                          ))}
+                          {modelList.length === 0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
+                        </div>
+                      </>)}
+
+                      {menuTab === "connector" && (<>
+                        <div className="max-h-80 overflow-y-auto space-y-1 mt-1 p-1">
+                          <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">Connectors — which provider key powers this chat</div>
+                          {PROVIDERS.map(p=>{
+                            const v = vault[p.id];
+                            const conn = !!v?.connected;
+                            const on = provider === p.id;
+                            return (
+                              <button key={p.id} onClick={()=>{ selectConnector(p.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left text-sm hover:bg-muted ${on ? "border-foreground bg-muted/50" : "border-transparent"}`}>
+                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{background: p.color}}/>
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center gap-1.5 font-medium">
+                                    {p.name}
+                                    {on && <span className="rounded bg-foreground px-1.5 py-0.5 text-[10px] text-background">active</span>}
+                                  </span>
+                                  <span className="block truncate text-[11px] opacity-60">
+                                    {conn ? (v.endpoint ? `Connected • ${v.endpoint}` : "Connected") : v ? "Key saved — not verified" : "Not connected"}
+                                  </span>
+                                </span>
+                                <span className={`h-2 w-2 shrink-0 rounded-full ${conn ? "bg-emerald-500" : "bg-muted-foreground/40"}`}/>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <Link href="/vault" onClick={()=>setShowModelMenu(false)} className="mt-1.5 block rounded-xl border px-3 py-2 text-center text-xs font-medium hover:bg-muted">Open Providers Vault →</Link>
+                      </>)}
+
+                      {menuTab === "plugins" && (<>
+                        <div className="mt-1 space-y-1">
+                          <div className="text-[11px] text-muted-foreground px-2 py-1 font-medium">Plugins — attach to the selected model</div>
+                          {PLUGIN_DEFS.map(def=>{
+                            const on = !!plugins[def.id];
+                            const needsCap = def.id === "image" || def.id === "video";
+                            const hasCap = def.id === "image" ? genCaps.image : def.id === "video" ? genCaps.video : true;
+                            return (
+                              <button key={def.id} onClick={()=>togglePlugin(def.id)} className="w-full flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left text-sm hover:bg-muted">
+                                <def.icon className={`h-4 w-4 shrink-0 ${on ? def.iconClass : "opacity-40"}`}/>
+                                <span className="min-w-0 flex-1">
+                                  <span className="font-medium">{def.label}</span>
+                                  <span className="block text-[11px] opacity-60">{def.desc}{needsCap && on && !hasCap ? ` — ${def.id==="image" ? "image" : "video"}-capable model needed (auto-switches)` : needsCap && !on ? "" : ""}</span>
+                                </span>
+                                <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-muted"}`}>
+                                  <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? "translate-x-4" : ""}`}/>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>)}
                     </div>
                   )}
                   {running ? (
@@ -529,9 +793,16 @@ export default function ChatPage() {
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span className="hidden sm:inline">{toolsOn ? <><Zap className="inline h-3 w-3 text-amber-500"/> Tools ON — ask GodEye to save this to a file or run it. </> : <><Zap className="inline h-3 w-3"/> Tools OFF. </>}Enter to send • Shift+Enter newline • Upload files as reference</span>
+              <span className="hidden sm:inline">{genModeActive ? <><Clapperboard className={`inline h-3 w-3 ${mode==="video" ? "text-violet-500" : "text-amber-500"}`}/> Generation live — send a prompt and {model} renders a real {mode==="video" ? "video" : "image"} directly. </> : <>{toolsOn ? <><Zap className="inline h-3 w-3 text-amber-500"/> Tools ON — ask GodEye to save this to a file or run it. </> : <><Zap className="inline h-3 w-3"/> Tools OFF. </>}</>}Enter to send • Shift+Enter newline • Upload files as reference</span>
               <span className="sm:hidden">Enter to send • Shift+Enter newline</span>
-              <button onClick={newChat} className="inline-flex items-center gap-1 hover:text-foreground"><Plus className="h-3 w-3"/> New chat</button>
+              <span className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1 md:hidden">🧠
+                  <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-[11px] outline-none border rounded-full px-1 py-0.5">
+                    <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max</option>
+                  </select>
+                </label>
+                <button onClick={newChat} className="inline-flex items-center gap-1 hover:text-foreground"><Plus className="h-3 w-3"/> New chat</button>
+              </span>
             </div>
           </div>
         </div>

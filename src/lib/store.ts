@@ -1,10 +1,25 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { ProviderId, ProviderModel } from "./providers";
+import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 
 export type Theme = "light" | "dark" | "glass" | "midnight" | "aurora" | "motion";
 export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
+
+// Capability plugins. Each toggles a behavior that hooks into whatever model is
+// selected — generation plugins only fire on capable models, tool plugins feed
+// the agent loop with the selected provider/model.
+export type PluginId = "image" | "video" | "search" | "tools" | "terminal";
+
+export type ReasoningEffort = "off" | "low" | "medium" | "high" | "extra-high";
+
+export const DEFAULT_PLUGINS: Record<PluginId, boolean> = {
+  image: true,
+  video: true,
+  search: true,
+  tools: true,
+  terminal: true,
+};
 
 export interface UserProfile {
   name: string;
@@ -52,15 +67,25 @@ export interface ProgramSettings {
   autoSave: boolean;
   agentTools: boolean;
   defaultProvider: ProviderId;
+  plugins: Record<PluginId, boolean>;
   agentBehavior: "balanced" | "creative" | "precise" | "autonomous";
   codeStyle: "concise" | "verbose" | "documented";
+  reasoningEffort: ReasoningEffort;
   language: string;
   telemetry: boolean;
   appLockEnabled: boolean;
   lockPin: string;
 }
 
-export type ChatMode = "coding" | "image" | "plan" | "search" | "chat" | "research" | "terminal";
+export type ChatMode = "coding" | "image" | "plan" | "search" | "chat" | "research" | "terminal" | "video";
+
+export interface ChatMedia {
+  kind: "image" | "video";
+  src: string;
+  url?: string;
+  mime?: string;
+  filename?: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -68,6 +93,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   attachments?: { name: string; type: string; size: number; preview?: string }[];
+  media?: ChatMedia[];
   provider?: ProviderId;
   model?: string;
   mode?: ChatMode;
@@ -114,6 +140,9 @@ interface GodEyeState {
   setProfile: (p: Partial<UserProfile>) => void;
   settings: ProgramSettings;
   setSettings: (s: Partial<ProgramSettings>) => void;
+  lastProvider: ProviderId;
+  lastModelByProvider: Partial<Record<ProviderId, string>>;
+  setLastSelection: (provider: ProviderId, model: string) => void;
   vault: Record<ProviderId, VaultKey>;
   setVaultKey: (provider: ProviderId, key: string, connected: boolean, endpoint?: string, models?: ProviderModel[]) => void;
   clearVaultKey: (provider: ProviderId) => void;
@@ -133,7 +162,7 @@ interface GodEyeState {
   createChat: (opts?: Partial<Pick<ChatSession, "mode" | "provider" | "model" | "projectId" | "folderId">>) => string;
   setActiveChat: (id: string | null) => void;
   addMessage: (chatId: string, msg: ChatMessage) => void;
-  updateLastMessage: (chatId: string, content: string) => void;
+  updateLastMessage: (chatId: string, content: string | undefined, extra?: Partial<ChatMessage>) => void;
   deleteChat: (id: string) => void;
   renameChat: (id: string, title: string) => void;
   projects: Project[];
@@ -164,8 +193,10 @@ function freshSettings(): ProgramSettings {
     autoSave: true,
     agentTools: true,
     defaultProvider: "openrouter",
+    plugins: { ...DEFAULT_PLUGINS },
     agentBehavior: "balanced",
     codeStyle: "documented",
+    reasoningEffort: "medium",
     language: "en",
     telemetry: false,
     appLockEnabled: false,
@@ -199,6 +230,8 @@ function freshScopedState() {
     chats: [] as ChatSession[],
     projects: freshProjects(),
     folders: [] as Folder[],
+    lastProvider: "openrouter" as ProviderId,
+    lastModelByProvider: {} as Partial<Record<ProviderId, string>>,
   };
 }
 
@@ -219,6 +252,8 @@ export interface WorkspaceData {
   chats?: ChatSession[];
   projects?: Project[];
   folders?: Folder[];
+  lastProvider?: ProviderId;
+  lastModelByProvider?: Partial<Record<ProviderId, string>>;
   activeChatId?: string | null;
   updatedAt?: string;
 }
@@ -268,6 +303,8 @@ export const useGodEye = create<GodEyeState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                lastProvider: s.lastProvider,
+                lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
                 updatedAt: s.wsUpdatedAt,
               })
@@ -282,6 +319,13 @@ export const useGodEye = create<GodEyeState>()(
       },
 
       vault: {} as Record<ProviderId, VaultKey>,
+      lastProvider: "openrouter" as ProviderId,
+      lastModelByProvider: {} as Partial<Record<ProviderId, string>>,
+      setLastSelection: (provider, model) =>
+        set((s) => ({
+          lastProvider: provider,
+          lastModelByProvider: { ...s.lastModelByProvider, [provider]: model },
+        })),
       setVaultKey: (provider, key, connected, endpoint, models) => {
         const stamp = new Date().toISOString();
         set((s) => ({
@@ -312,6 +356,8 @@ export const useGodEye = create<GodEyeState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                lastProvider: s.lastProvider,
+                lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
                 updatedAt: s.wsUpdatedAt,
               })
@@ -345,6 +391,8 @@ export const useGodEye = create<GodEyeState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                lastProvider: s.lastProvider,
+                lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
                 updatedAt: s.wsUpdatedAt,
               })
@@ -405,6 +453,10 @@ export const useGodEye = create<GodEyeState>()(
           chats: data?.chats ?? fallback.chats,
           projects: data?.projects ?? fallback.projects,
           folders: data?.folders ?? fallback.folders,
+          lastProvider: data?.lastProvider ?? fallback.lastProvider,
+          lastModelByProvider: data?.lastModelByProvider
+            ? { ...(fallback.lastModelByProvider as Record<ProviderId, string>), ...(data.lastModelByProvider as Record<ProviderId, string>) }
+            : fallback.lastModelByProvider,
         };
         // wsUpdatedAt: keep the newest stamp so syncWorkspace comparison doesn't flip
         const candidates = [data?.updatedAt as string | undefined, current.wsUpdatedAt].filter(Boolean) as string[];
@@ -435,17 +487,7 @@ export const useGodEye = create<GodEyeState>()(
           const after = get();
           localStorage.setItem(
             workspaceKey(u.id),
-            JSON.stringify({
-              profile: after.profile,
-              settings: after.settings,
-              vault: after.vault,
-              agents: after.agents,
-              chats: after.chats,
-              projects: after.projects,
-              folders: after.folders,
-              activeChatId: after.activeChatId,
-              updatedAt: after.wsUpdatedAt,
-            })
+            JSON.stringify({ ...after.collectWorkspace(), updatedAt: after.wsUpdatedAt })
           );
         } catch {
           /* ignore */
@@ -461,6 +503,8 @@ export const useGodEye = create<GodEyeState>()(
           chats: s.chats,
           projects: s.projects,
           folders: s.folders,
+          lastProvider: s.lastProvider,
+          lastModelByProvider: s.lastModelByProvider,
           updatedAt: s.wsUpdatedAt,
         };
       },
@@ -486,6 +530,10 @@ export const useGodEye = create<GodEyeState>()(
             chats: data.chats ?? base.chats,
             projects: data.projects ?? base.projects,
             folders: data.folders ?? base.folders,
+            lastProvider: data.lastProvider ?? base.lastProvider,
+            lastModelByProvider: data.lastModelByProvider
+              ? { ...(base.lastModelByProvider as Record<ProviderId, string>), ...(data.lastModelByProvider as Record<ProviderId, string>) }
+              : base.lastModelByProvider,
           };
           const profile = {
             ...merged.profile,
@@ -512,20 +560,10 @@ export const useGodEye = create<GodEyeState>()(
       logoutUser: () => {
         const s = get();
         if (s.currentUser) {
-          const stamp = new Date().toISOString();
           try {
             localStorage.setItem(
               workspaceKey(s.currentUser.id),
-              JSON.stringify({
-                profile: s.profile,
-                settings: s.settings,
-                vault: s.vault,
-                agents: s.agents,
-                chats: s.chats,
-                projects: s.projects,
-                folders: s.folders,
-                updatedAt: stamp,
-              })
+              JSON.stringify({ ...s.collectWorkspace(), updatedAt: new Date().toISOString() })
             );
           } catch {
             /* ignore */
@@ -537,21 +575,33 @@ export const useGodEye = create<GodEyeState>()(
       chats: [],
       activeChatId: null,
       createChat: (opts) => {
+        const s = get();
+        const provider = opts?.provider || s.lastProvider || "openrouter";
+        const remembered = opts?.model || s.lastModelByProvider?.[provider];
+        const fallback = PROVIDERS.find(p => p.id === provider)?.models.find(m => m.id === remembered)?.id
+          || PROVIDERS.find(p => p.id === provider)?.models[0]?.id
+          || "anthropic/claude-3.5-sonnet";
+        const model = remembered || fallback;
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
         const now = new Date().toISOString();
         const chat: ChatSession = {
           id,
           title: "New chat",
           mode: opts?.mode || "chat",
-          provider: opts?.provider || "openrouter",
-          model: opts?.model || "anthropic/claude-3.5-sonnet",
+          provider,
+          model,
           projectId: opts?.projectId,
           folderId: opts?.folderId,
           messages: [],
           createdAt: now,
           updatedAt: now,
         };
-        set((s) => ({ chats: [chat, ...s.chats], activeChatId: id }));
+        set((st) => ({
+          chats: [chat, ...st.chats],
+          activeChatId: id,
+          lastProvider: provider,
+          lastModelByProvider: { ...st.lastModelByProvider, [provider]: model },
+        }));
         return id;
       },
       setActiveChat: (id) => set({ activeChatId: id }),
@@ -559,12 +609,12 @@ export const useGodEye = create<GodEyeState>()(
         set((s) => ({
           chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages, msg], updatedAt: new Date().toISOString(), title: c.messages.length === 0 && msg.role === "user" ? msg.content.slice(0, 48) : c.title } : c)),
         })),
-      updateLastMessage: (chatId, content) =>
+      updateLastMessage: (chatId, content, extra) =>
         set((s) => ({
           chats: s.chats.map((c) => {
             if (c.id !== chatId || c.messages.length === 0) return c;
             const msgs = [...c.messages];
-            msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content };
+            msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], ...(content !== undefined ? { content } : {}), ...(extra || {}) };
             return { ...c, messages: msgs };
           }),
         })),
@@ -598,6 +648,6 @@ export const useGodEye = create<GodEyeState>()(
           };
         }),
     }),
-    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, wsUpdatedAt: (s as any).wsUpdatedAt }) }
+    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats, activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );

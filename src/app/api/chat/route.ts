@@ -6,13 +6,22 @@ import { authedRecord, saveState } from "@/lib/auth";
 import { GODEYE_TOOLS, isToolProvider } from "@/lib/tools";
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
-  coding: "You are an expert coder in GodEye OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable.",
+  coding: "You are an expert coder in GodEye OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable. For large apps: plan file structure first, then implement module by module, flag edge cases and tests.",
   image: "You are an image generation assistant. Describe the image in vivid detail for generation. If provider supports image generation, output a prompt ready for DALL-E/MJ/Stable Diffusion. Otherwise describe what would be generated.",
-  plan: "You are a planning agent. Break the request into steps, dependencies, risks and timeline. Output a clear plan with phases, owners and milestones in markdown.",
-  search: "You are a research/search agent. Synthesize from knowledge, cite sources when possible, summarize key facts, trade-offs and next steps. Be factual and grounded.",
+  plan: "You are a planning agent. Break the request into steps, dependencies, risks and timeline. Output a clear plan with phases, owners and milestones in markdown. For complex projects, decompose into connected workstreams and sequence them.",
+  search: "You are a research/search agent. Synthesize from knowledge, cite sources when possible, summarize key facts, trade-offs and next steps. Be factual and grounded. Connect information across sources and highlight what matters.",
   chat: "You are a helpful AI assistant in GodEye OS by S&P Group. Be clear, concise and helpful.",
-  research: "You are a deep research agent. Go deep, structure findings with headings, tables and citations pattern, surface unknowns and propose next experiments.",
-  terminal: "You are a terminal assistant. Output commands to run, expected output, and explanation. Use bash/code blocks. Be exact.",
+  research: "You are a deep research agent. Go deep, structure findings with headings, tables and citations pattern, surface unknowns and propose next experiments. Handle large documents: extract key facts, compare claims, identify gaps.",
+  terminal: "You are a terminal assistant. Output commands to run, expected output, and explanation. Use bash/code blocks. Be exact. For debugging, reason step-by-step: hypothesis → command → expected signal.",
+  video: "You are a video generation assistant. Describe the video you would create: setting, subject, camera motion and pacing, in a vivid generation-ready prompt. If the provider supports video generation, output a prompt ready for Sora/Veo/Kling. Otherwise describe what would be generated.",
+};
+
+const REASONING_BOOSTERS: Record<string, string> = {
+  low: "Answer directly with minimal deliberation.",
+  medium: "Think step-by-step before answering. Show key reasoning briefly, then the final answer.",
+  high: "Reason deeply and step-by-step: restate the problem, explore 2-3 approaches, verify constraints and edge cases, then deliver the final answer with rationale. For code: architecture → implementation → tests. For research: facts → analysis → synthesis.",
+  "extra-high":
+    "Use maximum reasoning depth. Work through the problem methodically: 1) restate goals and constraints, 2) break into sub-problems, 3) solve each with verification, 4) cross-check consistency, 5) consider failure modes and alternatives, 6) deliver the final artifact plus a short reasoning trace. For large codebases: file map first, then diffs. For large documents/data: extract → correlate → conclude. Never skip hard conditions.",
 };
 
 export async function POST(req: NextRequest) {
@@ -31,7 +40,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, referenceFiles, vault, settings, stream, toolsEnabled } = body as {
+  const { messages, provider, model, mode, referenceFiles, vault, settings, stream, toolsEnabled, reasoningEffort } = body as {
     messages: { role: "user" | "assistant" | "system" | "tool"; content: string; tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[]; tool_call_id?: string }[];
     provider: ProviderId;
     model: string;
@@ -41,6 +50,7 @@ export async function POST(req: NextRequest) {
     settings?: any;
     stream?: boolean;
     toolsEnabled?: boolean;
+    reasoningEffort?: "off" | "low" | "medium" | "high" | "extra-high";
   };
 
   if (!messages?.length || !provider || !model) {
@@ -66,15 +76,20 @@ export async function POST(req: NextRequest) {
   const modePrompt = MODE_PROMPTS[(mode as ChatMode) || "chat"] || MODE_PROMPTS.chat;
   const behavior = settings?.agentBehavior ? `Behavior: ${settings.agentBehavior}.` : "";
   const codeStyle = settings?.codeStyle ? `Code style: ${settings.codeStyle}.` : "";
+  const effort = reasoningEffort || settings?.reasoningEffort || "medium";
+  const reasoningBooster = effort !== "off" ? REASONING_BOOSTERS[effort] || REASONING_BOOSTERS.medium : "";
 
+  // Large-context handling: deep modes get bigger reference windows.
+  // high / extra-high can ingest full question banks, big docs, spreadsheets.
+  const perFileBudget = effort === "extra-high" ? 40000 : effort === "high" ? 25000 : 12000;
   let referenceBlock = "";
   if (referenceFiles?.length) {
-    referenceBlock = "\n\nReference files:\n" + referenceFiles.map(f => `--- ${f.name} (${f.type}) ---\n${f.content.slice(0, 12000)}`).join("\n\n");
+    referenceBlock = "\n\nReference files:\n" + referenceFiles.map(f => `--- ${f.name} (${f.type}) ---\n${f.content.slice(0, perFileBudget)}`).join("\n\n");
   }
 
   const systemMsg = {
     role: "system" as const,
-    content: `${modePrompt}\n${behavior} ${codeStyle}\nYou are running inside GodEye OS by S&P Group. Current mode: ${mode || "chat"}.\nProvider: ${provider}, Model: ${model}.${referenceBlock}`.trim(),
+    content: `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\nYou are running inside GodEye OS by S&P Group. Current mode: ${mode || "chat"}.\nReasoning effort: ${effort}.\nProvider: ${provider}, Model: ${model}.${referenceBlock}`.trim(),
   };
 
   const llmMessages = [systemMsg, ...messages.map(m => ({
@@ -86,7 +101,14 @@ export async function POST(req: NextRequest) {
 
   const toolsEnabledActually = !!toolsEnabled && isToolProvider(provider);
   const tools = toolsEnabledActually ? GODEYE_TOOLS : undefined;
-  const llmOpts = { temperature: 0.6, maxTokens: mode === "coding" ? 4000 : 2500, tools };
+  const baseMax = mode === "coding" ? 4000 : mode === "research" ? 3500 : 2500;
+  const effortBonus = effort === "extra-high" ? 4000 : effort === "high" ? 2000 : 0;
+  const llmOpts = {
+    temperature: mode === "coding" && (effort === "high" || effort === "extra-high") ? 0.3 : 0.6,
+    maxTokens: baseMax + effortBonus,
+    tools,
+    reasoningEffort: effort as "off" | "low" | "medium" | "high" | "extra-high",
+  };
 
   function recordUsage(usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }) {
     const total = usage?.total_tokens;

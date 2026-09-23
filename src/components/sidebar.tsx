@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut } from "lucide-react";
 import { useGodEye, type Folder, type Project } from "@/lib/store";
+import { toast } from "@/components/toast";
 import { useState } from "react";
 
 const nav = [
@@ -93,7 +94,7 @@ function ProfileFooter() {
 function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { folders, addFolder, removeFolder, currentUser } = useGodEye();
+  const { folders, addFolder, removeFolder, currentUser, projects, chats, agents, vault } = useGodEye();
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const s: Folder[] = useGodEye.getState().folders;
     return new Set(s.map(f => f.id));
@@ -136,11 +137,13 @@ function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
     if (parentId) setExpanded(prev => new Set([...prev, parentId]));
     setAdding(false);
     setNewName("");
+    toast(`Folder “${newName.trim()}” created`);
   }
 
   function handleDelete(f: Folder) {
     if (!window.confirm(`Delete "${f.name}" and everything inside it? Projects will be moved out (kept safe).`)) return;
     removeFolder(f.id);
+    toast(`Folder “${f.name}” deleted`, "info");
   }
 
   function openFolder(f: { id: string }) {
@@ -188,11 +191,19 @@ function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="pt-6">
         <div className="rounded-2xl bg-muted p-4">
-          <div className="flex items-center gap-2 text-xs font-medium"><Sparkles className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} /> Workforce credits</div>
-          <div className="mt-2 h-2 rounded-full bg-background overflow-hidden">
-            <div className="h-full w-[68%]" style={{ background: 'var(--accent)' }} />
-          </div>
-          <div className="mt-1.5 text-xs text-muted-foreground">6,820 / 10,000 actions</div>
+          <div className="flex items-center gap-2 text-xs font-medium"><Sparkles className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} /> Workspace live</div>
+          {(() => {
+            const connected = Object.values(vault || {}).filter((v: any) => v?.connected).length;
+            const active = projects.filter((p) => p.status === "active").length;
+            const total = Math.max(agents.length + projects.length + chats.length, 1);
+            const pct = Math.min(100, Math.round(((agents.length + connected) / (total + 4)) * 100));
+            return (<>
+              <div className="mt-2 h-2 rounded-full bg-background overflow-hidden">
+                <div className="h-full transition-all" style={{ width: `${pct}%`, background: 'var(--accent)' }} />
+              </div>
+              <div className="mt-1.5 text-xs text-muted-foreground">{connected} providers • {agents.length} agents • {active} active projects • {chats.length} chats</div>
+            </>);
+          })()}
         </div>
       </div>
     </div>

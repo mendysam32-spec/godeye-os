@@ -20,11 +20,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { prompt, agents, vault, settings } = body as {
+  const { prompt, agents, vault, settings, reasoningEffort } = body as {
     prompt: string;
     agents: AgentInput[];
     vault: Record<string, { key?: string; provider?: string } | string>;
-    settings?: { agentBehavior?: string; codeStyle?: string };
+    settings?: { agentBehavior?: string; codeStyle?: string; reasoningEffort?: string };
+    reasoningEffort?: "off" | "low" | "medium" | "high" | "extra-high";
   };
 
   if (!prompt || !agents?.length) return NextResponse.json({ error: "prompt and agents required" }, { status: 400 });
@@ -50,6 +51,16 @@ export async function POST(req: NextRequest) {
     : settings?.codeStyle === "verbose" ? "Code style: verbose, explain tradeoffs."
     : "Code style: documented, with JSDoc and README snippet.";
 
+  const effort = (reasoningEffort || (settings as any)?.reasoningEffort || "medium") as "off" | "low" | "medium" | "high" | "extra-high";
+  const depthHint =
+    effort === "extra-high"
+      ? "Use maximum reasoning depth: decompose into sub-problems, solve each with verification, cross-check consistency, then deliver."
+      : effort === "high"
+        ? "Think step-by-step: explore approaches, verify constraints and edge cases, then deliver."
+        : effort === "low" || effort === "off"
+          ? "Answer directly and concisely."
+          : "Think briefly step-by-step, then deliver.";
+
   // fan-out: run all agents in parallel, each with its provider key
   const tasks = agents.map(async (agent) => {
     const apiKey = getKey(agent.provider);
@@ -68,7 +79,7 @@ export async function POST(req: NextRequest) {
     const system: ChatMessage[] = [
       {
         role: "system",
-        content: `You are ${agent.name} — ${agent.role} in GodEye OS by S&P Group.\n${agent.systemPrompt || ""}\n\nWorkforce context: ${behaviorHint} ${codeStyleHint}\n${isCodeRole ? "Output: production-ready code block(s) + brief notes. Use markdown fenced code." : "Output: polished content (markdown) ready to ship."}\nAlways be concise and deliver a finished artifact, not a plan.`,
+        content: `You are ${agent.name} — ${agent.role} in GodEye OS by S&P Group.\n${agent.systemPrompt || ""}\n\nWorkforce context: ${behaviorHint} ${codeStyleHint}\nReasoning depth (${effort}): ${depthHint}\n${isCodeRole ? "Output: production-ready code block(s) + brief notes. Use markdown fenced code. For large builds: file map first, then modules, then tests." : "Output: polished content (markdown) ready to ship. For research: facts → analysis → synthesis with key details surfaced."}\nAlways be concise and deliver a finished artifact, not a plan.`,
       },
       { role: "user", content: prompt },
     ];
@@ -83,8 +94,9 @@ export async function POST(req: NextRequest) {
           provider: agent.provider,
           model: agent.model,
           messages: system,
-          temperature: agent.temperature ?? 0.5,
-          maxTokens: isCodeRole ? 3000 : 2000,
+          temperature: agent.temperature ?? (effort === "high" || effort === "extra-high" ? 0.3 : 0.5),
+          maxTokens: (isCodeRole ? 3000 : 2000) + (effort === "extra-high" ? 4000 : effort === "high" ? 2000 : 0),
+          reasoningEffort: effort,
         },
         apiKey,
         endpointOverride
@@ -120,6 +132,6 @@ export async function POST(req: NextRequest) {
     succeeded,
     total: results.length,
     results,
-    meta: { behavior: settings?.agentBehavior, codeStyle: settings?.codeStyle },
+    meta: { behavior: settings?.agentBehavior, codeStyle: settings?.codeStyle, reasoningEffort: effort },
   });
 }

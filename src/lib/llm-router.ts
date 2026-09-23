@@ -15,6 +15,7 @@ export interface LLMCall {
   temperature?: number;
   maxTokens?: number;
   tools?: unknown[];
+  reasoningEffort?: "off" | "low" | "medium" | "high" | "extra-high";
 }
 
 export interface ToolCallResult {
@@ -56,6 +57,33 @@ function parseArgs(raw: unknown): Record<string, unknown> {
   }
 }
 
+// Reasoning effort → provider-native budgets.
+// off = no thinking params (fastest). extra-high = max depth for hard tasks.
+export function reasoningBudget(effort?: LLMCall["reasoningEffort"]): number | null {
+  switch (effort) {
+    case "low": return 1024;
+    case "medium": return 4096;
+    case "high": return 12000;
+    case "extra-high": return 24000;
+    default: return null;
+  }
+}
+
+export function reasoningEffortForWire(effort?: LLMCall["reasoningEffort"]): "low" | "medium" | "high" | "xhigh" | null {
+  switch (effort) {
+    case "low": return "low";
+    case "medium": return "medium";
+    case "high": return "high";
+    case "extra-high": return "xhigh";
+    default: return null;
+  }
+}
+
+// Extra token headroom when thinking deeply — reasoning tokens eat output budget.
+export function maxTokensForEffort(base: number, effort?: LLMCall["reasoningEffort"]): number {
+  const budget = reasoningBudget(effort) ?? 0;
+  return base + budget;
+}
 // OpenAI-compatible call (covers OpenAI, Nvidia NIM, OpenRouter, OmeRoute, Together, Mistral, Perplexity-ish)
 async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: string, overrideBaseUrl?: string): Promise<LLMResult> {
   const t0 = Date.now();
@@ -86,15 +114,26 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
     headers["User-Agent"] = "RooCode/3.53.0";
   }
 
+  const effortWire = reasoningEffortForWire(call.reasoningEffort);
+  const budget = reasoningBudget(call.reasoningEffort);
+  const isReasoningModel = /(o1|o3|o4|gpt-5|thinking|r1|reason|nemotron|gemini-2\.5|claude-4)/i.test(call.model);
+
   const res = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({
       model: call.model,
       messages: call.messages,
-      temperature: call.temperature ?? 0.5,
-      max_tokens: call.maxTokens ?? 2048,
+      // o-series / reasoning models only accept temperature 1 — omit otherwise
+      ...(!isReasoningModel ? { temperature: call.temperature ?? 0.5 } : {}),
+      max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
       ...(call.tools && call.tools.length ? { tools: call.tools, tool_choice: "auto" } : {}),
+      // OpenAI o-series + gpt-5 thinking
+      ...(effortWire && isReasoningModel ? { reasoning_effort: effortWire === "xhigh" ? "high" : effortWire } : {}),
+      // OpenRouter unified reasoning param
+      ...(call.provider === "openrouter" && effortWire ? { reasoning: { effort: effortWire === "xhigh" ? "high" : effortWire, exclude: false } } : {}),
+      // OmeRoute / Together / NVIDIA DeepSeek-R1 style: higher effort = more tokens
+      ...(budget && (call.provider === "omeroute" || call.provider === "together" || call.provider === "nvidia") ? { extra_body: { reasoning_budget: budget } } : {}),
     }),
   });
 
@@ -163,10 +202,17 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
     },
     body: JSON.stringify({
       model: call.model,
-      max_tokens: call.maxTokens ?? 2048,
+      max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
       system: system || undefined,
       messages,
-      temperature: call.temperature ?? 0.5,
+      ...(() => {
+        const budget = reasoningBudget(call.reasoningEffort);
+        // Extended thinking needs temperature 1 and a budget < max_tokens
+        if (budget) {
+          return { thinking: { type: "enabled", budget_tokens: Math.min(budget, (call.maxTokens ?? 2048) + budget - 1000) }, temperature: 1 };
+        }
+        return { temperature: call.temperature ?? 0.5 };
+      })(),
       ...(tools.length ? { tools, tool_choice: { type: "auto" } } : {}),
     }),
   });
@@ -223,6 +269,7 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
 
   // Gemini generateContent
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(call.model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const thinkingBudget = reasoningBudget(call.reasoningEffort);
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -230,7 +277,11 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
       contents,
       ...(tools.length ? { tools: [{ functionDeclarations: tools }] } : {}),
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-      generationConfig: { temperature: call.temperature ?? 0.5, maxOutputTokens: call.maxTokens ?? 2048 },
+      generationConfig: {
+        temperature: call.temperature ?? 0.5,
+        maxOutputTokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
+        ...(thinkingBudget ? { thinkingConfig: { thinkingBudget, includeThoughts: false } } : {}),
+      },
     }),
   });
   if (!res.ok) {
@@ -300,7 +351,7 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
       messages,
       ...(tools.length ? { tools } : {}),
       temperature: call.temperature ?? 0.5,
-      max_tokens: call.maxTokens ?? 2048,
+      max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
     }),
   });
   if (!res.ok) {
@@ -341,12 +392,16 @@ export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: 
 // Covers OpenAI-compatible /v1/models (nvidia, openrouter, omeroute, openai,
 // mistral, together, perplexity, agentrouter, cohere...) plus anthropic and google.
 // NVCF deployment URLs are single-function endpoints with no /models listing.
+// Models are flagged `image`/`video` when they can generate media so the chat
+// UI can dispatch to the real generation pipeline.
 export async function fetchProviderModels(provider: ProviderId, apiKey: string, endpoint?: string): Promise<ProviderModel[]> {
   const cfg = providerConfig(provider);
   try {
     const rawBase = (endpoint || cfg.baseUrl).replace(/\/+$/, "");
     if (/api\.nvcf\.nvidia\.com/.test(rawBase)) return [];
-    const skip = /(embed|embedding|reward|rerank|ranker|guard|tts|asr|whisper|speech|tokeniz|dalle|midjourney|stable|sdxl|flux|text-embed)/i;
+    // Exclude non-dialog families (embeddings, audio, re-rankers...) but NOT
+    // image/video generation models — those are surfaced so they can be used.
+    const skip = /(embed|embedding|reward|rerank|ranker|guard|tts|asr|whisper|speech|tokeniz)/i;
 
     let url: string;
     let headers: Record<string, string>;
@@ -394,7 +449,20 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
         (m.context_window as number) ??
         (m.inputTokenLimit as number) ??
         (m.context as number);
-      out.push({ id, name: id.split("/").pop() ?? id, context: ctx ? `${Math.max(1, Math.round(Number(ctx) / 1024))}K` : undefined });
+      const modalities = Array.isArray(m.modalities) ? (m.modalities as string[]).map(x => String(x).toLowerCase()) : [];
+      const mods = Array.isArray(m.output_modalities) ? (m.output_modalities as string[]).map(x => String(x).toLowerCase()) : [];
+      const flags = [...modalities, ...mods];
+      const image = flags.includes("image") || /(dall-e|gpt-image|imagen|sdxl|flux|stable-diffusion|schnell|image-generation)/i.test(id);
+      const video = flags.some(f => /video|modality\.video/i.test(f)) || /(sora|veo|kling|pika|luma|runway|video-generation)/i.test(id);
+      const reasoning = /(o1|o3|o4|gpt-5|thinking|deepseek-r1|\br1\b|nemotron|reasoning|gemini-2\.5|claude-4|sonar-reasoning)/i.test(id);
+      out.push({
+        id,
+        name: id.split("/").pop() ?? id,
+        context: ctx ? `${Math.max(1, Math.round(Number(ctx) / 1024))}K` : undefined,
+        ...(image ? { image: true } : {}),
+        ...(video ? { video: true } : {}),
+        ...(reasoning ? { reasoning: true } : {}),
+      });
     }
     out.sort((a, b) => a.id.localeCompare(b.id));
     return out;

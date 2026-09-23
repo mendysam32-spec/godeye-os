@@ -203,6 +203,33 @@ export default function SettingsPage() {
 
           {/* Behavior */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex items-center gap-2 font-medium"><Sliders className="h-4 w-4"/> Reasoning & depth — how hard GodEye thinks</div>
+            <p className="text-xs text-muted-foreground mt-1">Fast = quick answers. Think = step-by-step. Deep = multi-approach verification for code & research. Max 🧠 = extra-high depth for complex projects, big docs, question banks and data work (slower, more tokens).</p>
+            <div className="mt-4 grid md:grid-cols-2 gap-4">
+              <label className="block"><span className="text-xs font-medium">Reasoning effort (default)</span>
+                <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({reasoningEffort:e.target.value as any})} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10">
+                  <option value="off">Off — fast, no extra thinking</option>
+                  <option value="low">Low — quick deliberation</option>
+                  <option value="medium">Medium — step-by-step (recommended)</option>
+                  <option value="high">High — deep reasoning for hard tasks</option>
+                  <option value="extra-high">Extra-high 🧠 — max depth for complex projects</option>
+                </select>
+                <span className="text-xs text-muted-foreground">Maps to provider-native thinking: OpenAI reasoning_effort, Anthropic thinking budget, Gemini thinkingBudget, DeepSeek-R1/Nemotron depth. High modes also enlarge file context (up to 40k chars/file) and output budget.</span>
+              </label>
+              <div className="rounded-xl border bg-muted p-3 text-xs">
+                <div className="font-medium text-sm">What changes with depth?</div>
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  <li>💻 <b>Coding:</b> architecture → modules → tests, edge cases checked</li>
+                  <li>📚 <b>Large docs:</b> 12k → 25k → 40k chars per file ingested</li>
+                  <li>🔍 <b>Research:</b> facts → cross-check → synthesis with gaps</li>
+                  <li>📊 <b>Data:</b> extract → correlate → conclude with verification</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Behavior */}
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="flex items-center gap-2 font-medium"><Sliders className="h-4 w-4"/> Program settings & behavior</div>
             <div className="mt-4 grid md:grid-cols-2 gap-4">
               <label className="block"><span className="text-xs font-medium">Agent behavior</span>
