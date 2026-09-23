@@ -211,18 +211,21 @@ function freshSettings(): ProgramSettings {
 
 function freshAgents(): Agent[] {
   return [
-    { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.3-70b-instruct", systemPrompt: "You design scalable systems.", temperature: 0.4, color: "#76b900" },
-    { id: "2", name: "Coder", role: "Full-Stack Engineer", provider: "openrouter", model: "anthropic/claude-sonnet-4", systemPrompt: "You write production code.", temperature: 0.2, color: "#6467f2" },
-    { id: "3", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content.", temperature: 0.8, color: "#ff6b35" },
+    { id: "1", name: "Architect", role: "System Architect", provider: "nvidia", model: "meta/llama-3.3-70b-instruct", systemPrompt: "You design scalable systems. Given a task you break it into components, define interfaces, trade-offs and a build plan before any code is written.", temperature: 0.4, color: "#76b900" },
+    { id: "2", name: "Devin", role: "Autonomous Software Engineer", provider: "openrouter", model: "anthropic/claude-sonnet-4", systemPrompt: "You are an autonomous software engineer like Cognition's Devin/Claude Code. You plan, write, run and self-review code end-to-end on well-scoped tasks: implement features, write tests, run them, and only then present a reviewable diff.", temperature: 0.2, color: "#6467f2" },
+    { id: "3", name: "Researcher", role: "Deep Research Analyst", provider: "google", model: "gemini-2.0-pro", systemPrompt: "You are a Gemini Deep Research analyst. Gather, cross-check and synthesize multi-source information, cite sources, separate fact from speculation, and deliver a cited report — not a list of search results.", temperature: 0.3, color: "#4285f4" },
+    { id: "4", name: "Reviewer", role: "QA & Security Reviewer", provider: "nvidia", model: "deepseek-ai/deepseek-r1", systemPrompt: "You are a strict QA and security reviewer. Adversarially review code and content: bugs, edge cases, security flaws, hallucinations and wrong assumptions. Ship verdicts (approve / changes requested) with specific line-level reasoning — never rubber-stamp.", temperature: 0.2, color: "#76b900" },
+    { id: "5", name: "Operator", role: "Web & Browser Agent", provider: "openrouter", model: "openai/gpt-4o", systemPrompt: "You are an OpenAI Operator-style web agent. Perform browser-class tasks: research the live web, fill workflows, extract structured data, and automate repetitive tasks. Report steps taken and results with URLs.", temperature: 0.4, color: "#6467f2" },
+    { id: "6", name: "Writer", role: "Content Strategist", provider: "omeroute", model: "omeroute/auto", systemPrompt: "You craft compelling content. Translate raw research and code into polished copy, blogs, docs and marketing that keeps a consistent voice. Output final deliverable-ready text.", temperature: 0.8, color: "#ff6b35" },
   ];
 }
 
 function freshProjects(): Project[] {
   const now = new Date().toISOString();
   return [
-    { id: "p1", name: "GodEye Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2"], tasksTotal: 12, tasksDone: 7, createdAt: now, updatedAt: now },
-    { id: "p2", name: "AI Blog Pipeline", description: "Research → draft → SEO → publish", status: "active", color: "#8b5cf6", agentIds: ["3"], tasksTotal: 8, tasksDone: 3, createdAt: now, updatedAt: now },
-    { id: "p3", name: "Nvidia Demo App", description: "Llama 405B showcase build", status: "draft", color: "#76b900", agentIds: ["1", "2", "3"], tasksTotal: 5, tasksDone: 1, createdAt: now, updatedAt: now },
+    { id: "p1", name: "GodEye Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2", "4"], tasksTotal: 12, tasksDone: 7, createdAt: now, updatedAt: now },
+    { id: "p2", name: "AI Blog Pipeline", description: "Research → draft → SEO → publish", status: "active", color: "#8b5cf6", agentIds: ["3", "5", "6"], tasksTotal: 8, tasksDone: 3, createdAt: now, updatedAt: now },
+    { id: "p3", name: "Nvidia Demo App", description: "Llama 405B showcase build", status: "draft", color: "#76b900", agentIds: ["1", "2", "4", "6"], tasksTotal: 5, tasksDone: 1, createdAt: now, updatedAt: now },
   ];
 }
 

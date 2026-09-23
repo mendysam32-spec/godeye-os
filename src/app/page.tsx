@@ -55,7 +55,7 @@ export default function Home() {
               <div className="text-sm font-medium flex items-center gap-2"><Zap className="h-4 w-4" style={{color:'var(--accent)'}}/> Multi-model coding & content</div>
               <h3 className="mt-2 text-2xl font-semibold">One brief. Many models. One deliverable.</h3>
               <ul className="mt-4 space-y-2 text-sm">
-                {["Coder on Nvidia Llama 405B", "Reviewer on OpenRouter Claude", "Writer on OmeRoute Auto", "Orchestrator merges outputs"].map(t=>(
+                {["Devin-style engineer on OpenRouter Claude", "Deep Researcher on Gemini 2.0 Pro", "QA Reviewer on NVIDIA R1", "Operator browses & Writer publishes"].map(t=>(
                   <li key={t} className="flex gap-2"><Check className="h-4 w-4 mt-0.5 text-emerald-500"/>{t}</li>
                 ))}
               </ul>
@@ -64,9 +64,10 @@ export default function Home() {
               <div className="w-full rounded-2xl border bg-card p-4 font-mono text-xs leading-relaxed">
                 <div className="text-muted-foreground">// Agents loaded by provider</div>
                 <div><span className="text-violet-600">Architect</span> → nvidia/llama-3.3-70b</div>
-                <div><span className="text-blue-600">Coder</span> → openrouter/claude-sonnet-4</div>
+                <div><span className="text-blue-600">Devin</span> → openrouter/claude-sonnet-4</div>
+                <div><span className="text-green-600">Reviewer</span> → nvidia/deepseek-r1</div>
                 <div><span className="text-orange-600">Writer</span> → omeroute/auto</div>
-                <div className="mt-3 rounded-xl bg-muted p-3">Output: production PR + docs + blog draft</div>
+                <div className="mt-3 rounded-xl bg-muted p-3">Output: reviewed PR + research brief + publish-ready copy</div>
               </div>
             </div>
           </div>
