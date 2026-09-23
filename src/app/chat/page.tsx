@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
@@ -129,6 +129,7 @@ export default function ChatPage() {
   const [createdFiles, setCreatedFiles] = useState<Record<string, ToolFile[]>>({});
   const [focused, setFocused] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches ? false : true));
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [menuTab, setMenuTab] = useState<"model" | "connector" | "plugins">("model");
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -546,6 +547,15 @@ function selectChat(id: string) {
   return (
     <div className="h-[100dvh] h-screen flex bg-background overflow-hidden">
       {!focused && !sidebarHidden && <Sidebar />}
+      {/* main nav menu — slide-over so you can always return to other pages */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-[70] flex bg-black/40 backdrop-blur-sm" onClick={() => setMenuOpen(false)}>
+          <div className="h-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <Sidebar variant="drawer" />
+          </div>
+          <button className="flex-1" onClick={() => setMenuOpen(false)} aria-label="Close menu" />
+        </div>
+      )}
       {/* chats list — drawer on mobile, column on desktop */}
       {!focused && !sidebarHidden && (
         <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden" onClick={() => setSidebarHidden(true)} />
@@ -589,6 +599,9 @@ function selectChat(id: string) {
         {/* header */}
         <div className="h-14 border-b flex items-center gap-2 px-3 md:px-4 bg-background/80 backdrop-blur shrink-0">
           <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => setMenuOpen(true)} title="Menu — go back to other pages" className="p-2 rounded-xl border bg-card hover:bg-muted">
+              <Menu className="h-4 w-4" />
+            </button>
             <button onClick={() => setSidebarHidden(!sidebarHidden)} title={focused ? undefined : sidebarHidden ? "Show chats" : "Hide chats"} className={`p-2 rounded-xl border ${sidebarHidden ? "bg-foreground text-background" : "bg-card hover:bg-muted"} inline-flex ${focused ? "hidden" : ""}`}>
               {sidebarHidden ? <PanelLeftOpen className="h-4 w-4"/> : <PanelLeftClose className="h-4 w-4"/>}
             </button>

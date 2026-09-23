@@ -17,37 +17,39 @@ const nav = [
 
 const FOLDER_COLORS = ["#0a4d8c", "#8b5cf6", "#0d9488", "#db2777", "#e11d48", "#d97706", "#76b900"];
 
-export function Sidebar() {
+export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 border-b bg-card/80 backdrop-blur flex items-center justify-between px-4">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
-          <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
-        </Link>
-        <button onClick={() => setOpen(!open)} className="p-2 rounded-xl border bg-background"><Menu className="h-5 w-5" /></button>
-      </div>
-      {/* Mobile drawer */}
-      {open && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)}>
-          <div className="w-[280px] h-full bg-card border-r flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="p-4 flex items-center justify-between border-b">
-              <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye</div>
-              <button onClick={() => setOpen(false)} className="p-2 rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <NavColumn onNavigate={() => setOpen(false)} />
-            </div>
-            <ProfileFooter />
-          </div>
+      {variant === "app" && (<>
+        {/* Mobile top bar */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 border-b bg-card/80 backdrop-blur flex items-center justify-between px-4">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
+            <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
+          </Link>
+          <button onClick={() => setOpen(!open)} className="p-2 rounded-xl border bg-background"><Menu className="h-5 w-5" /></button>
         </div>
-      )}
-      {/* Spacer for fixed mobile header */}
-      <div className="md:hidden h-14 shrink-0" />
-      {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-[260px] shrink-0 flex-col border-r bg-card/50 backdrop-blur">
+        {/* Mobile drawer */}
+        {open && (
+          <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)}>
+            <div className="w-[280px] h-full bg-card border-r flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="p-4 flex items-center justify-between border-b">
+                <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye</div>
+                <button onClick={() => setOpen(false)} className="p-2 rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <NavColumn onNavigate={() => setOpen(false)} />
+              </div>
+              <ProfileFooter />
+            </div>
+          </div>
+        )}
+        {/* Spacer for fixed mobile header */}
+        <div className="md:hidden h-14 shrink-0" />
+      </>)}
+      {/* Desktop sidebar (or slide-over drawer in chat menu) */}
+      <aside className={`${variant === "drawer" ? "flex h-full" : "hidden md:flex"} w-[260px] shrink-0 flex-col border-r bg-card/50 backdrop-blur`}>
         <div className="p-6">
           <Link href="/" className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-foreground text-background grid place-items-center">
