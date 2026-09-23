@@ -103,17 +103,25 @@
   border-color: rgba(255,255,255,0.6);
 }
 
-/* Theme: Black Lime — pure black + neon lime */
+/* Theme: Black Lime — deep green-black + neon lime glow */
 .theme-blacklime {
-  --background: #000000;
+  --background: #0b1306;
   --foreground: #eef7d9;
-  --card: #0b0e06;
+  --card: #111a08;
   --card-foreground: #eef7d9;
-  --muted: #121709;
-  --muted-foreground: #9dbd6e;
-  --border: #222c13;
+  --muted: #1a2410;
+  --muted-foreground: #a8cb7e;
+  --border: #2a3a16;
   --primary: #a3e635;
   --primary-foreground: #000000;
+}
+.theme-blacklime body {
+  background:
+    radial-gradient(1200px 760px at 8% -8%, rgba(163,230,53,0.35), transparent 55%),
+    radial-gradient(1050px 640px at 94% -4%, rgba(190,242,100,0.26), transparent 55%),
+    radial-gradient(950px 640px at 20% 108%, rgba(132,204,22,0.30), transparent 55%),
+    radial-gradient(760px 520px at 88% 108%, rgba(217,249,157,0.18), transparent 55%),
+    linear-gradient(150deg, #0c1505, #131f08 42%, #1a2a0c 76%, #081005);
 }
 .theme-blacklime ::selection {
   background: #a3e635;
@@ -123,7 +131,7 @@
   color: #bef264;
 }
 .theme-blacklime .glass {
-  background: rgba(11, 14, 6, 0.72);
+  background: rgba(13, 19, 7, 0.72);
   border: 1px solid rgba(163, 230, 53, 0.35);
 }
 .theme-blacklime input:focus-visible,
