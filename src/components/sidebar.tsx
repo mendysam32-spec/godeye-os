@@ -22,31 +22,40 @@ export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
   return (
     <>
       {variant === "app" && (<>
-        {/* Mobile top bar */}
-        <div className="md:hidden fixed top-0 left-0 right-0 z-30 h-14 border-b bg-card/80 backdrop-blur flex items-center justify-between px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
-            <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
-          </Link>
-          <button onClick={() => setOpen(!open)} className="p-2 rounded-xl border bg-background"><Menu className="h-5 w-5" /></button>
+        {/* Mobile top bar. `safe-top` keeps it clear of the notch and the
+            home indicator; the matching spacer below has to grow by the same
+            inset or the page content hides under the bar. */}
+        <div className="md:hidden fixed top-0 left-0 right-0 z-30 border-b bg-card/80 backdrop-blur safe-top">
+          <div className="h-14 flex items-center justify-between px-4">
+            <Link href="/" className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
+              <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
+            </Link>
+            <button
+              onClick={() => setOpen(!open)}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+              className="h-11 w-11 -mr-2 grid place-items-center rounded-xl border bg-background active:bg-muted"
+            ><Menu className="h-5 w-5" /></button>
+          </div>
         </div>
         {/* Mobile drawer */}
         {open && (
           <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)}>
-            <div className="w-[280px] h-full bg-card border-r flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="w-[min(280px,85vw)] h-full bg-card border-r flex flex-col safe-top safe-bottom safe-x" onClick={e => e.stopPropagation()}>
               <div className="p-4 flex items-center justify-between border-b">
                 <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye</div>
-                <button onClick={() => setOpen(false)} className="p-2 rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
+                <button onClick={() => setOpen(false)} aria-label="Close menu" className="h-11 w-11 -mr-2 grid place-items-center rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto overscroll-contain">
                 <NavColumn onNavigate={() => setOpen(false)} />
               </div>
               <ProfileFooter />
             </div>
           </div>
         )}
-        {/* Spacer for fixed mobile header */}
-        <div className="md:hidden h-14 shrink-0" />
+        {/* Spacer for the fixed mobile header (56px bar + safe-area inset) */}
+        <div className="md:hidden h-14 shrink-0 safe-top" />
       </>)}
       {/* Desktop sidebar (or slide-over drawer in chat menu) */}
       <aside className={`${variant === "drawer" ? "flex h-full" : "hidden md:flex"} w-[260px] shrink-0 flex-col border-r bg-card/50 backdrop-blur`}>

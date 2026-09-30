@@ -11,16 +11,21 @@ export interface ProviderModel {
   video?: boolean;
   // reasoning-capable models — support thinking budgets / effort levels
   reasoning?: boolean;
+  // can read image inputs (vision) — gates whether attachments are sent as
+  // image parts or downgraded to a text marker.
+  vision?: boolean;
 }
 
 export interface ModelCapabilities {
   image: boolean;
   video: boolean;
+  vision: boolean;
 }
 
-const CAPABLE_MODELS_RE: Record<keyof ModelCapabilities, RegExp> = {
+export const CAPABLE_MODELS_RE: Record<keyof ModelCapabilities, RegExp> = {
   image: /(dall-e|gpt-image|flux|sdxl|stable-diffusion|imagen|image|schnell|turbo|playground)/i,
   video: /(sora|veo|kling|pika|luma|runway|wan|video)/i,
+  vision: /(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4\.5|gpt-5|o1|o3|o4|chatgpt-4o|claude-3|claude-4|claude-sonnet|claude-opus|claude-haiku|gemini|gemma|llama-?3\.[23]|llama-?4|pixtral|llava|vision|vl-|qwen.*-?vl|qwen3-vl|internvl|phi-3|phi-4|glm-4v|glm-4\.[0-9]v|minicpm|nova-(lite|pro|premier)|mistral-small|pixtral|command-r|sonar|deepseek|step-?1|ernie|kimi|moonshot|exaone|internlm)/i,
 };
 
 // Sniffs a provider/model pair for generation capabilities. `dynamic` is the
@@ -28,12 +33,13 @@ const CAPABLE_MODELS_RE: Record<keyof ModelCapabilities, RegExp> = {
 // static curated entry when both are present).
 export function modelCapabilities(provider: ProviderId, model: string, dynamic?: ProviderModel[]): ModelCapabilities {
   const fromList = dynamic?.find(m => m.id === model) ?? PROVIDERS.find(p => p.id === provider)?.models.find(m => m.id === model);
-  if (fromList && (fromList.image !== undefined || fromList.video !== undefined)) {
-    return { image: !!fromList.image, video: !!fromList.video };
+  if (fromList && (fromList.image !== undefined || fromList.video !== undefined || fromList.vision !== undefined)) {
+    return { image: !!fromList.image, video: !!fromList.video, vision: !!fromList.vision };
   }
   return {
     image: CAPABLE_MODELS_RE.image.test(model),
     video: CAPABLE_MODELS_RE.video.test(model),
+    vision: CAPABLE_MODELS_RE.vision.test(model),
   };
 }
 
@@ -53,11 +59,11 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.openai.com/v1',
     keyPlaceholder: 'sk-...',
     models: [
-      { id: 'gpt-5', name: 'GPT-5', context: '400K', starred: true, reasoning: true },
-      { id: 'gpt-5-thinking', name: 'GPT-5 Thinking', context: '400K', reasoning: true, starred: true },
-      { id: 'o3', name: 'o3 (deep reasoning)', context: '200K', reasoning: true },
+      { id: 'gpt-5', name: 'GPT-5', context: '400K', starred: true, reasoning: true, vision: true },
+      { id: 'gpt-5-thinking', name: 'GPT-5 Thinking', context: '400K', reasoning: true, starred: true, vision: true },
+      { id: 'o3', name: 'o3 (deep reasoning)', context: '200K', reasoning: true, vision: true },
       { id: 'o3-mini', name: 'o3-mini', context: '200K', reasoning: true },
-      { id: 'gpt-4o', name: 'GPT-4o', context: '128K' },
+      { id: 'gpt-4o', name: 'GPT-4o', context: '128K', vision: true },
       { id: 'gpt-image-1', name: 'GPT Image 1', context: '-', image: true },
       { id: 'dall-e-3', name: 'DALL-E 3', context: '-', image: true, starred: true },
       { id: 'dall-e-2', name: 'DALL-E 2', context: '-', image: true },
@@ -70,9 +76,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.anthropic.com',
     keyPlaceholder: 'sk-ant-...',
     models: [
-      { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K', starred: true, reasoning: true },
-      { id: 'claude-4-sonnet', name: 'Claude 4 Sonnet', context: '200K', starred: true, reasoning: true },
-      { id: 'claude-3.5-haiku', name: 'Claude 3.5 Haiku', context: '200K' },
+      { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K', starred: true, reasoning: true, vision: true },
+      { id: 'claude-4-sonnet', name: 'Claude 4 Sonnet', context: '200K', starred: true, reasoning: true, vision: true },
+      { id: 'claude-3.5-haiku', name: 'Claude 3.5 Haiku', context: '200K', vision: true },
     ]
   },
   {
@@ -81,9 +87,10 @@ export const PROVIDERS: Provider[] = [
     keyPlaceholder: 'nvapi-...',
     models: [
       { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', context: '128K', starred: true },
-      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', context: '128K', reasoning: true },
+      { id: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Nemotron Super 49B', context: '128K', reasoning: true, vision: true },
       { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1 (reasoning)', context: '128K', reasoning: true, starred: true },
       { id: 'meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', context: '128K' },
+      { id: 'nvidia/nemotron-nano-vl-v2', name: 'Nemotron Nano VL v2', context: '32K', vision: true, starred: true },
     ]
   },
   {
@@ -91,10 +98,10 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://openrouter.ai/api/v1',
     keyPlaceholder: 'sk-or-v1-...',
     models: [
-      { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4 via OR', context: '200K', reasoning: true, starred: true },
-      { id: 'openai/gpt-4o', name: 'GPT-4o via OR', context: '128K' },
-      { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: '1M', starred: true },
-      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (thinking)', context: '1M', reasoning: true, starred: true },
+      { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4 via OR', context: '200K', reasoning: true, starred: true, vision: true },
+      { id: 'openai/gpt-4o', name: 'GPT-4o via OR', context: '128K', vision: true },
+      { id: 'google/gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: '1M', starred: true, vision: true },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (thinking)', context: '1M', reasoning: true, starred: true, vision: true },
       { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', context: '128K', reasoning: true },
       { id: 'deepseek/deepseek-v3', name: 'DeepSeek V3', context: '128K' },
       { id: 'openai/dall-e-3', name: 'DALL-E 3 via OR', context: '-', image: true, starred: true },
@@ -107,9 +114,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.omeroute.ai/v1',
     keyPlaceholder: 'ome-...',
     models: [
-      { id: 'omeroute/auto', name: 'OmeRoute Auto', context: '200K', starred: true, reasoning: true },
-      { id: 'omeroute/gpt-5-router', name: 'GPT-5 Router', context: '400K', reasoning: true },
-      { id: 'omeroute/claude-router', name: 'Claude Router', context: '200K', reasoning: true },
+      { id: 'omeroute/auto', name: 'OmeRoute Auto', context: '200K', starred: true, reasoning: true, vision: true },
+      { id: 'omeroute/gpt-5-router', name: 'GPT-5 Router', context: '400K', reasoning: true, vision: true },
+      { id: 'omeroute/claude-router', name: 'Claude Router', context: '200K', reasoning: true, vision: true },
     ]
   },
   {
@@ -117,9 +124,11 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://generativelanguage.googleapis.com/v1',
     keyPlaceholder: 'AIza...',
     models: [
-      { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro', context: '2M', starred: true, reasoning: true },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', context: '1M' },
-      { id: 'gemini-2.5-flash-image', name: 'Gemini Image', context: '130K', image: true, starred: true },
+      { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro', context: '2M', starred: true, reasoning: true, vision: true },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', context: '1M', vision: true },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', context: '1M', vision: true },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', context: '1M', reasoning: true, vision: true },
+      { id: 'gemini-2.5-flash-image', name: 'Gemini Image', context: '130K', image: true, starred: true, vision: true },
       { id: 'imagen-4.0-generate-001', name: 'Imagen 4.0', context: '-', image: true },
       { id: 'veo-3.0-fast', name: 'Veo 3.0 Fast', context: '-', video: true, starred: true },
       { id: 'veo-3.0-generate-001', name: 'Veo 3.0', context: '-', video: true },
@@ -130,8 +139,8 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://agentrouter.org/v1',
     keyPlaceholder: 'ak-...',
     models: [
-      { id: 'gpt-5.5', name: 'GPT-5.5', context: '400K', starred: true },
-      { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K' },
+      { id: 'gpt-5.5', name: 'GPT-5.5', context: '400K', starred: true, vision: true },
+      { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K', vision: true },
     ]
   },
   {
@@ -139,8 +148,9 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.mistral.ai/v1',
     keyPlaceholder: '...',
     models: [
-      { id: 'mistral-large-latest', name: 'Mistral Large', context: '128K', starred: true },
+      { id: 'mistral-large-latest', name: 'Mistral Large', context: '128K', starred: true, vision: true },
       { id: 'codestral-latest', name: 'Codestral', context: '32K' },
+      { id: 'pixtral-large-latest', name: 'Pixtral Large', context: '128K', vision: true },
     ]
   },
   {
@@ -167,7 +177,7 @@ export const PROVIDERS: Provider[] = [
     baseUrl: 'https://api.cohere.ai/v1',
     keyPlaceholder: '...',
     models: [
-      { id: 'command-r-plus', name: 'Command R+', context: '128K' },
+      { id: 'command-r-plus', name: 'Command R+', context: '128K', vision: true },
     ]
   },
   {

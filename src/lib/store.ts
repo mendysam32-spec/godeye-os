@@ -2,6 +2,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
+import { partsForStorage, type ContentPart, type FileKind } from "./content";
 
 export type Theme = "light" | "dark" | "glass" | "blacklime" | "aurora" | "indigoblack";
 export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
@@ -87,12 +88,25 @@ export interface ChatMedia {
   filename?: string;
 }
 
+export interface ChatAttachment {
+  name: string;
+  type: string;
+  size: number;
+  preview?: string;
+  kind?: FileKind;
+  /** why the file could not be attached, when it was dropped */
+  note?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
-  attachments?: { name: string; type: string; size: number; preview?: string }[];
+  attachments?: ChatAttachment[];
+  /** typed multimodal body (text/image/document) so attachments survive reload
+   *  and can be replayed to the model on later turns */
+  parts?: ContentPart[];
   media?: ChatMedia[];
   provider?: ProviderId;
   model?: string;
@@ -158,6 +172,18 @@ interface GodEyeState {
   collectWorkspace: () => WorkspaceData;
   applyWorkspace: (data: WorkspaceData) => void;
   markWorkspaceSynced: () => void;
+  /** Phase 1 cross-device chat sync status, surfaced in the UI. */
+  chatSync: {
+    status: "idle" | "syncing" | "synced" | "offline" | "error";
+    lastSyncedAt: string;
+    /** true when the server could not be reached and local edits are queued */
+    pending: number;
+    error?: string;
+  };
+  setChatSync: (patch: Partial<GodEyeState["chatSync"]>) => void;
+  /** merge remote threads into local state; used only by the sync client.
+   *  `deletedIds` are server tombstones and must be dropped locally. */
+  applyRemoteChats: (chats: ChatSession[], deletedIds?: string[]) => void;
   chats: ChatSession[];
   activeChatId: string | null;
   incognito: boolean;
@@ -183,6 +209,33 @@ interface GodEyeState {
 const LEGACY_STORAGE_KEY = "godeye-os-v1";
 const MIGRATED_FLAG = "godeye:legacy:migrated";
 const workspaceKey = (userId: string) => `godeye:workspace:${userId}`;
+
+/* -------------------------------------------------------------------------- */
+/* chat change notifications                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A minimal observer seam rather than a direct import of the sync client.
+ * `chat-sync-client.ts` needs the store, so importing it from here would
+ * create a cycle; instead it subscribes through this.
+ */
+const chatsListeners = new Set<() => void>();
+
+/** Subscribe to any mutation of `chats`. Returns an unsubscribe function. */
+export function subscribeChats(fn: () => void): () => void {
+  chatsListeners.add(fn);
+  return () => chatsListeners.delete(fn);
+}
+
+function notifyChatsChanged(): void {
+  for (const fn of chatsListeners) {
+    try {
+      fn();
+    } catch {
+      /* a broken listener must not break the mutation that triggered it */
+    }
+  }
+}
 
 function freshProfile(): UserProfile {
   return { name: "GodEye User", email: "", avatar: "", role: "Member", bio: "" };
@@ -421,6 +474,33 @@ export const useGodEye = create<GodEyeState>()(
 
       currentUser: null,
       wsUpdatedAt: "",
+      chatSync: { status: "idle", lastSyncedAt: "", pending: 0 },
+      setChatSync: (patch) => set((s) => ({ chatSync: { ...s.chatSync, ...patch } })),
+      // `incoming` is the full merged set from `mergeThreads` (local + remote,
+      // LWW already resolved), so entries present here must overwrite the local
+      // copy. Threads absent from it are kept as-is: incognito threads are
+      // filtered out of the merge and must survive untouched.
+      //
+      // Server tombstones are the exception — they arrive as an *absence*, so
+      // without `deletedIds` a chat deleted on another device would linger here
+      // forever and reappear on the next push.
+      applyRemoteChats: (incoming, deletedIds) =>
+        set((s) => {
+          const doomed = new Set(deletedIds ?? []);
+          const kept = s.chats.filter((c) => !doomed.has(c.id));
+          if (!incoming.length && !doomed.size) return {};
+          const incomingById = new Map(incoming.map((c) => [c.id, c]));
+          // keep local ordering stable and append genuinely new threads
+          const replaced = kept.map((c) => incomingById.get(c.id) ?? c);
+          const known = new Set(replaced.map((c) => c.id));
+          const additions = incoming.filter((c) => !known.has(c.id)).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+          const chats = [...additions, ...replaced];
+          return {
+            chats,
+            activeChatId:
+              s.activeChatId && chats.some((c) => c.id === s.activeChatId) ? s.activeChatId : chats[0]?.id ?? null,
+          };
+        }),
       loginUser: (u) => {
         const data = readUserData(u.id);
         const current = get();
@@ -536,7 +616,10 @@ export const useGodEye = create<GodEyeState>()(
             settings: data.settings ?? base.settings,
             vault: mergedVault,
             agents: data.agents ?? base.agents,
-            chats: data.chats ?? base.chats,
+            // Legacy workspaces stored whole chat arrays. Import them only when
+            // this device has nothing local, then let the per-thread sync path
+            // own chat state — otherwise a stale blob would clobber live edits.
+            chats: s.chats.length ? s.chats : (data.chats ?? base.chats),
             projects: data.projects ?? base.projects,
             folders: data.folders ?? base.folders,
             lastProvider: data.lastProvider ?? base.lastProvider,
@@ -585,7 +668,7 @@ export const useGodEye = create<GodEyeState>()(
       activeChatId: null,
       incognito: false,
       setIncognito: (b) => set({ incognito: b }),
-      purgeIncognito: () =>
+      purgeIncognito: () => {
         set((s) => {
           const doomed = new Set(s.chats.filter((c) => c.incognito).map((c) => c.id));
           if (!doomed.size) return { activeChatId: s.activeChatId };
@@ -593,7 +676,9 @@ export const useGodEye = create<GodEyeState>()(
             chats: s.chats.filter((c) => !doomed.has(c.id)),
             activeChatId: s.activeChatId && doomed.has(s.activeChatId) ? s.chats.find((c) => !doomed.has(c.id))?.id ?? null : s.activeChatId,
           };
-        }),
+        });
+        notifyChatsChanged();
+      },
       createChat: (opts) => {
         const s = get();
         const provider = opts?.provider || s.lastProvider || "openrouter";
@@ -623,14 +708,27 @@ export const useGodEye = create<GodEyeState>()(
           lastProvider: provider,
           lastModelByProvider: { ...st.lastModelByProvider, [provider]: model },
         }));
+        notifyChatsChanged();
         return id;
       },
       setActiveChat: (id) => set({ activeChatId: id }),
-      addMessage: (chatId, msg) =>
+      addMessage: (chatId, msg) => {
         set((s) => ({
-          chats: s.chats.map((c) => (c.id === chatId ? { ...c, messages: [...c.messages, msg], updatedAt: new Date().toISOString(), title: c.messages.length === 0 && msg.role === "user" ? msg.content.slice(0, 48) : c.title } : c)),
-        })),
-      updateLastMessage: (chatId, content, extra) =>
+          chats: s.chats.map((c) => {
+            if (c.id !== chatId) return c;
+            // binary parts are heavy — clamp to what localStorage can survive
+            const stored: ChatMessage = msg.parts?.length ? { ...msg, parts: partsForStorage(msg.parts) } : msg;
+            return {
+              ...c,
+              messages: [...c.messages, stored],
+              updatedAt: new Date().toISOString(),
+              title: c.messages.length === 0 && msg.role === "user" ? msg.content.slice(0, 48) : c.title,
+            };
+          }),
+        }));
+        notifyChatsChanged();
+      },
+      updateLastMessage: (chatId, content, extra) => {
         set((s) => ({
           chats: s.chats.map((c) => {
             if (c.id !== chatId || c.messages.length === 0) return c;
@@ -638,10 +736,22 @@ export const useGodEye = create<GodEyeState>()(
             msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], ...(content !== undefined ? { content } : {}), ...(extra || {}) };
             return { ...c, messages: msgs };
           }),
-        })),
-      deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id), activeChatId: s.activeChatId === id ? s.chats[0]?.id || null : s.activeChatId })),
-      renameChat: (id, title) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) })),
-      markChatIncognito: (id, b) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, incognito: b } : c)) })),
+        }));
+        notifyChatsChanged();
+      },
+      deleteChat: (id) => {
+        set((s) => ({ chats: s.chats.filter((c) => c.id !== id), activeChatId: s.activeChatId === id ? s.chats[0]?.id || null : s.activeChatId }));
+        notifyChatsChanged();
+      },
+      renameChat: (id, title) => {
+        set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, title } : c)) }));
+        notifyChatsChanged();
+      },
+      markChatIncognito: (id, b) => {
+        set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, incognito: b } : c)) }));
+        notifyChatsChanged();
+      },
+
 
       projects: freshProjects(),
       addProject: (p) => set((s) => ({ projects: [p, ...s.projects] })),
@@ -673,3 +783,5 @@ export const useGodEye = create<GodEyeState>()(
     { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );
+
+export type { ContentPart, FileKind };

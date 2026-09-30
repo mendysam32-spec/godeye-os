@@ -11,6 +11,14 @@ import { toast } from "@/components/toast";
 import { isDesktop, runGodEyeTool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
 import { isToolProvider } from "@/lib/tools";
 import { makeDocx, makePdf, makeZip, bufToBase64, MIME_DOCX } from "@/lib/file-builder";
+import { readChatStream, type ToolCallWire } from "@/lib/chat-stream";
+import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
+import { SyncBadge, SyncDot } from "@/components/sync-badge";
+import { noteChatDeleted } from "@/lib/chat-sync-client";
+import {
+  ACCEPTED_FILE_TYPES, MAX_TEXT_PART_CHARS, budgetParts, pendingFileMarker, pendingFileToParts,
+  supportsNativePdf, readPendingFiles, type ContentPart, type PendingFile,
+} from "@/lib/content";
 
 const MODES: { id: ChatMode; label: string; icon: LucideIcon; desc: string }[] = [
   { id: "chat", label: "Chat", icon: MessageSquare, desc: "General" },
@@ -115,13 +123,18 @@ export default function ChatPage() {
     if (remembered && list.some(m => m.id === remembered)) return remembered;
     return list[0]?.id || "anthropic/claude-sonnet-4";
   });
-  const [files, setFiles] = useState<{ name: string; type: string; size: number; content: string; preview?: string }[]>([]);
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [reading, setReading] = useState(false);
+  const [stage, setStage] = useState<string>("");
   const [running, setRunning] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [toolsOn, setToolsOn] = useState<boolean>(settings.plugins?.tools !== false);
   const [runOut, setRunOut] = useState<Record<string, string>>({});
   const abortRef = useRef<AbortController | null>(null);
+  // accumulates streamed deltas so each event can render incrementally without
+  // re-deriving the full text from the store on every token
+  const streamTextRef = useRef("");
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -227,41 +240,70 @@ function selectChat(id: string) {
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const fl = e.target.files;
-    if (!fl) return;
-    const arr: { name: string; type: string; size: number; content: string; preview?: string }[] = [];
-    for (const f of Array.from(fl)) {
-      const isImage = f.type.startsWith("image/");
-      const content = await new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.onerror = rej;
-        if (isImage) r.readAsDataURL(f);
-        else r.readAsText(f);
-      });
-      arr.push({ name: f.name, type: f.type || "text/plain", size: f.size, content: isImage ? content : content.slice(0, 20000), preview: isImage ? content : undefined });
-    }
-    setFiles(prev => [...prev, ...arr]);
     if (fileRef.current) fileRef.current.value = "";
+    if (!fl?.length) return;
+    setReading(true);
+    try {
+      // PDFs are only sent whole to providers that extract the text themselves.
+      // Everything else is read here so nothing has to round-trip as a blob.
+      const nativePdf = supportsNativePdf(provider);
+      const picked = await readPendingFiles(fl, { nativePdf });
+      setFiles((prev) => [...prev, ...picked]);
+      const skipped = picked.filter((f) => f.base64 == null && f.text == null);
+      const attached = picked.length - skipped.length;
+      if (attached) {
+        setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u{1F4CE} ${attached} file(s) ready — ${picked.filter((f) => f.kind === "image").length} image, ${picked.filter((f) => f.kind === "pdf").length} pdf, ${picked.filter((f) => f.kind === "text").length} text`]);
+      }
+      for (const f of skipped) {
+        setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u26a0 skipped ${f.name} — ${f.note}`]);
+      }
+      if (skipped.length) toast(`${skipped.length} file(s) could not be attached — see terminal`, "error");
+    } catch (err) {
+      toast(`Could not read files: ${(err as Error).message}`, "error");
+    } finally {
+      setReading(false);
+    }
   }
 
-  interface WireMsg { role: "user" | "assistant" | "system" | "tool"; content: string; tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[]; tool_call_id?: string }
+  interface WireMsg {
+    role: "user" | "assistant" | "system" | "tool";
+    content: string | ContentPart[];
+    tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[];
+    tool_call_id?: string;
+  }
 
   function normalizeMsg(m: ChatMessage): WireMsg {
     const src = m as ChatMessage & { tool_calls?: WireMsg["tool_calls"]; tool_call_id?: string };
-    const out: WireMsg = { role: m.role, content: m.content ?? "" };
+    // replay stored attachments so a follow-up question still sees the document
+    const out: WireMsg = { role: m.role, content: m.parts?.length ? m.parts : m.content ?? "" };
     if (src.tool_calls) out.tool_calls = src.tool_calls;
     if (src.tool_call_id) out.tool_call_id = src.tool_call_id;
     return out;
   }
 
-  interface ToolCallWire { id: string; name: string; arguments: Record<string, unknown> }
+  /** Build the outgoing turn: text plus whatever the selected model can read. */
+  function buildUserTurn(text: string, pending: PendingFile[], caps: { vision: boolean }): ContentPart[] {
+    const parts: ContentPart[] = [];
+    if (text) parts.push({ type: "text", text });
+    for (const f of pending) {
+      if (f.kind === "image" && !caps.vision) {
+        // Silently dropping a screenshot is worse than saying so.
+        parts.push({ type: "text", text: `[image not sent: ${f.name} — ${provider}/${model} has no vision support. Switch to a vision model to read it.]` });
+        continue;
+      }
+      parts.push(...pendingFileToParts(f, MAX_TEXT_PART_CHARS));
+      const marker = pendingFileMarker(f);
+      if (marker) parts.push(marker);
+    }
+    return budgetParts(parts);
+  }
 
-  async function runAgentLoop(chatId: string, asstId: string, userContent: string, referenceFiles: { name: string; content: string; type: string }[], controller: AbortController) {
+  async function runAgentLoop(chatId: string, asstId: string, userTurn: ContentPart[], controller: AbortController) {
     const decryptedVault = await getDecryptedVaultForApi(vault);
     const useTools = plugins.tools && toolsOn && isToolProvider(provider);
     const reasoningEffort = settings.reasoningEffort || "medium";
     const history: WireMsg[] = [...(activeChat?.messages || [])].map(normalizeMsg);
-    history.push({ role: "user", content: userContent });
+    history.push({ role: "user", content: userTurn });
 
     const MAX_TOOL_ITER = reasoningEffort === "extra-high" ? 8 : 6;
     let iterations = 0;
@@ -274,85 +316,65 @@ function selectChat(id: string) {
           messages: history,
           provider, model,
           mode: mode === "search" && !plugins.search ? "chat" : mode === "terminal" && !plugins.terminal ? "chat" : mode,
-          referenceFiles, vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
+          vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
           reasoningEffort,
         }),
         signal: controller.signal,
       });
 
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(j.error || "Chat failed");
+      let calls: ToolCallWire[] | undefined;
+      let failed: string | undefined;
+      streamTextRef.current = "";
+      const result = await readChatStream(res, {
+        onDelta: (t) => {
+          streamTextRef.current += t;
+          updateLastMessage(chatId, streamTextRef.current);
+        },
+        onStage: (_s, label) => setStage(label),
+        onNotice: (msg) => setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2139 ${msg}`]),
+        onToolCalls: (tc) => {
+          calls = tc;
+        },
+        onDone: (info) => {
+          setStage("");
+          setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2713 ${info.latencyMs ? (info.latencyMs / 1000).toFixed(1) + "s" : ""} ${info.usage?.total_tokens ? info.usage.total_tokens + " tokens" : ""}`]);
+        },
+        onError: (msg) => {
+          failed = msg;
+        },
+        onAborted: () => setStage(""),
+      });
+      setStage("");
+
+      if (controller.signal.aborted) return;
+      if (failed) throw new Error(failed);
+
+      if (!calls?.length) {
+        if (result.text) updateLastMessage(chatId, result.text);
+        return;
       }
 
-      const ct = res.headers.get("content-type") || "";
-
-      // JSON response => either plain content or a batch of tool calls to run
-      if (ct.includes("application/json")) {
-        const j = await res.json();
-        if (!j.toolCalls?.length) {
-          if (j.content) updateLastMessage(chatId, j.content);
-          return;
-        }
-        iterations++;
-        if (iterations > MAX_TOOL_ITER) {
-          updateLastMessage(chatId, `**Stopped:** tool iteration limit reached (${MAX_TOOL_ITER}).`);
-          return;
-        }
-        const calls = j.toolCalls as ToolCallWire[];
-        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u21c4 tool round ${iterations} \u2192 ${calls.map(t => t.name).join(", ")}`]);
-        updateLastMessage(chatId, `_Using tools: ${calls.map(t => t.name).join(", ")}\u2026_`);
-        history.push({
-          role: "assistant", content: "",
-          tool_calls: calls.map(tc => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) } })),
-        });
-        for (const tc of calls) {
-          const result = await runGodEyeTool(tc.name, tc.arguments || {});
-          history.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
-          const toolFiles = result.files;
-          if (toolFiles?.length) {
-            setCreatedFiles(prev => ({ ...prev, [asstId]: [...(prev[asstId] || []), ...toolFiles] }));
-          }
-          setLogs(l => [...l, `  ${tc.name} \u2192 ${result.summary}`]);
-          updateLastMessage(chatId, `_Using tools: ${calls.map(t => t.name).join(", ")}\u2026\n  ${result.summary}_`);
-        }
-        continue;
+      iterations++;
+      if (iterations > MAX_TOOL_ITER) {
+        updateLastMessage(chatId, `**Stopped:** tool iteration limit reached (${MAX_TOOL_ITER}).`);
+        return;
       }
-
-      // SSE stream (final answer)
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let full = "";
-      if (reader) {
-        let buf = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const parts = buf.split("\n\n");
-          buf = parts.pop() || "";
-          for (const part of parts) {
-            const line = part.trim();
-            if (!line.startsWith("data:")) continue;
-            const data = JSON.parse(line.slice(5).trim());
-            if (data.delta) {
-              full += data.delta;
-              updateLastMessage(chatId, full);
-            }
-            if (data.done) {
-              setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u2713 ${data.latencyMs ? (data.latencyMs/1000).toFixed(1)+"s" : ""} ${data.usage ? data.usage.total_tokens+" tokens" : ""}`]);
-            }
-          }
+      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u21c4 tool round ${iterations} \u2192 ${calls!.map((t) => t.name).join(", ")}`]);
+      updateLastMessage(chatId, `_Using tools: ${calls.map((t) => t.name).join(", ")}\u2026_`);
+      history.push({
+        role: "assistant", content: "",
+        tool_calls: calls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) } })),
+      });
+      for (const tc of calls) {
+        const toolResult = await runGodEyeTool(tc.name, tc.arguments || {});
+        history.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(toolResult) });
+        const produced = toolResult.files || [];
+        if (produced.length) {
+          setCreatedFiles((prev) => ({ ...prev, [asstId]: [...(prev[asstId] || []), ...produced] }));
         }
-        if (!full) {
-          const txt = await res.text();
-          try { const j = JSON.parse(txt); if (j.content) { full = j.content; updateLastMessage(chatId, full); } } catch {}
-        }
-      } else {
-        const j = await res.json();
-        updateLastMessage(chatId, j.content || "");
+        setLogs((l) => [...l, `  ${tc.name} \u2192 ${toolResult.summary}`]);
+        updateLastMessage(chatId, `_Using tools: ${calls.map((t) => t.name).join(", ")}\u2026\n  ${toolResult.summary}_`);
       }
-      return;
     }
   }
 
@@ -448,44 +470,62 @@ function selectChat(id: string) {
     if (!activeChat) return;
     const chatId = activeChat.id;
     const userContent = input.trim();
-    const attachments = files.length ? files.map(f => ({ name: f.name, type: f.type, size: f.size, preview: f.preview })) : undefined;
+    const attachments = files.length
+      ? files.map((f) => ({ name: f.name, type: f.mime, size: f.size, preview: f.preview, kind: f.kind, note: f.note }))
+      : undefined;
 
-    addMessage(chatId, { id: Date.now().toString(), role: "user", content: userContent + (files.length ? `\n\n[Attached ${files.length} file(s): ${files.map(f=>f.name).join(", ")}]` : ""), timestamp: new Date().toISOString(), attachments, mode, provider, model });
+    const caps = modelCapabilities(provider, model, vault[provider]?.models);
+    const userTurn = buildUserTurn(userContent, files, caps);
+    const dropped = files.filter((f) => (f.base64 == null && f.text == null) || (f.kind === "image" && !caps.vision));
+    const listed = files.map((f) => f.name).join(", ");
+
+    addMessage(chatId, {
+      id: Date.now().toString(),
+      role: "user",
+      content: userContent + (files.length ? `\n\n[${files.length} file(s): ${listed}]` : ""),
+      timestamp: new Date().toISOString(),
+      attachments,
+      parts: userTurn,
+      mode,
+      provider,
+      model,
+    });
     setInput("");
-    const sendFiles = [...files];
     setFiles([]);
     setRunning(true);
-    setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u2192 ${provider}/${model} [${mode}] ${userContent.slice(0,80)}${toolsOn ? " \u26a1tools" : ""}`]);
+    setStage(`Sending — ${provider}/${model}`);
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2192 ${provider}/${model} [${mode}] ${userContent.slice(0, 80)}${toolsOn ? " \u26a1tools" : ""}`]);
+    for (const f of dropped) {
+      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u26a0 ${f.name} not sent — ${f.note || "model has no vision support"}`]);
+    }
 
     // optimistic assistant placeholder
-    const asstId = (Date.now()+1).toString();
+    const asstId = (Date.now() + 1).toString();
     addMessage(chatId, { id: asstId, role: "assistant", content: "", timestamp: new Date().toISOString(), mode, provider, model });
 
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const caps = modelCapabilities(provider, model, vault[provider]?.models);
       const directImage = mode === "image" && plugins.image && caps.image;
       const directVideo = mode === "video" && plugins.video && caps.video;
       if (directImage || directVideo) {
         await generateMedia(chatId, userContent, directImage, controller, mode, asstId);
       } else {
-        const fileBudget = (settings.reasoningEffort === "extra-high" ? 40000 : settings.reasoningEffort === "high" ? 25000 : 15000);
-        const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, fileBudget), type: f.type }));
-        await runAgentLoop(chatId, asstId, userContent, referenceFiles, controller);
+        await runAgentLoop(chatId, asstId, userTurn, controller);
       }
     } catch (e) {
       const err = e as Error;
       if (err.name === "AbortError") {
-        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u25a0 stopped by user`]);
-        updateLastMessage(chatId, (activeChat.messages[activeChat.messages.length-1]?.content || "") + "\n\n_— stopped_");
+        setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u25a0 stopped by user`]);
+        updateLastMessage(chatId, streamTextRef.current ? streamTextRef.current + "\n\n_— stopped_" : "_— stopped_");
       } else {
         updateLastMessage(chatId, `**Error:** ${err.message}\n\nCheck Providers Vault \u2192 connect ${provider} key.`);
-        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u2717 ${err.message}`]);
+        setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2717 ${err.message}`]);
       }
     } finally {
       setRunning(false);
+      setStage("");
       abortRef.current = null;
     }
   }
@@ -581,7 +621,7 @@ function selectChat(id: string) {
                 <div className="text-sm truncate font-medium">{c.title}{c.incognito && <span className="opacity-70"> 🕵️</span>}</div>
                 <div className={`text-xs truncate ${activeChatId===c.id ? "opacity-70" : "text-muted-foreground"}`}>{c.mode} • {c.provider}/{c.model.split("/").pop()}{c.incognito ? " • incognito" : ""}</div>
               </div>
-              <button onClick={(e)=>{e.stopPropagation(); deleteChat(c.id);}} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5"/></button>
+              <button onClick={(e)=>{e.stopPropagation(); deleteChat(c.id); if(!c.incognito) noteChatDeleted(c.id);}} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-black/10 rounded"><Trash2 className="h-3.5 w-3.5"/></button>
             </div>
           ))}
         </div>
@@ -611,7 +651,7 @@ function selectChat(id: string) {
             <span className="hidden md:inline text-xs text-muted-foreground ml-1">{focused ? "Focus" : sidebarHidden ? "Expanded" : ""}</span>
           </div>
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="hidden md:block text-sm font-medium">Chat</div>
+            <SyncDot className="ml-1" /><SyncBadge className="ml-1" /><div className="hidden md:block text-sm font-medium">Chat</div>
             <span className="hidden md:block text-muted-foreground">•</span>
             {/* mode pills */}
             <div className="flex items-center gap-1 overflow-auto">
@@ -662,9 +702,10 @@ function selectChat(id: string) {
                 {m.attachments && m.attachments.length>0 && (
                   <div className="mb-2 flex flex-wrap gap-2">
                     {m.attachments.map(a=>(
-                      <span key={a.name} className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-xs text-foreground border">
+                      <span key={a.name} title={a.note || a.type} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs border ${a.note ? "bg-destructive/10 border-destructive/40 text-destructive" : "bg-muted text-foreground"}`}>
                         {a.type.startsWith("image/") && a.preview ? <img src={a.preview} alt={a.name} className="h-6 w-6 rounded object-cover"/> : <Paperclip className="h-3 w-3"/>}
                         {a.name} <span className="opacity-60">{(a.size/1024).toFixed(0)}KB</span>
+                        {a.note && <span className="opacity-80">· {a.note}</span>}
                       </span>
                     ))}
                   </div>
@@ -739,17 +780,20 @@ function selectChat(id: string) {
               </div>
             </div>
           ))}
-          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1"/> GodEye is thinking ({settings.reasoningEffort || "medium"}) — {provider}/{model} • {mode}</div>}
+          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"/> {stage || `GodEye is thinking (${settings.reasoningEffort || "medium"}) — ${provider}/${model} • ${mode}`}</div>}
         </div>
 
         {/* composer - Codex style */}
-        <div className="border-t bg-card/50 p-3 md:p-4 shrink-0">
+        <div className="border-t bg-card/50 p-3 md:p-4 shrink-0 safe-bottom">
           {files.length>0 && (
             <div className="max-w-3xl mx-auto mb-2 flex flex-wrap gap-2">
               {files.map((f, i)=>(
-                <span key={f.name+i} className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
+                <span key={f.name+i} title={f.note || `${f.kind} · ${f.mime}`} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${f.note ? "border-destructive/50 bg-destructive/10 text-destructive" : "bg-card"}`}>
                   {f.preview ? <img src={f.preview} alt={f.name} className="h-6 w-6 rounded object-cover"/> : <Paperclip className="h-3 w-3"/>}
-                  {f.name} <button onClick={()=>setFiles(files.filter((_,j)=>j!==i))} className="p-0.5 hover:bg-muted rounded-full"><X className="h-3 w-3"/></button>
+                  <span className="max-w-[16rem] truncate">{f.name}</span>
+                  <span className="opacity-60">{(f.size/1024).toFixed(0)}KB</span>
+                  {f.note && <span className="max-w-[14rem] truncate opacity-80">· {f.note}</span>}
+                  <button onClick={()=>setFiles(files.filter((_,j)=>j!==i))} className="p-0.5 hover:bg-muted rounded-full"><X className="h-3 w-3"/></button>
                 </span>
               ))}
             </div>
@@ -758,9 +802,9 @@ function selectChat(id: string) {
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
               <div className="flex items-end gap-2">
                 <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can save files, folders, Word docs, PDFs, ZIPs and run commands on your PC" : "GodEye can create files, folders, Word docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
-                <button onClick={()=>fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4"/></button>
-                <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles}/>
-                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
+                <button onClick={()=>fileRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title={`Attach images, PDFs, code and data files${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4"/></button>
+                <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILE_TYPES} className="hidden" onChange={handleFiles}/>
+                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if (shouldSendOnEnter(e)){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
                 <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
                   <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Model, connectors & plugins • ${providerObj?.name}/${model}`}><Plus className="h-4 w-4"/></button>
                   {showModelMenu && (
@@ -859,7 +903,7 @@ function selectChat(id: string) {
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span className="hidden sm:inline">{genModeActive ? <><Clapperboard className={`inline h-3 w-3 ${mode==="video" ? "text-violet-500" : "text-amber-500"}`}/> Generation live — send a prompt and {model} renders a real {mode==="video" ? "video" : "image"} directly. </> : <>{toolsOn ? <><Zap className="inline h-3 w-3 text-amber-500"/> Tools ON — ask GodEye to save this to a file or run it. </> : <><Zap className="inline h-3 w-3"/> Tools OFF. </>}</>}Enter to send • Shift+Enter newline • Upload files as reference</span>
-              <span className="sm:hidden">Enter to send • Shift+Enter newline</span>
+              <span className="sm:hidden">{footerHint("")}</span>
               <span className="flex items-center gap-2">
                 <label className="inline-flex items-center gap-1 md:hidden">🧠
                   <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-[11px] outline-none border rounded-full px-1 py-0.5">

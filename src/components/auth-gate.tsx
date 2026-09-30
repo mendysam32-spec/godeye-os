@@ -1,12 +1,24 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useGodEye, type AuthUserInfo, type WorkspaceData } from "@/lib/store";
+import { adoptUser, pullChats, startChatSync } from "@/lib/chat-sync-client";
 import { Eye, Lock, Loader2, Mail, User, ArrowRight, AlertTriangle, X, HelpCircle, UserPlus } from "lucide-react";
 
 const OWNER_EMAIL = "mendysam32@gmail.com";
 const LOGOUT_EVENT = "godeye:logout";
 
 type Status = "boot" | "anon" | "authed";
+
+/**
+ * Chats are pushed to the server separately from the workspace blob. The
+ * workspace is a whole-state last-write-wins snapshot, which is fine for
+ * settings but would let a settings change on a phone overwrite a reply that
+ * was still streaming on a desktop. Chat sync is per-thread instead.
+ */
+async function syncChats() {
+  adoptUser(useGodEye.getState().currentUser?.id ?? "anon");
+  await pullChats(true);
+}
 
 async function syncWorkspace() {
   try {
@@ -42,6 +54,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     useGodEye.getState().loginUser(user);
     setStatus("authed");
     void syncWorkspace();
+    void syncChats();
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -66,6 +79,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
     useGodEye.getState().logoutUser();
     setStatus("anon");
+    void syncChats();
+  }, []);
+
+  useEffect(() => {
+    const stopSync = startChatSync();
+    return stopSync;
   }, []);
 
   useEffect(() => {
@@ -79,6 +98,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             useGodEye.getState().loginUser(user as AuthUserInfo);
             setStatus("authed");
             void syncWorkspace();
+            void syncChats();
           } else {
             setStatus("anon");
           }

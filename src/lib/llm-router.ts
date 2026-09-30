@@ -1,9 +1,15 @@
-import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
+import { PROVIDERS, CAPABLE_MODELS_RE, type ProviderId, type ProviderModel } from "./providers";
+import {
+  asParts, budgetParts, flattenText, isBinaryPart,
+  openAIParts, anthropicParts, googleParts, cohereParts,
+  type MessageContent,
+} from "./content";
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 export interface ChatMessage {
   role: ChatRole;
-  content: string;
+  /** plain string, or typed parts (text / image / document) for multimodal turns */
+  content: MessageContent;
   tool_calls?: { id: string; type?: string; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
 }
@@ -16,6 +22,11 @@ export interface LLMCall {
   maxTokens?: number;
   tools?: unknown[];
   reasoningEffort?: "off" | "low" | "medium" | "high" | "extra-high";
+  /** request a real upstream token stream; deltas are pushed to `onDelta` */
+  stream?: boolean;
+  onDelta?: (text: string) => void;
+  /** aborts the upstream request (client hung up) */
+  signal?: AbortSignal;
 }
 
 export interface ToolCallResult {
@@ -24,13 +35,19 @@ export interface ToolCallResult {
   arguments: Record<string, unknown>;
 }
 
+export type LLMUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+
 export interface LLMResult {
   provider: ProviderId;
   model: string;
   content: string;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage?: LLMUsage;
   latencyMs: number;
   toolCalls?: ToolCallResult[];
+  /** true when the provider had to be called without streaming or binary parts */
+  degraded?: boolean;
+  /** which capability the provider rejected, so callers can explain the fallback */
+  degradedReason?: "stream" | "parts";
 }
 
 function providerConfig(provider: ProviderId) {
@@ -55,6 +72,75 @@ function parseArgs(raw: unknown): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+// ------------------------------------------------------------- stream plumbing
+
+/** Parse a `text/event-stream` body into parsed `data:` payloads. Tolerates
+ *  comment lines, multi-line frames and partial chunks at the buffer edge.
+ *
+ *  Frames stay opaque here on purpose: every provider ships a different JSON
+ *  shape and each consumer below narrows the fields it actually needs. Typing
+ *  this as `Record<string, unknown>` would push a cast into all five call
+ *  sites and buy no safety. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function* sseEvents(res: Response): AsyncGenerator<any> {
+  const body = res.body;
+  if (!body) return;
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const raw of frame.split("\n")) {
+          const line = raw.trim();
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            yield JSON.parse(payload);
+          } catch {
+            /* keep-alive / non-JSON frame */
+          }
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+/** Providers that omit usage on streamed replies still need a number for the
+ *  per-user token limit. ~4 chars/token is close enough for accounting. */
+function estimateUsage(prompt: MessageContent[], completion: string): LLMUsage | undefined {
+  if (!completion) return undefined;
+  const promptChars = prompt.reduce((n, m) => n + flattenText(m).length, 0);
+  const completionTokens = Math.max(1, Math.ceil(completion.length / 4));
+  const promptTokens = Math.ceil(promptChars / 4);
+  return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
+}
+
+/** Normalize the per-provider usage shapes (OpenAI, Anthropic, Gemini, Cohere)
+ *  into one shape for the token ledger. Providers spell these differently and
+ *  all four arrive as unvalidated JSON, so the input stays wide. */
+function normalizeUsage(u: Record<string, unknown> | null | undefined): LLMUsage | undefined {
+  if (!u) return undefined;
+  const prompt = Number(u.prompt_tokens ?? u.input_tokens ?? 0);
+  const completion = Number(u.completion_tokens ?? u.output_tokens ?? 0);
+  const total = Number(u.total_tokens ?? prompt + completion);
+  if (!prompt && !completion && !total) return undefined;
+  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total };
+}
+
+function hasBinaryContent(messages: ChatMessage[]): boolean {
+  return messages.some((m) => asParts(m.content).some(isBinaryPart));
 }
 
 // Reasoning effort → provider-native budgets.
@@ -118,29 +204,120 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
   const budget = reasoningBudget(call.reasoningEffort);
   const isReasoningModel = /(o1|o3|o4|gpt-5|thinking|r1|reason|nemotron|gemini-2\.5|claude-4)/i.test(call.model);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: call.model,
-      messages: call.messages,
-      // o-series / reasoning models only accept temperature 1 — omit otherwise
-      ...(!isReasoningModel ? { temperature: call.temperature ?? 0.5 } : {}),
-      max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
-      ...(call.tools && call.tools.length ? { tools: call.tools, tool_choice: "auto" } : {}),
-      // OpenAI o-series + gpt-5 thinking
-      ...(effortWire && isReasoningModel ? { reasoning_effort: effortWire === "xhigh" ? "high" : effortWire } : {}),
-      // OpenRouter unified reasoning param
-      ...(call.provider === "openrouter" && effortWire ? { reasoning: { effort: effortWire === "xhigh" ? "high" : effortWire, exclude: false } } : {}),
-      // OmeRoute / Together / NVIDIA DeepSeek-R1 style: higher effort = more tokens
-      ...(budget && (call.provider === "omeroute" || call.provider === "together" || call.provider === "nvidia") ? { extra_body: { reasoning_budget: budget } } : {}),
-    }),
+  const toMessage = (m: ChatMessage, textOnly: boolean): Record<string, unknown> => {
+    const parts = asParts(m.content);
+    const binary = parts.some(isBinaryPart);
+    const out: Record<string, unknown> = { role: m.role };
+    if (!binary) {
+      out.content = typeof m.content === "string" ? m.content : flattenText(m.content);
+    } else if (textOnly) {
+      out.content = [{ type: "text", text: flattenText(m.content) }];
+    } else {
+      const wire = openAIParts(budgetParts(parts));
+      out.content = wire.length ? wire : flattenText(m.content);
+    }
+    if (m.tool_calls) out.tool_calls = m.tool_calls;
+    if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
+    return out;
+  };
+
+  const baseBody = (stream: boolean, textOnly: boolean): Record<string, unknown> => ({
+    model: call.model,
+    messages: call.messages.map((m) => toMessage(m, textOnly)),
+    // o-series / reasoning models only accept temperature 1 — omit otherwise
+    ...(!isReasoningModel ? { temperature: call.temperature ?? 0.5 } : {}),
+    max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
+    ...(call.tools && call.tools.length ? { tools: call.tools, tool_choice: "auto" } : {}),
+    // OpenAI o-series + gpt-5 thinking
+    ...(effortWire && isReasoningModel ? { reasoning_effort: effortWire === "xhigh" ? "high" : effortWire } : {}),
+    // OpenRouter unified reasoning param
+    ...(call.provider === "openrouter" && effortWire ? { reasoning: { effort: effortWire === "xhigh" ? "high" : effortWire, exclude: false } } : {}),
+    // OmeRoute / Together / NVIDIA DeepSeek-R1 style: higher effort = more tokens
+    ...(budget && (call.provider === "omeroute" || call.provider === "together" || call.provider === "nvidia") ? { extra_body: { reasoning_budget: budget } } : {}),
+    ...(stream ? { stream: true } : {}),
+    // only the gateways that document it — others 400 on the unknown field
+    ...(stream && (call.provider === "openai" || call.provider === "openrouter") ? { stream_options: { include_usage: true } } : {}),
   });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`${call.provider} ${res.status}: ${txt.slice(0, 800)}`);
+  // Many OpenAI-compatible gateways accept neither `stream: true` nor multimodal
+  // content arrays. Rather than surfacing a raw 400, degrade one dimension at a
+  // time and retry (at most twice) so the answer still lands.
+  const binary = hasBinaryContent(call.messages);
+  let dropStream = false;
+  let dropParts = false;
+  let res: Response | null = null;
+  let errText = "";
+  let errStatus = 0;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const streaming = !!call.stream && !dropStream;
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(baseBody(streaming, dropParts)),
+      signal: call.signal,
+    });
+    if (res.ok) break;
+    errText = await res.text().catch(() => "");
+    errStatus = res.status;
+    const reason = errText.toLowerCase();
+    // Only shape-level rejections are worth a retry: a bad key or quota error
+    // will fail identically, so degrading would just double the latency.
+    const shapeError = errStatus === 400 || errStatus === 404 || errStatus === 415 || errStatus === 422;
+    if (shapeError && streaming && /stream/.test(reason)) { dropStream = true; continue; }
+    if (shapeError && !dropParts && binary && /(content|image|file|multimodal|vision|unsupported|not support|invalid)/.test(reason)) { dropParts = true; continue; }
+    break;
   }
+
+  if (!res || !res.ok) {
+    throw new Error(`${call.provider} ${errStatus}: ${errText.slice(0, 800)}`);
+  }
+  const degradedReason: "stream" | "parts" | undefined = dropStream ? "stream" : dropParts ? "parts" : undefined;
+  const degraded = degradedReason !== undefined;
+  const degradedFields = degraded ? { degraded: true, degradedReason } : {};
+
+  if (call.stream && !dropStream) {
+    // --- token streaming ---
+    let text = "";
+    let usage: LLMUsage | undefined;
+    const acc = new Map<number, { id: string; name: string; args: string }>();
+    for await (const ev of sseEvents(res)) {
+      if (ev?.error) {
+        const msg = typeof ev.error === "string" ? ev.error : ev.error?.message || JSON.stringify(ev.error);
+        throw new Error(`${call.provider}: ${msg}`);
+      }
+      if (ev?.usage) usage = normalizeUsage(ev.usage) ?? usage;
+      const choice = ev?.choices?.[0];
+      if (!choice) continue;
+      const delta = choice.delta || choice.message || {};
+      const piece = typeof delta.content === "string" ? delta.content : typeof choice.text === "string" ? choice.text : "";
+      if (piece) {
+        text += piece;
+        call.onDelta?.(piece);
+      }
+      for (const tc of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) {
+        const slot = acc.get(tc.index ?? 0) ?? { id: "", name: "", args: "" };
+        if (tc.id) slot.id = tc.id;
+        if (tc.function?.name) slot.name = tc.function.name;
+        if (tc.function?.arguments) slot.args += tc.function.arguments;
+        acc.set(tc.index ?? 0, slot);
+      }
+    }
+    const toolCalls: ToolCallResult[] | undefined = acc.size
+      ? [...acc.values()].filter((t) => t.name).map((t) => ({ id: t.id || `call_${t.name}`, name: t.name, arguments: parseArgs(t.args) }))
+      : undefined;
+    return {
+      provider: call.provider,
+      model: call.model,
+      content: text,
+      usage: usage ?? estimateUsage(call.messages.map((m) => m.content), text),
+      latencyMs: Date.now() - t0,
+      ...(toolCalls ? { toolCalls } : {}),
+      ...degradedFields,
+    };
+  }
+
+  // --- single-shot response ---
   const json: any = await res.json();
   const message = json.choices?.[0]?.message;
   const content = message?.content ?? json.choices?.[0]?.text ?? "";
@@ -159,16 +336,17 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
     provider: call.provider,
     model: call.model,
     content: content ?? "",
-    usage: json.usage,
+    usage: normalizeUsage(json.usage),
     latencyMs: Date.now() - t0,
     ...(toolCalls ? { toolCalls } : {}),
+    ...degradedFields,
   };
 }
 
 async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> {
   const t0 = Date.now();
   // Anthropic messages API
-  const system = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const system = call.messages.filter(m => m.role === "system").map(m => flattenText(m.content)).filter(Boolean).join("\n\n");
   const tools = wireTools(call.tools).map((t) => ({
     name: t.function?.name ?? "",
     description: t.function?.description,
@@ -179,17 +357,19 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
   for (const m of call.messages) {
     if (m.role === "system") continue;
     if (m.role === "tool") {
-      messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: String(m.content ?? "") }] });
+      messages.push({ role: "user", content: [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: flattenText(m.content) }] });
     } else if (m.role === "assistant" && m.tool_calls?.length) {
       messages.push({
         role: "assistant",
         content: [
-          ...(m.content ? [{ type: "text", text: m.content }] : []),
+          ...(flattenText(m.content) ? [{ type: "text", text: flattenText(m.content) }] : []),
           ...m.tool_calls.map((tc) => ({ type: "tool_use", id: tc.id, name: tc.function?.name ?? "", input: parseArgs(tc.function?.arguments) })),
         ],
       });
     } else {
-      messages.push({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "") });
+      // Anthropic rejects an empty content array, so fall back to a string.
+      const parts = anthropicParts(budgetParts(asParts(m.content)));
+      messages.push({ role: m.role === "assistant" ? "assistant" : "user", content: parts.length ? parts : flattenText(m.content) });
     }
   }
 
@@ -214,12 +394,59 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
         return { temperature: call.temperature ?? 0.5 };
       })(),
       ...(tools.length ? { tools, tool_choice: { type: "auto" } } : {}),
+      ...(call.stream ? { stream: true } : {}),
     }),
+    signal: call.signal,
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(`anthropic ${res.status}: ${txt.slice(0, 800)}`);
   }
+
+  if (call.stream) {
+    // message_start → content_block_* deltas → message_delta (usage) → stop
+    let text = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
+    const blocks = new Map<number, { type: string; id: string; name: string; json: string }>();
+    for await (const ev of sseEvents(res)) {
+      if (ev?.type === "error") throw new Error(`anthropic: ${ev.error?.message || "stream error"}`);
+      if (ev?.type === "message_start") {
+        inputTokens = ev.message?.usage?.input_tokens ?? 0;
+        outputTokens = ev.message?.usage?.output_tokens ?? 0;
+      } else if (ev?.type === "content_block_start") {
+        const cb = ev.content_block || {};
+        blocks.set(ev.index ?? 0, { type: cb.type || "text", id: cb.id || "", name: cb.name || "", json: "" });
+      } else if (ev?.type === "content_block_delta") {
+        const slot = blocks.get(ev.index ?? 0);
+        if (ev.delta?.type === "text_delta" && ev.delta.text) {
+          text += ev.delta.text;
+          call.onDelta?.(ev.delta.text);
+        } else if (ev.delta?.type === "input_json_delta" && slot) {
+          slot.json += ev.delta.partial_json || "";
+        }
+        // thinking_delta is deliberately dropped — it is not the answer
+      } else if (ev?.type === "message_delta") {
+        outputTokens = ev.usage?.output_tokens ?? outputTokens;
+      }
+    }
+    const uses = [...blocks.values()].filter((b) => b.type === "tool_use" && b.name);
+    const toolCalls: ToolCallResult[] | undefined = uses.length
+      ? uses.map((b) => ({ id: b.id || `call_${b.name}`, name: b.name, arguments: parseArgs(b.json) }))
+      : undefined;
+    const usage = inputTokens || outputTokens
+      ? { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens }
+      : estimateUsage(call.messages.map((m) => m.content), text);
+    return {
+      provider: call.provider,
+      model: call.model,
+      content: text,
+      usage,
+      latencyMs: Date.now() - t0,
+      ...(toolCalls ? { toolCalls } : {}),
+    };
+  }
+
   const json: any = await res.json();
   const blocks: any[] = Array.isArray(json.content) ? json.content : [];
   const content = blocks.filter((b: any) => b?.type === "text").map((b: any) => b.text || "").join("");
@@ -241,7 +468,7 @@ async function callAnthropic(call: LLMCall, apiKey: string): Promise<LLMResult> 
 
 async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   const t0 = Date.now();
-  const system = call.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const system = call.messages.filter(m => m.role === "system").map(m => flattenText(m.content)).filter(Boolean).join("\n\n");
   const tools = wireTools(call.tools).map((t) => ({
     name: t.function?.name ?? "",
     description: t.function?.description,
@@ -255,7 +482,7 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
   for (const m of call.messages) {
     if (m.role === "system") continue;
     if (m.role === "tool") {
-      contents.push({ role: "user", parts: [{ functionResponse: { name: m.tool_call_id ? lastCallName.get(m.tool_call_id) ?? "tool" : "tool", response: { output: String(m.content ?? "") } } }] });
+      contents.push({ role: "user", parts: [{ functionResponse: { name: m.tool_call_id ? lastCallName.get(m.tool_call_id) ?? "tool" : "tool", response: { output: flattenText(m.content) } } }] });
     } else if (m.role === "assistant" && m.tool_calls?.length) {
       for (const tc of m.tool_calls) lastCallName.set(tc.id, tc.function?.name ?? "tool");
       contents.push({
@@ -263,12 +490,14 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
         parts: m.tool_calls.map((tc) => ({ functionCall: { name: tc.function?.name ?? "tool", args: parseArgs(tc.function?.arguments) } })),
       });
     } else {
-      contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: String(m.content ?? "") }] });
+      const parts = googleParts(budgetParts(asParts(m.content)));
+      contents.push({ role: m.role === "assistant" ? "model" : "user", parts: parts.length ? parts : [{ text: flattenText(m.content) }] });
     }
   }
 
   // Gemini generateContent
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(call.model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const streaming = !!call.stream;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(call.model)}:generateContent${streaming ? "?alt=sse&" : "?"}key=${encodeURIComponent(apiKey)}`;
   const thinkingBudget = reasoningBudget(call.reasoningEffort);
   const res = await fetch(url, {
     method: "POST",
@@ -283,26 +512,48 @@ async function callGoogle(call: LLMCall, apiKey: string): Promise<LLMResult> {
         ...(thinkingBudget ? { thinkingConfig: { thinkingBudget, includeThoughts: false } } : {}),
       },
     }),
+    signal: call.signal,
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(`google ${res.status}: ${txt.slice(0, 800)}`);
   }
-  const json: any = await res.json();
-  const parts: any[] = json.candidates?.[0]?.content?.parts ?? [];
-  const content = parts.filter((p: any) => typeof p?.text === "string").map((p: any) => p.text).join("");
-  const calls = parts.filter((p: any) => p?.functionCall).map((p: any, i: number) => ({
-    id: `call_${i}`,
-    name: p.functionCall.name,
-    arguments: parseArgs(p.functionCall.args),
-  }));
-  const promptTokens = json.usageMetadata?.promptTokenCount ?? 0;
-  const completionTokens = json.usageMetadata?.candidatesTokenCount ?? 0;
+
+  const readChunks = async (): Promise<{ text: string; usage?: LLMUsage; calls: ToolCallResult[] }> => {
+    let text = "";
+    let usage: LLMUsage | undefined;
+    const calls: ToolCallResult[] = [];
+    const consume = (chunk: any) => {
+      const parts: any[] = chunk?.candidates?.[0]?.content?.parts ?? [];
+      const piece = parts.filter((p: any) => typeof p?.text === "string").map((p: any) => p.text).join("");
+      if (piece) {
+        text += piece;
+        call.onDelta?.(piece);
+      }
+      parts.filter((p: any) => p?.functionCall).forEach((p: any) => {
+        calls.push({ id: `call_${calls.length}`, name: p.functionCall.name, arguments: parseArgs(p.functionCall.args) });
+      });
+      const md = chunk?.usageMetadata;
+      if (md) {
+        const prompt = md.promptTokenCount ?? 0;
+        const completion = md.candidatesTokenCount ?? 0;
+        if (prompt || completion) usage = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: md.totalTokenCount ?? prompt + completion };
+      }
+    };
+    if (streaming) {
+      for await (const ev of sseEvents(res)) consume(ev);
+    } else {
+      consume(await res.json());
+    }
+    return { text, usage, calls };
+  };
+
+  const { text, usage, calls } = await readChunks();
   return {
     provider: call.provider,
     model: call.model,
-    content,
-    usage: json.usageMetadata ? { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens } : undefined,
+    content: text,
+    usage: usage ?? estimateUsage(call.messages.map((m) => m.content), text),
     latencyMs: Date.now() - t0,
     ...(calls.length ? { toolCalls: calls } : {}),
   };
@@ -324,7 +575,7 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
     if (m.role === "assistant" && m.tool_calls?.length) {
       messages.push({
         role: "assistant",
-        content: m.content ? [{ type: "text", text: String(m.content) }] : [],
+        content: flattenText(m.content) ? [{ type: "text", text: flattenText(m.content) }] : [],
         tool_calls: m.tool_calls.map((tc) => ({
           id: tc.id,
           type: "function",
@@ -335,10 +586,10 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
       messages.push({
         role: "tool",
         tool_call_id: m.tool_call_id ?? "",
-        content: [{ type: "text", text: String(m.content ?? "") }],
+        content: [{ type: "text", text: flattenText(m.content) }],
       });
     } else {
-      messages.push({ role: m.role, content: [{ type: "text", text: String(m.content ?? "") }] });
+      messages.push({ role: m.role, content: cohereParts(budgetParts(asParts(m.content))) });
     }
   }
 
@@ -352,12 +603,60 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
       ...(tools.length ? { tools } : {}),
       temperature: call.temperature ?? 0.5,
       max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
+      ...(call.stream ? { stream: true } : {}),
     }),
+    signal: call.signal,
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     throw new Error(`cohere ${res.status}: ${txt.slice(0, 800)}`);
   }
+  if (call.stream) {
+    // content-delta frames carry the answer; tool-call-delta frames carry args.
+    let text = "";
+    let usage: LLMUsage | undefined;
+    const calls = new Map<number, { id: string; name: string; args: string }>();
+    for await (const ev of sseEvents(res)) {
+      if (ev?.type === "content-delta") {
+        const piece = ev.delta?.message?.content?.text;
+        if (piece) {
+          text += piece;
+          call.onDelta?.(piece);
+        }
+      } else if (ev?.type === "tool-call-delta") {
+        const slot = calls.get(ev.index ?? 0) ?? { id: "", name: "", args: "" };
+        const tc = ev.delta?.tool_call || {};
+        if (tc.id) slot.id = tc.id;
+        if (tc.name) slot.name = tc.name;
+        if (tc.parameters) slot.args += tc.parameters;
+        calls.set(ev.index ?? 0, slot);
+      } else if (ev?.type === "tool-call-end") {
+        for (const tc of ev.delta?.tool_calls ?? []) {
+          const slot = calls.get(tc.index ?? 0) ?? { id: "", name: "", args: "" };
+          if (tc.id) slot.id = tc.id;
+          if (tc.function?.name) slot.name = tc.function.name;
+          if (tc.function?.arguments) slot.args += tc.function.arguments;
+          calls.set(tc.index ?? 0, slot);
+        }
+      } else if (ev?.usage) {
+        const input = ev.usage.tokens?.input_tokens ?? ev.usage.billed_units?.input_tokens ?? 0;
+        const output = ev.usage.tokens?.output_tokens ?? ev.usage.billed_units?.output_tokens ?? 0;
+        if (input || output) usage = { prompt_tokens: input, completion_tokens: output, total_tokens: input + output };
+      }
+    }
+    const toolCalls: ToolCallResult[] | undefined = calls.size
+      ? [...calls.values()].filter((t) => t.name).map((t) => ({ id: t.id || `call_${t.name}`, name: t.name, arguments: parseArgs(t.args) }))
+      : undefined;
+    return {
+      provider: call.provider,
+      model: call.model,
+      content: text,
+      usage: usage ?? estimateUsage(call.messages.map((m) => m.content), text),
+      latencyMs: Date.now() - t0,
+      ...(toolCalls ? { toolCalls } : {}),
+    };
+  }
+
   const j: any = await res.json();
   const blocks: any[] = Array.isArray(j.message?.content) ? j.message.content : [];
   const plan = typeof j.message?.tool_plan === "string" ? j.message.tool_plan : "";
@@ -451,10 +750,13 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
         (m.context as number);
       const modalities = Array.isArray(m.modalities) ? (m.modalities as string[]).map(x => String(x).toLowerCase()) : [];
       const mods = Array.isArray(m.output_modalities) ? (m.output_modalities as string[]).map(x => String(x).toLowerCase()) : [];
-      const flags = [...modalities, ...mods];
+      const arch = (m.architecture && typeof m.architecture === "object" ? m.architecture : {}) as Record<string, unknown>;
+      const inputs = Array.isArray(arch.input_modalities) ? (arch.input_modalities as unknown[]).map(x => String(x).toLowerCase()) : [];
+      const flags = [...modalities, ...mods, ...inputs];
       const image = flags.includes("image") || /(dall-e|gpt-image|imagen|sdxl|flux|stable-diffusion|schnell|image-generation)/i.test(id);
       const video = flags.some(f => /video|modality\.video/i.test(f)) || /(sora|veo|kling|pika|luma|runway|video-generation)/i.test(id);
       const reasoning = /(o1|o3|o4|gpt-5|thinking|deepseek-r1|\br1\b|nemotron|reasoning|gemini-2\.5|claude-4|sonar-reasoning)/i.test(id);
+      const vision = inputs.includes("image") || inputs.includes("file") || CAPABLE_MODELS_RE.vision.test(id);
       out.push({
         id,
         name: id.split("/").pop() ?? id,
@@ -462,6 +764,7 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
         ...(image ? { image: true } : {}),
         ...(video ? { video: true } : {}),
         ...(reasoning ? { reasoning: true } : {}),
+        ...(vision ? { vision: true } : {}),
       });
     }
     out.sort((a, b) => a.id.localeCompare(b.id));

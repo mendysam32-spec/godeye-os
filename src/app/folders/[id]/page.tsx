@@ -4,8 +4,16 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye, type ChatMode } from "@/lib/store";
-import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
+import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
+import { readChatStream } from "@/lib/chat-stream";
+import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
+import { SyncBadge, SyncDot } from "@/components/sync-badge";
+import { toast } from "@/components/toast";
+import {
+  ACCEPTED_FILE_TYPES, MAX_TEXT_PART_CHARS, budgetParts, pendingFileMarker, pendingFileToParts,
+  supportsNativePdf, readPendingFiles, type ContentPart, type PendingFile,
+} from "@/lib/content";
 import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Folder as FolderIcon, ArrowLeft, ChevronDown, FolderKanban, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from "lucide-react";
 
 const MODES: { id: ChatMode; label: string; icon: any }[] = [
@@ -32,7 +40,7 @@ export default function FolderPage() {
   const [mode, setMode] = useState<ChatMode>("chat");
   const [provider, setProvider] = useState<any>(settings.defaultProvider);
   const [model, setModel] = useState(PROVIDERS.find(p => p.id === settings.defaultProvider)?.models[0].id || "");
-  const [files, setFiles] = useState<{ name: string; type: string; size: number; content: string; preview?: string }[]>([]);
+  const [files, setFiles] = useState<PendingFile[]>([]);
   const [running, setRunning] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [showModelMenu, setShowModelMenu] = useState(false);
@@ -114,21 +122,28 @@ export default function FolderPage() {
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const fl = e.target.files;
-    if (!fl) return;
-    const arr: any[] = [];
-    for (const f of Array.from(fl)) {
-      const isImage = f.type.startsWith("image/");
-      const content = await new Promise<string>((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.onerror = rej;
-        if (isImage) r.readAsDataURL(f);
-        else r.readAsText(f);
-      });
-      arr.push({ name: f.name, type: f.type || "text/plain", size: f.size, content: isImage ? content : content.slice(0, 20000), preview: isImage ? content : undefined });
-    }
-    setFiles(prev => [...prev, ...arr]);
     if (fileRef.current) fileRef.current.value = "";
+    if (!fl?.length) return;
+    const picked = await readPendingFiles(fl, { nativePdf: supportsNativePdf(provider) });
+    setFiles((prev) => [...prev, ...picked]);
+    const skipped = picked.filter((f) => f.base64 == null && f.text == null);
+    if (skipped.length) toast(`${skipped.length} file(s) could not be attached`, "error");
+  }
+
+  /** Build the outgoing turn: text plus whatever the selected model can read. */
+  function buildUserTurn(text: string, pending: PendingFile[], caps: { vision: boolean }): ContentPart[] {
+    const parts: ContentPart[] = [];
+    if (text) parts.push({ type: "text", text });
+    for (const f of pending) {
+      if (f.kind === "image" && !caps.vision) {
+        parts.push({ type: "text", text: `[image not sent: ${f.name} — ${provider}/${model} has no vision support]` });
+        continue;
+      }
+      parts.push(...pendingFileToParts(f, MAX_TEXT_PART_CHARS));
+      const marker = pendingFileMarker(f);
+      if (marker) parts.push(marker);
+    }
+    return budgetParts(parts);
   }
 
   async function send() {
@@ -136,13 +151,18 @@ export default function FolderPage() {
     if (!activeChat) return;
     const chatId = activeChat.id;
     const userContent = input.trim();
-    const attachments = files.length ? files.map(f => ({ name: f.name, type: f.type, size: f.size, preview: f.preview })) : undefined;
+    const attachments = files.length
+      ? files.map((f) => ({ name: f.name, type: f.mime, size: f.size, preview: f.preview, kind: f.kind, note: f.note }))
+      : undefined;
+    const caps = modelCapabilities(provider as ProviderId, model, vault[provider as ProviderId]?.models);
+    const userTurn = buildUserTurn(userContent, files, caps);
 
-    addMessage(chatId, { id: Date.now().toString(), role: "user", content: userContent + (files.length ? `\n\n[Attached ${files.length} file(s): ${files.map(f => f.name).join(", ")}]` : ""), timestamp: new Date().toISOString(), attachments, mode, provider, model });
+    addMessage(chatId, { id: Date.now().toString(), role: "user", content: userContent + (files.length ? `\n\n[${files.length} file(s): ${files.map((f) => f.name).join(", ")}]` : ""), timestamp: new Date().toISOString(), attachments, parts: userTurn, mode, provider, model });
     setInput("");
-    const sendFiles = [...files];
+    const prior = [...activeChat.messages];
     setFiles([]);
     setRunning(true);
+    let streamed = "";
 
     const asstId = (Date.now() + 1).toString();
     addMessage(chatId, { id: asstId, role: "assistant", content: "", timestamp: new Date().toISOString(), mode, provider, model });
@@ -151,52 +171,29 @@ export default function FolderPage() {
     abortRef.current = controller;
 
     try {
-      const referenceFiles = sendFiles.map(f => ({ name: f.name, content: f.content.slice(0, 15000), type: f.type }));
       const decryptedVault = await getDecryptedVaultForApi(vault as any);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [...activeChat.messages, { role: "user", content: userContent }].map(m => ({ role: m.role, content: m.content })),
-          provider, model, mode, referenceFiles, vault: decryptedVault, settings, stream: true
+          // replay stored attachments so follow-ups keep their document context
+          messages: [...prior.map((m) => ({ role: m.role, content: m.parts?.length ? m.parts : m.content })), { role: "user", content: userTurn }],
+          provider, model, mode, vault: decryptedVault, settings, stream: true,
         }),
         signal: controller.signal,
       });
 
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(j.error || "Chat failed");
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let full = "";
-      if (reader) {
-        let buf = "";
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const parts = buf.split("\n\n");
-          buf = parts.pop() || "";
-          for (const part of parts) {
-            const line = part.trim();
-            if (!line.startsWith("data:")) continue;
-            const data = JSON.parse(line.slice(5).trim());
-            if (data.delta) { full += data.delta; updateLastMessage(chatId, full); }
-          }
-        }
-        if (!full) {
-          const txt = await res.text();
-          try { const j = JSON.parse(txt); if (j.content) { full = j.content; updateLastMessage(chatId, full); } } catch {}
-        }
-      } else {
-        const j = await res.json();
-        updateLastMessage(chatId, j.content || "");
-      }
+      const result = await readChatStream(res, {
+        onDelta: (t) => {
+          streamed += t;
+          updateLastMessage(chatId, streamed);
+        },
+      });
+      if (result.error) throw new Error(result.error);
+      if (!streamed && result.text) updateLastMessage(chatId, result.text);
     } catch (e: any) {
       if (e.name === "AbortError") {
-        updateLastMessage(chatId, (activeChat.messages[activeChat.messages.length - 1]?.content || "") + "\n\n_— stopped_");
+        updateLastMessage(chatId, (streamed ? streamed + "\n\n" : "") + "_— stopped_");
       } else {
         updateLastMessage(chatId, `**Error:** ${e.message}\n\nCheck Providers Vault → connect ${provider} key.`);
       }
@@ -232,7 +229,7 @@ export default function FolderPage() {
                 <div className="font-semibold text-sm md:text-base truncate">{folder.name}</div>
                 <div className="text-xs text-muted-foreground truncate">{subFolders.length} subfolder{subFolders.length === 1 ? "" : "s"} • {folderProjects.length} project{folderProjects.length === 1 ? "" : "s"} • chats saved here</div>
               </div>
-              <Link href="/dashboard" className="ml-auto inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-xs hover:bg-muted shrink-0"><FolderKanban className="h-3 w-3" /> Manage in dashboard</Link>
+              <div className="ml-auto flex items-center gap-2 shrink-0"><SyncDot /><SyncBadge /><Link href="/dashboard" className="inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1.5 text-xs hover:bg-muted"><FolderKanban className="h-3 w-3" /> <span className="hidden sm:inline">Manage in dashboard</span><span className="sm:hidden">Manage</span></Link></div>
             </div>
           </div>
           {/* contents: subfolders + projects */}
@@ -377,9 +374,10 @@ export default function FolderPage() {
                     {m.attachments && m.attachments.length > 0 && (
                       <div className="mb-2 flex flex-wrap gap-2">
                         {m.attachments.map(a => (
-                          <span key={a.name} className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-xs text-foreground border">
+                          <span key={a.name} title={a.note || a.type} className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs border ${a.note ? "bg-destructive/10 border-destructive/40 text-destructive" : "bg-muted text-foreground"}`}>
                             {a.type.startsWith("image/") && a.preview ? <img src={a.preview} alt={a.name} className="h-6 w-6 rounded object-cover" /> : <Paperclip className="h-3 w-3" />}
                             {a.name} <span className="opacity-60">{(a.size / 1024).toFixed(0)}KB</span>
+                            {a.note && <span className="opacity-80">· {a.note}</span>}
                           </span>
                         ))}
                       </div>
@@ -398,13 +396,15 @@ export default function FolderPage() {
             </div>
 
             {/* composer */}
-            <div className="border-t bg-card/50 p-3 md:p-4 shrink-0">
+            <div className="border-t bg-card/50 p-3 md:p-4 shrink-0 safe-bottom">
               {files.length > 0 && (
                 <div className="max-w-3xl mx-auto mb-2 flex flex-wrap gap-2">
                   {files.map((f, i) => (
-                    <span key={f.name + i} className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs">
+                    <span key={f.name + i} title={f.note || `${f.kind} · ${f.mime}`} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${f.note ? "border-destructive/50 bg-destructive/10 text-destructive" : "bg-card"}`}>
                       {f.preview ? <img src={f.preview} alt={f.name} className="h-6 w-6 rounded object-cover" /> : <Paperclip className="h-3 w-3" />}
-                      {f.name} <button onClick={() => setFiles(files.filter((_, j) => j !== i))} className="p-0.5 hover:bg-muted rounded-full"><X className="h-3 w-3" /></button>
+                      <span className="max-w-[16rem] truncate">{f.name}</span>
+                      {f.note && <span className="max-w-[12rem] truncate opacity-80">· {f.note}</span>}
+                      <button onClick={() => setFiles(files.filter((_, j) => j !== i))} className="p-0.5 hover:bg-muted rounded-full"><X className="h-3 w-3" /></button>
                     </span>
                   ))}
                 </div>
@@ -412,9 +412,9 @@ export default function FolderPage() {
               <div className="max-w-3xl mx-auto">
                 <div className="rounded-2xl border bg-background p-2 shadow-sm">
                   <div className="flex items-end gap-2">
-                    <button onClick={() => fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title="Upload images/files"><Paperclip className="h-4 w-4" /></button>
-                    <input ref={fileRef} type="file" multiple accept="image/*,.txt,.md,.json,.csv,.pdf" className="hidden" onChange={handleFiles} />
-                    <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (!running) send(); } }} placeholder={`Message ${folder.name} • ${mode} mode • Shift+Enter for newline`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-sm resize-none py-2 max-h-32" />
+                    <button onClick={() => fileRef.current?.click()} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Attach images, PDFs, code and data files${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4" /></button>
+                    <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILE_TYPES} className="hidden" onChange={handleFiles} />
+                    <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (shouldSendOnEnter(e)) { e.preventDefault(); if (!running) send(); } }} placeholder={`Message ${folder.name} • ${mode} mode • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32" />
                     <div className="flex items-center gap-1.5 shrink-0 relative" ref={composerMenuRef}>
                       <button onClick={()=>setShowComposerMenu(!showComposerMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Models • ${providerObj?.name}`}><Plus className="h-4 w-4"/></button>
                       {showComposerMenu && (
@@ -453,7 +453,7 @@ export default function FolderPage() {
                   </div>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span className="hidden sm:inline">Saved to this folder • Enter to send • Shift+Enter newline</span>
+                  <span className="hidden sm:inline">Saved to this folder${footerHint("")}</span>
                   <span className="sm:hidden">Saved to this folder</span>
                   <button onClick={newChat} className="inline-flex items-center gap-1 hover:text-foreground"><Plus className="h-3 w-3" /> New chat</button>
                 </div>
