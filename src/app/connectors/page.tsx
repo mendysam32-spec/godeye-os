@@ -3,9 +3,15 @@ import { Sidebar } from "@/components/sidebar";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "@/lib/providers";
 import { useGodEye, DEFAULT_PLUGINS, type PluginId } from "@/lib/store";
 import { useState, useEffect } from "react";
-import { Check, Eye, EyeOff, PlugZap, Loader2, Shield, AlertCircle, Lock, Zap, Image as ImageIcon, Clapperboard, Search, Terminal, Sparkles, Link2, ArrowRight } from "lucide-react";
+import { Check, Eye, EyeOff, PlugZap, Loader2, Shield, AlertCircle, Lock, Zap, Image as ImageIcon, Clapperboard, Search, Terminal, Sparkles, Link2, ArrowRight, Cloud, FolderOpen, Unplug } from "lucide-react";
 import Link from "next/link";
 import { encryptKey, decryptKey } from "@/lib/vault-crypto";
+import { useDriveAuth } from "@/lib/use-drive-auth";
+import { isDriveConfigured } from "@/lib/google-drive";
+
+// The account project exports are meant to land in. A UI guard only - it is
+// never sent to Google or stored, just compared against what Drive reports.
+const EXPECTED_DRIVE_EMAIL = "bakarysambou84@gmail.com";
 
 const PLUGIN_DEFS: { id: PluginId; label: string; desc: string; icon: any; iconClass: string }[] = [
   { id: "image", label: "Image generation", desc: "Renders real images with image-capable models (DALL-E, FLUX, Imagen, Gemini). Created files appear in the chat to save/download.", icon: ImageIcon, iconClass: "text-amber-500" },
@@ -33,6 +39,9 @@ export default function ConnectorsPage() {
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const drive = useDriveAuth();
+  const driveReady = isDriveConfigured();
+  const wrongAccount = !!drive.email && drive.email.toLowerCase() !== EXPECTED_DRIVE_EMAIL;
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +121,88 @@ export default function ConnectorsPage() {
                 ))}
               </div>
               <div className="mt-3 border-t pt-3 text-[11px] text-muted-foreground flex items-start gap-1.5"><Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} /> Capable models can create files too — generated images (DALL-E, FLUX, Imagen, Gemini) and videos (Sora, Veo) are registered as real files you can save to disk (desktop) or download (browser). File creation for text/docs/ZIPs is handled by the <b>Agent file tools</b> plugin.</div>
+            </div>
+          </div>
+
+          {/* Google Drive — account connector (OAuth, not an API key) */}
+          <div className="rounded-2xl border bg-card p-4 md:p-6">
+            <div className="flex items-center gap-2 font-medium"><Cloud className="h-4 w-4" /> Google Drive — project storage across devices</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Sign in with Google and every improved project can be saved straight to
+              <code className="mx-1">GodEye/Projects/</code> in your Drive — then open it on any phone or laptop signed into that account.
+              Scope is <code>drive.file</code>, so GodEye can only ever see files it created itself.
+            </p>
+
+            <div className="mt-4 rounded-2xl border p-4 bg-muted/40">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl grid place-items-center bg-white border shrink-0">
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                    <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5a5.6 5.6 0 0 1-2.4 3.7v3h3.9c2.3-2.1 3.5-5.2 3.5-8.9z" />
+                    <path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.9-3a7.2 7.2 0 0 1-10.7-3.8h-4v3.1A12 12 0 0 0 12 24z" />
+                    <path fill="#FBBC05" d="M5.3 14.3a7.1 7.1 0 0 1 0-4.6v-3.1h-4a12 12 0 0 0 0 10.8l4-3.1z" />
+                    <path fill="#EA4335" d="M12 4.8c1.8 0 3.4.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.3 6.6l4 3.1A7.2 7.2 0 0 1 12 4.8z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium flex flex-wrap items-center gap-2">
+                    Google Drive
+                    {drive.status === "connected" && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600"><Check className="h-3 w-3" /> connected</span>
+                    )}
+                    {drive.status === "error" && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-amber-600"><AlertCircle className="h-3 w-3" /> needs reconnect</span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground truncate">
+                    {drive.status === "connected" && drive.email ? `Signed in as ${drive.email}` : "Sign in with your Google account — no API key needed"}
+                  </div>
+                </div>
+                <span className={`ml-auto h-2.5 w-2.5 rounded-full shrink-0 ${drive.status === "connected" ? "bg-emerald-500" : drive.status === "connecting" ? "bg-amber-400 animate-pulse" : "bg-muted-foreground/30"}`} />
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {drive.status === "connected" ? (
+                  <>
+                    <Link href="/chat" className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-xs font-medium">
+                      <FolderOpen className="h-3.5 w-3.5" /> Open a project
+                    </Link>
+                    <button onClick={drive.disconnect} className="inline-flex items-center gap-1.5 rounded-full border bg-card px-4 py-2 text-xs font-medium hover:bg-muted">
+                      <Unplug className="h-3.5 w-3.5" /> Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => drive.connect("/connectors")}
+                    disabled={drive.status === "connecting"}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-xs font-medium disabled:opacity-50"
+                  >
+                    {drive.status === "connecting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlugZap className="h-3.5 w-3.5" />}
+                    {drive.status === "connecting" ? "Redirecting to Google..." : "Connect Google Drive"}
+                  </button>
+                )}
+              </div>
+
+              {wrongAccount && (
+                <div className="mt-2 text-xs flex gap-1.5 p-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 break-words">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>Connected as <b>{drive.email}</b>, but you expected <b>{EXPECTED_DRIVE_EMAIL}</b>. Disconnect and pick the other account on the Google screen.</span>
+                </div>
+              )}
+
+              {(drive.message || (!driveReady && drive.status !== "connected")) && (
+                <div className={`mt-2 text-xs flex gap-1.5 p-2 rounded-xl border break-words ${drive.status === "connected" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                  {drive.status === "connected" ? <Check className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+                  <span>
+                    {drive.message || "Not set up yet — add NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID to .env.local (see .env.example), then restart the dev server."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Shield className="h-3 w-3" /> drive.file scope — only files GodEye creates</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Lock className="h-3 w-3" /> Token stays in this browser</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Cloud className="h-3 w-3" /> Connect once per device</span>
             </div>
           </div>
 

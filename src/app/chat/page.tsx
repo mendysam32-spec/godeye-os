@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
@@ -15,6 +15,9 @@ import { readChatStream, type ToolCallWire } from "@/lib/chat-stream";
 import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
 import { SyncBadge, SyncDot } from "@/components/sync-badge";
 import { noteChatDeleted } from "@/lib/chat-sync-client";
+import { extractZip, packZip, uint8ToBase64, base64ToUint8 } from "@/lib/zip";
+import { ensureDriveToken, ensureGodEyeFolders, uploadZipToDrive } from "@/lib/google-drive";
+import { useDriveAuth } from "@/lib/use-drive-auth";
 import {
   ACCEPTED_FILE_TYPES, MAX_TEXT_PART_CHARS, budgetParts, pendingFileMarker, pendingFileToParts,
   supportsNativePdf, readPendingFiles, type ContentPart, type PendingFile,
@@ -50,6 +53,138 @@ function extractCodeBlocks(content: string): { lang: string; code: string }[] {
 }
 
 const EXT: Record<string, string> = { py: "py", js: "js", jsx: "jsx", ts: "ts", tsx: "tsx", json: "json", md: "md", txt: "txt", sh: "sh", bash: "sh", powershell: "ps1", ps: "ps1", html: "html", css: "css", sql: "sql", yaml: "yml", xml: "xml", java: "java", go: "go", rs: "rs", c: "c", cpp: "cpp", rb: "rb", php: "php" };
+
+// ---------- project workspace helpers ----------
+// A project is a flat map of POSIX relative path -> file content held in memory.
+// Uploaded as ZIP or a whole folder, edited by the model, exported back out.
+export interface ProjectFile {
+  path: string;
+  text: string;
+  /** true when the entry holds non-text bytes (kept as base64, sent as a marker) */
+  binary?: boolean;
+  base64?: string;
+}
+
+const PROJECT_TEXT_EXT = new Set([
+  "txt", "md", "markdown", "json", "jsonl", "xml", "html", "htm", "css", "scss", "sass", "less",
+  "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "rb", "go", "rs", "java", "kt", "swift", "c", "h",
+  "cpp", "hpp", "cc", "cs", "php", "sh", "bash", "zsh", "fish", "ps1", "sql", "yml", "yaml", "toml",
+  "ini", "cfg", "conf", "env", "gitignore", "dockerfile", "makefile", "gradle", "properties", "csv",
+  "tsv", "svg", "vue", "svelte", "astro", "lua", "pl", "r", "dart", "ex", "exs", "erl", "hs", "clj",
+]);
+
+function projectExt(path: string): string {
+  const base = path.split("/").pop() || "";
+  if (base.startsWith(".") && !base.includes(".")) return base.toLowerCase();
+  const i = base.lastIndexOf(".");
+  return i < 0 ? "" : base.slice(i + 1).toLowerCase();
+}
+
+function isProjectText(path: string): boolean {
+  const ext = projectExt(path);
+  if (!ext) return PROJECT_TEXT_EXT.has(path.split("/").pop()!.toLowerCase());
+  return PROJECT_TEXT_EXT.has(ext);
+}
+
+const utf8 = new TextDecoder("utf-8", { fatal: false });
+const utf8e = new TextEncoder();
+
+function looksBinary(bytes: Uint8Array): boolean {
+  const n = Math.min(bytes.length, 8000);
+  for (let i = 0; i < n; i++) if (bytes[i] === 0) return true;
+  return false;
+}
+
+/** Render a file tree as a fenced, path-headed text block the model can edit. */
+function projectTreeText(files: ProjectFile[], budgetChars: number): string {
+  const lines: string[] = [];
+  let used = 0;
+  for (const f of files) {
+    if (f.binary) {
+      lines.push(`--- ${f.path} (binary, ${(f.base64!.length * 0.75 / 1024).toFixed(0)}KB) --- [leave unchanged]`);
+      continue;
+    }
+    const header = `--- FILE: ${f.path} ---`;
+    const entry = `${header}\n${f.text}\n--- END FILE: ${f.path} ---`;
+    if (used + entry.length > budgetChars) {
+      lines.push(`--- FILE: ${f.path} --- [omitted - too large for context] --- END FILE: ${f.path} ---`);
+      continue;
+    }
+    lines.push(entry);
+    used += entry.length;
+  }
+  return lines.join("\n\n");
+}
+
+/** Apply edits the model returned as ```path blocks to the in-memory tree. */
+function applyProjectEdits(files: ProjectFile[], reply: string): { files: ProjectFile[]; changed: string[]; created: string[] } {
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  const changed: string[] = [];
+  const created: string[] = [];
+  const re = /```([\w./\\@ -]+?)\r?\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(reply)) !== null) {
+    const raw = m[1].trim();
+    const body = m[2].replace(/\n$/, "");
+    if (!raw || raw.length > 200 || body.trim() === "") continue;
+    const path = raw.replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!projectExt(path) && !/[./]/.test(path.split("/").pop() || "")) continue;
+    const existing = byPath.get(path);
+    if (existing) {
+      if (existing.text !== body) {
+        byPath.set(path, { ...existing, text: body, binary: false, base64: undefined });
+        changed.push(path);
+      }
+    } else {
+      byPath.set(path, { path, text: body });
+      created.push(path);
+    }
+  }
+  return { files: Array.from(byPath.values()), changed, created };
+}
+
+// Folder + archive intake. Deps, build output and VCS metadata are skipped so
+// the model sees source, not 40MB of vendor code.
+const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_BINARY_FILE_BYTES = 1.5 * 1024 * 1024;
+const PROJECT_SKIP_DIRS = [
+  "node_modules", ".git", ".next", ".open-next", ".wrangler", ".turbo", ".cache", ".vercel",
+  ".svelte-kit", "dist", "build", "out", "coverage", "__pycache__", ".venv", "venv", ".idea", ".vscode-test",
+];
+const PROJECT_SKIP_FILES = [".DS_Store", "Thumbs.db", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "tsconfig.tsbuildinfo"];
+
+function isProjectIgnored(path: string): boolean {
+  const parts = path.split("/");
+  if (parts.some((p) => PROJECT_SKIP_DIRS.includes(p))) return true;
+  const base = parts[parts.length - 1];
+  if (PROJECT_SKIP_FILES.includes(base)) return true;
+  if (base.endsWith(".log") || base.endsWith(".map")) return true;
+  return false;
+}
+
+/** "my-project/src/app/page.tsx" -> "my-project/" when every file sits under one dir. */
+function commonWrapper(paths: string[]): string {
+  if (!paths.length) return "";
+  const first = paths[0].split("/")[0];
+  if (!first || !paths.every((p) => p.startsWith(`${first}/`))) return "";
+  return `${first}/`;
+}
+
+/** Shared root folder of a webkitdirectory FileList ("src/app/x.tsx" -> "src/app"). */
+function folderRoot(list: File[]): string {
+  const first = list[0]?.webkitRelativePath || list[0]?.name || "";
+  const segs = first.split("/");
+  return segs.length > 1 ? segs.slice(0, -1).join("/") : "";
+}
+
+function folderRelative(f: File, root: string): string {
+  const raw = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+  const norm = raw.replace(/\\/g, "/");
+  const rel = root && norm.startsWith(`${root}/`) ? norm.slice(root.length + 1) : norm;
+  return rel.replace(/^\.\//, "");
+}
+
+
 
 function suggestSaveFile(content: string, mode: ChatMode, chatTitle: string): { name: string; content: string } {
   const blocks = extractCodeBlocks(content);
@@ -137,6 +272,12 @@ export default function ChatPage() {
   const streamTextRef = useRef("");
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  // Project workspace: files extracted from an uploaded ZIP/folder, edited by the
+  // model, then re-packed and exported (download / Drive / local folder).
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [projectName, setProjectName] = useState<string>("");
+  const [projectBusy, setProjectBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [createdFiles, setCreatedFiles] = useState<Record<string, ToolFile[]>>({});
@@ -240,10 +381,24 @@ function selectChat(id: string) {
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const fl = e.target.files;
+    const pickedFromFolder = (e.target as HTMLInputElement).hasAttribute("webkitdirectory");
     if (fileRef.current) fileRef.current.value = "";
+    if (folderRef.current) folderRef.current.value = "";
     if (!fl?.length) return;
     setReading(true);
     try {
+      // A ZIP or a whole folder opens the project workspace: the files are read
+      // into an in-memory tree so the model can edit them and we can re-export.
+      const archive = pickedFromFolder ? null : Array.from(fl).find((f) => /\.zip$/i.test(f.name));
+      if (archive) {
+        await loadProjectFromZip(archive);
+        return;
+      }
+      if (pickedFromFolder) {
+        await loadProjectFromFolder(Array.from(fl));
+        return;
+      }
+
       // PDFs are only sent whole to providers that extract the text themselves.
       // Everything else is read here so nothing has to round-trip as a blob.
       const nativePdf = supportsNativePdf(provider);
@@ -263,6 +418,161 @@ function selectChat(id: string) {
     } finally {
       setReading(false);
     }
+  }
+
+  // ---- project workspace: load -------------------------------------------------
+
+  async function loadProjectFromZip(zip: File) {
+    const ex = extractZip(await zip.arrayBuffer());
+    if (!ex.files.length) {
+      toast(`${zip.name} is not a readable ZIP (or every file was skipped)`, "error");
+      return;
+    }
+    const entries: ProjectFile[] = [];
+    let binary = 0;
+    for (const f of ex.files) {
+      const bytes = f.content instanceof Uint8Array ? f.content : new TextEncoder().encode(String(f.content));
+      if (isProjectText(f.path) && !looksBinary(bytes)) {
+        entries.push({ path: f.path, text: utf8.decode(bytes) });
+      } else {
+        entries.push({ path: f.path, text: "", binary: true, base64: uint8ToBase64(bytes) });
+        binary++;
+      }
+    }
+    // A single wrapper folder (my-project/src/...) is noise - strip it so the
+    // exported ZIP has the project's real root.
+    const strip = commonWrapper(entries.map((e) => e.path));
+    setProjectFiles(strip ? entries.map((e) => ({ ...e, path: e.path.slice(strip.length) })) : entries);
+    setProjectName(zip.name.replace(/\.zip$/i, ""));
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u{1F4E6} ${zip.name} - ${entries.length} files loaded (${binary} binary)${ex.ignored.length ? `, ${ex.ignored.length} skipped (build output/deps)` : ""}`]);
+    toast(`${entries.length} files loaded from ${zip.name} - ask for changes, then export`);
+  }
+
+  async function loadProjectFromFolder(list: File[]) {
+    const root = folderRoot(list);
+    const entries: ProjectFile[] = [];
+    let skipped = 0;
+    for (const f of list) {
+      const rel = folderRelative(f, root);
+      if (!rel) continue;
+      if (isProjectIgnored(rel)) { skipped++; continue; }
+      if (f.size > MAX_PROJECT_FILE_BYTES) { skipped++; continue; }
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      if (isProjectText(rel) && !looksBinary(bytes)) {
+        entries.push({ path: rel, text: utf8.decode(bytes) });
+      } else if (bytes.length <= MAX_BINARY_FILE_BYTES) {
+        entries.push({ path: rel, text: "", binary: true, base64: uint8ToBase64(bytes) });
+      } else {
+        skipped++;
+      }
+    }
+    if (!entries.length) {
+      toast("Nothing readable in that folder", "error");
+      return;
+    }
+    setProjectFiles(entries);
+    setProjectName(root.split("/").pop() || "project");
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u{1F4C1} folder ${root} - ${entries.length} files loaded${skipped ? `, ${skipped} skipped (deps/build/too big)` : ""}`]);
+    toast(`${entries.length} files loaded from ${root} - ask for changes, then export`);
+  }
+
+  // ---- project workspace: export ----------------------------------------------
+
+  function packedProject() {
+    return packZip(projectFiles.map((f) => ({
+      path: f.path,
+      content: f.binary ? base64ToUint8(f.base64!) : utf8e.encode(f.text),
+    })));
+  }
+
+  async function exportProjectDownload(suffix = "improved") {
+    if (!projectFiles.length) return;
+    const base = (projectName || "project").replace(/[^\w.-]+/g, "-");
+    const bytes = packedProject();
+    downloadToolFile({ name: `${base}-${suffix}.zip`, type: "application/zip", base64: uint8ToBase64(bytes) });
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u{1F4E6} exported ${base}-${suffix}.zip (${(bytes.length / 1024).toFixed(0)}KB, ${projectFiles.length} files)`]);
+    toast(`${base}-${suffix}.zip downloaded`);
+  }
+
+  async function exportProjectToFolder() {
+    if (!projectFiles.length || !desktop) return;
+    setProjectBusy(true);
+    try {
+      const r = await runGodEyeTool("godeye_writeProject", {
+        name: (projectName || "project").replace(/[^\w.-]+/g, "-"),
+        files: projectFiles.map((f) => ({ path: f.path, base64: f.binary ? f.base64 : uint8ToBase64(utf8e.encode(f.text)) })),
+      });
+      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u{1F4BB} ${r.ok ? "wrote to disk" : "write failed"} - ${(r.detail || r.summary || "").slice(0, 300)}`]);
+      toast(r.ok ? r.detail || "Written to disk" : r.summary || "Write failed", r.ok ? "success" : "error");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  const drive = useDriveAuth();
+
+  async function exportProjectToDrive() {
+    if (!projectFiles.length) return;
+    setProjectBusy(true);
+    try {
+      const token = await ensureDriveToken();
+      if (!token) {
+        // no token yet - start the OAuth flow, callback returns to Connectors
+        toast("Connect Google Drive first", "info");
+        drive.connect("/connectors");
+        return;
+      }
+      if (token.expiresAt < Date.now()) {
+        drive.refresh();
+        toast("Google Drive session expired - reconnect", "error");
+        return;
+      }
+      const { projectsId } = await ensureGodEyeFolders(token.accessToken);
+      const base = (projectName || "project").replace(/[^\w.-]+/g, "-");
+      const up = await uploadZipToDrive(token.accessToken, `${base}-improved.zip`, packedProject(), projectsId ?? undefined);
+      if (!up) {
+        toast("Drive upload failed - reconnect or check your quota", "error");
+        return;
+      }
+      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2601\uFE0F saved to Google Drive/GodEye/Projects/${base}-improved.zip`]);
+      toast(`Saved to Google Drive${drive.email ? ` (${drive.email})` : ""}`, "success");
+      if (up.webViewLink) window.open(up.webViewLink, "_blank", "noopener");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  function applyProjectReply(reply: string) {
+    if (!projectFiles.length) return;
+    const { files: next, changed, created } = applyProjectEdits(projectFiles, reply);
+    if (!changed.length && !created.length) return;
+    setProjectFiles(next);
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u270F\uFE0F applied ${changed.length} edit(s)${created.length ? `, ${created.length} new file(s)` : ""} - export to save`]);
+  }
+
+  /** Wrap the request + the whole tree in one instruction the model can follow. */
+  function buildProjectPrompt(request: string): { text: string } {
+    const budget = Math.min(MAX_TEXT_PART_CHARS, 700_000);
+    const tree = projectTreeText(projectFiles, budget);
+    const editMode = /\b(change|fix|refactor|improve|update|add|remove|rename|rewrite|migrate|upgrade|write|implement|bump|clean|optimi[sz]e|translate)\w*/i.test(request);
+    const rules = [
+      "You are editing a real project. Below is the complete file tree as fenced blocks delimited by `--- FILE: <path> ---`.",
+      "",
+      editMode
+        ? "To change or add files, reply with fenced code blocks whose info string is the exact path:"
+        : "This turn is a question about the project, so answer normally.",
+      "",
+      editMode ? "```src/app/page.tsx" : "",
+      editMode ? "<full new contents of that file>" : "",
+      editMode ? "```" : "",
+      "",
+      "Rules for edits:",
+      "- Output the COMPLETE new contents of each file you change (not a diff, not a fragment).",
+      "- Use the same paths as given; create new files by using a new path.",
+      "- Do not echo unchanged files. Do not wrap paths in quotes or add language names.",
+      "- Keep the response short: no prose before or after the code blocks.",
+    ].join("\n");
+    return { text: `${request}\n\n${rules}\n\n${tree}` };
   }
 
   interface WireMsg {
@@ -466,7 +776,7 @@ function selectChat(id: string) {
   }
 
   async function send() {
-    if (!input.trim() && files.length === 0) return;
+    if (!input.trim() && files.length === 0 && !projectFiles.length) return;
     if (!activeChat) return;
     const chatId = activeChat.id;
     const userContent = input.trim();
@@ -475,14 +785,15 @@ function selectChat(id: string) {
       : undefined;
 
     const caps = modelCapabilities(provider, model, vault[provider]?.models);
-    const userTurn = buildUserTurn(userContent, files, caps);
+    const project = projectFiles.length ? buildProjectPrompt(userContent) : null;
+    const userTurn = buildUserTurn(project ? project.text : userContent, files, caps);
     const dropped = files.filter((f) => (f.base64 == null && f.text == null) || (f.kind === "image" && !caps.vision));
     const listed = files.map((f) => f.name).join(", ");
 
     addMessage(chatId, {
       id: Date.now().toString(),
       role: "user",
-      content: userContent + (files.length ? `\n\n[${files.length} file(s): ${listed}]` : ""),
+      content: userContent + (files.length ? `\n\n[${files.length} file(s): ${listed}]` : "") + (project ? `\n\n[project: ${projectFiles.length} files from ${projectName || "upload"}]` : ""),
       timestamp: new Date().toISOString(),
       attachments,
       parts: userTurn,
@@ -494,7 +805,7 @@ function selectChat(id: string) {
     setFiles([]);
     setRunning(true);
     setStage(`Sending — ${provider}/${model}`);
-    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2192 ${provider}/${model} [${mode}] ${userContent.slice(0, 80)}${toolsOn ? " \u26a1tools" : ""}`]);
+    setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2192 ${provider}/${model} [${mode}] ${userContent.slice(0, 80)}${project ? ` \u{1F4E6} project:${projectFiles.length}files` : ""}${toolsOn ? " \u26a1tools" : ""}`]);
     for (const f of dropped) {
       setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u26a0 ${f.name} not sent — ${f.note || "model has no vision support"}`]);
     }
@@ -527,6 +838,11 @@ function selectChat(id: string) {
       setRunning(false);
       setStage("");
       abortRef.current = null;
+      // Fenced ```path blocks in the reply become real edits in the workspace.
+      try {
+        const last = useGodEye.getState().chats.find((c) => c.id === chatId)?.messages.at(-1);
+        if (last?.role === "assistant" && last.content) applyProjectReply(last.content);
+      } catch {}
     }
   }
 
@@ -785,6 +1101,29 @@ function selectChat(id: string) {
 
         {/* composer - Codex style */}
         <div className="border-t bg-card/50 p-3 md:p-4 shrink-0 safe-bottom">
+          {projectFiles.length>0 && (
+            <div className="max-w-3xl mx-auto mb-2 rounded-xl border bg-card p-2.5">
+              <div className="flex items-center gap-2">
+                <Package className="h-4 w-4 text-emerald-500 shrink-0"/>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium truncate">{projectName || "project"} <span className="opacity-60 font-normal">— {projectFiles.length} files loaded</span></div>
+                  <div className="text-[11px] opacity-60">Ask for changes; edited files come back as path-tagged code blocks. Then export.</div>
+                </div>
+                <button onClick={()=>exportProjectDownload("improved")} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title="Download the improved project as a ZIP">
+                  <Download className="h-3.5 w-3.5"/> ZIP
+                </button>
+                <button onClick={()=>exportProjectToDrive()} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title={drive.status === "connected" ? `Save to Google Drive/GodEye/Projects${drive.email ? ` (${drive.email})` : ""}` : "Connect Google Drive and save there"}>
+                  <Cloud className="h-3.5 w-3.5"/> {drive.status === "connected" ? "Drive" : "Drive…"}
+                </button>
+                {desktop && (
+                  <button onClick={()=>exportProjectToFolder()} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title="Write the project straight into a folder on this PC">
+                    <FolderOpen className="h-3.5 w-3.5"/> Write to disk
+                  </button>
+                )}
+                <button onClick={()=>{ setProjectFiles([]); setProjectName(""); }} className="p-1.5 rounded-lg hover:bg-muted opacity-60" title="Close project"><X className="h-3.5 w-3.5"/></button>
+              </div>
+            </div>
+          )}
           {files.length>0 && (
             <div className="max-w-3xl mx-auto mb-2 flex flex-wrap gap-2">
               {files.map((f, i)=>(
@@ -802,9 +1141,11 @@ function selectChat(id: string) {
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
               <div className="flex items-end gap-2">
                 <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can save files, folders, Word docs, PDFs, ZIPs and run commands on your PC" : "GodEye can create files, folders, Word docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
-                <button onClick={()=>fileRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title={`Attach images, PDFs, code and data files${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4"/></button>
+                <button onClick={()=>fileRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title={`Attach files — images, PDFs, code, or a .zip project${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4"/></button>
+                <button onClick={()=>folderRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title="Open a whole project folder — deps and build output are skipped"><FolderOpen className="h-4 w-4"/></button>
                 <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILE_TYPES} className="hidden" onChange={handleFiles}/>
-                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if (shouldSendOnEnter(e)){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
+                <input ref={folderRef} type="file" {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple className="hidden" onChange={handleFiles}/>
+                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if (shouldSendOnEnter(e)){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode${projectFiles.length ? ` • project: ${projectName} (${projectFiles.length} files)` : ""} • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
                 <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
                   <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Model, connectors & plugins • ${providerObj?.name}/${model}`}><Plus className="h-4 w-4"/></button>
                   {showModelMenu && (

@@ -19,6 +19,7 @@ interface GodEyeDesktopBridge {
   readText(path: string): Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
   pickAndRead(filters?: { name: string; extensions: string[] }[]): Promise<{ canceled?: boolean; path?: string; content?: string; error?: string }>;
   runCommand(payload: { command: string; cwd?: string; timeoutMs?: number }): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string; timedOut: boolean }>;
+  writeProject?(payload: { name: string; files: { path: string; base64: string }[]; mode?: "into" | "new"; dir?: string }): Promise<{ ok: boolean; canceled?: boolean; path?: string; written?: number; skipped?: string[]; failed?: string[]; error?: string; detail?: string }>;
   openPath(target: string): Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -195,6 +196,22 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>)
           ok: r.ok && !r.timedOut,
           summary: r.timedOut ? "Timed out" : out ? `${out.slice(0, 200)}${out.length > 200 ? "…" : ""}` : `exit ${r.exitCode}`,
           detail: out,
+        };
+      }
+      case "godeye_writeProject": {
+        if (!b?.writeProject) return { ok: false, summary: "writeProject needs the desktop app (browser can't write to a folder)" };
+        const r = await b.writeProject({
+          name: String(args?.name ?? "project"),
+          files: (Array.isArray(args?.files) ? args.files : []) as { path: string; base64: string }[],
+          mode: args?.mode === "new" ? "new" : "into",
+          dir: args?.dir as string | undefined,
+        });
+        if (r.canceled) return { ok: false, summary: "Cancelled" };
+        return {
+          ok: r.ok,
+          summary: r.ok ? `Wrote ${r.written ?? 0} file(s) to ${r.path}` : r.error || "Write failed",
+          detail: r.detail,
+          path: r.path,
         };
       }
       default:

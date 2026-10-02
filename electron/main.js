@@ -171,6 +171,64 @@ function registerIpc() {
       return { ok: false, error: String((err && err.message) || err) };
     }
   });
+
+  // Write a whole project tree (path -> base64) into a chosen folder. Every
+  // entry is resolved against the chosen root and rejected if it escapes it.
+  ipcMain.handle('godeye:write-project', async (_e, payload = {}) => {
+    const { name, files, mode, dir } = payload;
+    if (!Array.isArray(files) || !files.length) return { ok: false, error: 'No files to write' };
+
+    let root = dir;
+    if (!root) {
+      ensureBaseFolder();
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: `Where should "${name || 'project'}" go?`,
+        defaultPath: baseFolder(),
+        properties: mode === 'new' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
+      });
+      if (canceled || !filePaths?.[0]) return { ok: false, canceled: true, error: 'Cancelled' };
+      root = mode === 'new' ? path.join(filePaths[0], name || 'project') : filePaths[0];
+    }
+
+    const absRoot = path.resolve(root);
+    const written = [];
+    const skipped = [];
+    const failed = [];
+
+    for (const f of files) {
+      const rel = String((f && f.path) || '').replace(/\\/g, '/').replace(/^\/+/, '');
+      if (!rel || rel.includes('\0')) { skipped.push(rel || '(empty)'); continue; }
+      const abs = path.resolve(absRoot, rel);
+      // refuse anything that lands outside the chosen root
+      if (abs !== absRoot && !abs.startsWith(absRoot + path.sep)) {
+        skipped.push(rel);
+        continue;
+      }
+      try {
+        await fs.promises.mkdir(path.dirname(abs), { recursive: true });
+        await fs.promises.writeFile(abs, Buffer.from(String((f && f.base64) || ''), 'base64'));
+        written.push(rel);
+      } catch (err) {
+        failed.push(`${rel}: ${String((err && err.message) || err)}`);
+      }
+    }
+
+    const ok = written.length > 0 && failed.length === 0;
+    if (written.length) {
+      notify('GodEye OS wrote project', `${written.length} file(s) → ${absRoot}`);
+      // open the folder so the user sees the result immediately
+      shell.openPath(absRoot).catch(() => {});
+    }
+    return {
+      ok,
+      path: absRoot,
+      written: written.length,
+      skipped,
+      failed,
+      error: failed.length ? failed.slice(0, 3).join('; ') : undefined,
+      detail: `${written.length} file(s) written to ${absRoot}${skipped.length ? ` • ${skipped.length} rejected (unsafe path)` : ''}${failed.length ? ` • ${failed.length} failed` : ''}`,
+    };
+  });
 }
 
 app.whenReady().then(() => {

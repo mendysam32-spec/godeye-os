@@ -6,7 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('godeye', {
   isDesktop: true,
   platform: process.platform,
-  bridgeVersion: 3,
+  bridgeVersion: 4,
   systemInfo: () => ipcRenderer.invoke('godeye:system-info'),
   baseFolder: () => ipcRenderer.invoke('godeye:base-folder'),
   // Save dialog: hand a file to the user via the OS save dialog.
@@ -23,5 +23,7 @@ contextBridge.exposeInMainWorld('godeye', {
   pickAndRead: (filters) => ipcRenderer.invoke('godeye:pick-read', filters),
   // Run a shell command; returns { exitCode, stdout, stderr, timedOut }.
   runCommand: (payload) => ipcRenderer.invoke('godeye:run-command', payload),
+  // Write a whole project tree (files: [{ path, base64 }]) into a picked folder.
+  writeProject: (payload) => ipcRenderer.invoke('godeye:write-project', payload),
   openPath: (target) => ipcRenderer.invoke('godeye:open-path', target),
 });

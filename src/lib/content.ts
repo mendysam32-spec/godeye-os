@@ -197,16 +197,21 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_TEXT_FILE_BYTES = 8 * 1024 * 1024;
 
 export const ACCEPTED_FILE_TYPES =
-  "image/*,.pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.pptx,.txt,.md,.markdown,.json,.jsonl,.xml,.html,.htm,.css,.js,.jsx,.mjs,.cjs,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.php,.sh,.bash,.zsh,.ps1,.sql,.yml,.yaml,.toml,.ini,.env,.log,.diff,.patch,.svelte,.vue,.swift,.kt,.lua,.r";
+  "image/*,.heic,.heif,.webp,.avif,.bmp,.tiff,.tif,.pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.pptx,.txt,.md,.markdown,.json,.jsonl,.xml,.html,.htm,.css,.js,.jsx,.mjs,.cjs,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.php,.sh,.bash,.zsh,.ps1,.sql,.yml,.yaml,.toml,.ini,.env,.log,.diff,.patch,.svelte,.vue,.swift,.kt,.lua,.r,.zip,.tar,.tar.gz,.tgz,.7z";
 
 const TEXT_EXT = new Set([
   "txt", "md", "markdown", "json", "jsonl", "xml", "html", "htm", "css", "js", "jsx", "mjs", "cjs",
   "ts", "tsx", "py", "rb", "go", "rs", "java", "c", "h", "cpp", "hpp", "cs", "php", "sh", "bash",
   "zsh", "ps1", "sql", "yml", "yaml", "toml", "ini", "env", "log", "csv", "tsv", "diff", "patch",
-  "svelte", "vue", "swift", "kt", "lua", "r", "gitignore",
+  "svelte", "vue", "swift", "kt", "lua", "r", "gitignore", "map",
 ]);
 
 const MIME_FALLBACK: Record<string, string> = {
+  zip: "application/zip",
+  tar: "application/x-tar",
+  "tar.gz": "application/gzip",
+  tgz: "application/gzip",
+  "7z": "application/x-7z-compressed",
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   doc: "application/msword",
@@ -223,7 +228,35 @@ const MIME_FALLBACK: Record<string, string> = {
   html: "text/html",
   htm: "text/html",
   webp: "image/webp",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  tiff: "image/tiff",
+  tif: "image/tiff",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  heic: "image/heic",
+  heif: "image/heif",
+  svg: "image/svg+xml",
 };
+
+/** Browsers can't decode every image container, and providers reject the exotic
+ *  ones. Re-map to a format both the preview <img> and the vision API accept. */
+const IMAGE_MIME_ALIAS: Record<string, string> = {
+  "image/heic": "image/png",
+  "image/heif": "image/png",
+  "image/jxl": "image/png",
+  "image/x-ms-bmp": "image/bmp",
+  "image/svg+xml": "image/png",
+};
+
+export function normalizeImageMime(mime: string): string {
+  const m = (mime || "").toLowerCase();
+  if (IMAGE_MIME_ALIAS[m]) return IMAGE_MIME_ALIAS[m];
+  if (!m.startsWith("image/")) return mime;
+  return m;
+}
 
 export function extOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -277,16 +310,28 @@ export async function readPendingFiles(
       out.push({ ...base, note: `${(f.size / 1048576).toFixed(1)}MB exceeds the ${MAX_FILE_BYTES / 1048576}MB limit` });
       continue;
     }
+    if (extOf(f.name) === 'zip') {
+      // ZIP files are stored as binary documents in parts (or kept as pending for project workflows)
+      try {
+        const buf = await f.arrayBuffer();
+        const b64 = arrayBufferToBase64(buf);
+        out.push({ ...base, kind: 'binary', base64: b64 });
+      } catch (e) {
+        out.push({ ...base, note: `could not read ZIP (${(e as Error).message})` });
+      }
+      continue;
+    }
     if (kind === "image") {
       if (f.size > MAX_IMAGE_BYTES) {
         out.push({ ...base, note: `image is ${(f.size / 1048576).toFixed(1)}MB — max ${MAX_IMAGE_BYTES / 1048576}MB` });
         continue;
       }
+      const imgMime = normalizeImageMime(mime);
       try {
         const b64 = arrayBufferToBase64(await f.arrayBuffer());
-        out.push({ ...base, base64: b64, preview: `data:${mime};base64,${b64}` });
+        out.push({ ...base, mime: imgMime, base64: b64, preview: `data:${imgMime};base64,${b64}` });
       } catch (e) {
-        out.push({ ...base, note: `could not read file (${(e as Error).message})` });
+        out.push({ ...base, note: `could not read image (${(e as Error).message})` });
       }
       continue;
     }

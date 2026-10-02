@@ -1,10 +1,15 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useGodEye } from "@/lib/store";
-import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap } from "lucide-react";
+import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap, Cloud } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { isDesktop, desktopBridge } from "@/lib/desktop";
 import type { GodEyeSystemInfo } from "@/types/desktop";
+import { useDriveAuth } from "@/lib/use-drive-auth";
+
+// The account project exports are meant to land in. Purely a UI guard so a
+// mis-click on the Google account chooser is obvious — it is never sent anywhere.
+const EXPECTED_DRIVE_EMAIL = "bakarysambou84@gmail.com";
 
 const THEMES = [
   {
@@ -72,6 +77,13 @@ export default function SettingsPage() {
     const b = desktopBridge();
     if (b) b.systemInfo().then(setSysInfo).catch(() => setSysInfo(null));
   }, []);
+
+  // Google Drive connection — same shared hook the Connectors page uses, so the
+  // OAuth callback can land on either page.
+  const drive = useDriveAuth();
+  const driveConnected = drive.status === "connected";
+  const driveEmail = drive.email;
+  const driveMsg = drive.message;
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -272,6 +284,33 @@ export default function SettingsPage() {
                 Agent tools <span className="text-muted-foreground">(save file • read file • run command)</span>
               </label>
               <div className="text-xs text-muted-foreground self-center">{settings.agentTools !== false ? "ON — ask GodEye to save or run code." : "OFF — text only."}</div>
+            </div>
+
+              <div className="mt-4 rounded-xl border bg-muted p-4">
+              <div className="flex items-center gap-2 text-sm font-medium"><Cloud className="h-4 w-4"/> Google Drive — cross-device project storage</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Connect once and the <b>Drive</b> button on a loaded project saves the improved ZIP to
+                <code className="mx-1">GodEye/Projects/</code> in your own Drive — reachable from any device signed into that account.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {driveConnected ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700">
+                      <Check className="h-3.5 w-3.5"/> {driveEmail ? `Connected — ${driveEmail}` : "Connected on this device"}
+                    </span>
+                    {driveEmail && driveEmail.toLowerCase() !== EXPECTED_DRIVE_EMAIL && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                        You expected {EXPECTED_DRIVE_EMAIL} — disconnect and pick the other account.
+                      </span>
+                    )}
+                    <button onClick={drive.disconnect} className="rounded-full border px-4 py-1.5 text-xs font-medium hover:bg-card">Disconnect</button>
+                  </>
+                ) : (
+                  <button onClick={() => drive.connect("/settings")} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium"><Cloud className="h-3.5 w-3.5"/> Connect Google Drive</button>
+                )}
+              </div>
+              {driveMsg && <div className="mt-2 text-xs text-muted-foreground">{driveMsg}</div>}
+              <p className="mt-2 text-[11px] text-muted-foreground">Sign in as <b>{EXPECTED_DRIVE_EMAIL}</b> on the Google screen. Scope is <code>drive.file</code> — GodEye can only see files it created.</p>
             </div>
 
             <div className="mt-4 rounded-xl border bg-muted p-4">
