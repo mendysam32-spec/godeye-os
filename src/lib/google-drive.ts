@@ -5,16 +5,6 @@ export type GDriveToken = {
   scope?: string;
 };
 
-/** Shape of the OAuth token endpoint responses we consume. */
-type TokenResponse = {
-  access_token?: string;
-  expires_in?: number;
-  refresh_token?: string;
-  scope?: string;
-  error?: string;
-  error_description?: string;
-};
-
 /** Shape of Drive's `files.list` / `files.create` responses we consume. */
 type DriveFile = { id: string; name?: string; webViewLink?: string; webContentLink?: string };
 type DriveList = { files?: DriveFile[] };
@@ -84,37 +74,37 @@ export async function driveAuthUrl(returnPath?: string): Promise<string> {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-export async function driveExchangeCode(code: string): Promise<GDriveToken | null> {
-  if (!CLIENT_ID) return null;
+export async function driveExchangeCode(code: string): Promise<{ token: GDriveToken | null; error?: string }> {
   const verifier = sessionStorage.getItem('gd_verifier');
-  if (!verifier) return null;
+  if (!verifier) return { token: null, error: "Missing PKCE verifier - start the connect flow again." };
   // Must be byte-identical to the redirect_uri sent on the authorize request.
   const uri = redirectUriFromStored();
-  if (!uri) return null;
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    code,
-    redirect_uri: uri,
-    grant_type: 'authorization_code',
-    code_verifier: verifier,
-  });
+  if (!uri) return { token: null, error: "Missing redirect URI - start the connect flow again." };
   try {
-    const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-    if (!res.ok) return null;
-    const j = (await res.json()) as TokenResponse;
-    if (!j.access_token) return null;
+    // The client secret lives only on the server; see /api/drive/token.
+    const res = await fetch('/api/drive/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, codeVerifier: verifier, redirectUri: uri }),
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      ok?: boolean; accessToken?: string; expiresIn?: number; refreshToken?: string; scope?: string; error?: string;
+    };
+    if (!res.ok || !j.accessToken) {
+      return { token: null, error: j.error || "Google rejected the authorization code." };
+    }
     const token: GDriveToken = {
-      accessToken: j.access_token,
-      expiresAt: Date.now() + (j.expires_in || 3600) * 1000,
-      refreshToken: j.refresh_token,
+      accessToken: j.accessToken,
+      expiresAt: Date.now() + (j.expiresIn || 3600) * 1000,
+      refreshToken: j.refreshToken,
       scope: j.scope,
     };
     localStorage.setItem(TOKEN_KEY, JSON.stringify(token));
     sessionStorage.removeItem('gd_verifier');
     sessionStorage.removeItem('gd_return');
-    return token;
+    return { token };
   } catch {
-    return null;
+    return { token: null, error: "Could not reach the GodEye token endpoint." };
   }
 }
 
@@ -156,14 +146,18 @@ export async function ensureDriveToken(): Promise<GDriveToken | null> {
   const t = getStoredDriveToken();
   if (!t) return null;
   if (t.expiresAt > Date.now() + 60000) return t;
-  if (!t.refreshToken || !CLIENT_ID) return t;
+  if (!t.refreshToken) return t;
   try {
-    const body = new URLSearchParams({ client_id: CLIENT_ID, refresh_token: t.refreshToken, grant_type: 'refresh_token' });
-    const res = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    // Refresh also needs the server-held secret; see /api/drive/token.
+    const res = await fetch('/api/drive/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: t.refreshToken }),
+    });
     if (!res.ok) return t;
-    const j = (await res.json()) as TokenResponse;
-    if (!j.access_token) return t;
-    const nt: GDriveToken = { ...t, accessToken: j.access_token, expiresAt: Date.now() + (j.expires_in || 3600) * 1000 };
+    const j = (await res.json()) as { accessToken?: string; expiresIn?: number };
+    if (!j.accessToken) return t;
+    const nt: GDriveToken = { ...t, accessToken: j.accessToken, expiresAt: Date.now() + (j.expiresIn || 3600) * 1000 };
     localStorage.setItem(TOKEN_KEY, JSON.stringify(nt));
     return nt;
   } catch {

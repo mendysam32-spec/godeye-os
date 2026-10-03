@@ -86,7 +86,7 @@ export function useDriveAuth(): DriveState {
         setMessage(`Google Drive connect failed: ${params.get("error_description") || err}`);
       } else if (code) {
         setStatus("connecting");
-        const t = await driveExchangeCode(code);
+        const { token: t, error } = await driveExchangeCode(code);
         if (cancelled) return;
         if (t) {
           const acct = await driveAccount(t.accessToken);
@@ -97,7 +97,7 @@ export function useDriveAuth(): DriveState {
           setMessage(acct ? `Connected as ${acct.email}` : "Connected to Google Drive");
         } else {
           setStatus("error");
-          setMessage("Could not exchange the authorization code with Google.");
+          setMessage(error || "Could not exchange the authorization code with Google.");
         }
       }
       window.history.replaceState({}, "", window.location.pathname);
