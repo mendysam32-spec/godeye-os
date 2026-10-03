@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, Mic, MicOff, Volume2, VolumeX, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
@@ -18,6 +18,7 @@ import { noteChatDeleted } from "@/lib/chat-sync-client";
 import { extractZip, packZip, uint8ToBase64, base64ToUint8 } from "@/lib/zip";
 import { ensureDriveToken, ensureGodEyeFolders, uploadZipToDrive } from "@/lib/google-drive";
 import { useDriveAuth } from "@/lib/use-drive-auth";
+import { useDictation, useAutoSpeak, stopSpeaking } from "@/lib/voice";
 import {
   ACCEPTED_FILE_TYPES, MAX_TEXT_PART_CHARS, budgetParts, pendingFileMarker, pendingFileToParts,
   supportsNativePdf, readPendingFiles, type ContentPart, type PendingFile,
@@ -38,7 +39,7 @@ const PLUGIN_DEFS: { id: PluginId; label: string; desc: string; icon: LucideIcon
   { id: "image", label: "Image generation", desc: "Renders real images with image-capable models (DALL-E, FLUX, Imagen).", icon: ImageIcon, iconClass: "text-amber-500" },
   { id: "video", label: "Video generation", desc: "Renders real videos with video-capable models (Sora, Veo).", icon: Clapperboard, iconClass: "text-violet-500" },
   { id: "search", label: "Search & research", desc: "Grounds answers in research in Search/Research modes.", icon: Search, iconClass: "text-blue-500" },
-  { id: "tools", label: "Agent file tools", desc: "Let the model create files, docs, PDFs, ZIPs and run commands.", icon: Zap, iconClass: "text-amber-500" },
+  { id: "tools", label: "Agent file tools", desc: "Let the model search the web, call APIs, query the database, generate images, and create, edit, move or delete files.", icon: Zap, iconClass: "text-amber-500" },
   { id: "terminal", label: "Terminal", desc: "Run code blocks and commands from assistant replies.", icon: Terminal, iconClass: "text-green-500" },
 ];
 
@@ -289,6 +290,52 @@ export default function ChatPage() {
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const lastModelByProvider = useGodEye((s) => s.lastModelByProvider);
 
+  // ---- voice (Web Speech, no keys) ----------------------------------------
+  // Dictation streams into the composer as you talk; read-aloud speaks each
+  // finished assistant reply. Both degrade to "unsupported" outside Chromium,
+  // in which case the buttons are hidden rather than failing on click.
+  const [speakReplies, setSpeakReplies] = useState(false);
+  const dictationBase = useRef("");
+  const appendDictation = (base: string, text: string) => (base ? `${base} ${text}`.trim() : text.trim());
+  const dictation = useDictation({
+    lang: typeof navigator !== "undefined" ? navigator.language : "en-US",
+    onInterim: (t) => setInput(appendDictation(dictationBase.current, t)),
+    onFinal: (t) => {
+      setInput(appendDictation(dictationBase.current, t));
+      dictationBase.current = "";
+    },
+    onError: (m) => toast(m),
+  });
+  const autoSpeak = useAutoSpeak(speakReplies, (m) => toast(m));
+
+  const toggleDictation = () => {
+    if (dictation.listening) {
+      dictation.stop();
+      return;
+    }
+    dictationBase.current = input.trim();
+    dictation.start();
+  };
+
+  const toggleSpeak = () => {
+    const next = !speakReplies;
+    setSpeakReplies(next);
+    if (!next) stopSpeaking();
+  };
+
+  // Speak the newest assistant reply once it is complete. Streaming placeholders
+  // (leading "_") and the tool-round notes are skipped.
+  const { speakMessage } = autoSpeak;
+  useEffect(() => {
+    if (!speakReplies) return;
+    const msgs = activeChat?.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== "assistant" || running) return;
+    const text = last.content || "";
+    if (!text.trim() || text.startsWith("_") || text.startsWith("**Stopped:**")) return;
+    speakMessage(text);
+  }, [activeChat?.messages, running, speakReplies, speakMessage]);
+
   // Last-selected model memory — new chats and provider switches default to the
   // model you used last, falling back to the provider's first model.
   function pickModel(pid: ProviderId): string {
@@ -380,22 +427,26 @@ function selectChat(id: string) {
   }
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const fl = e.target.files;
-    const pickedFromFolder = (e.target as HTMLInputElement).hasAttribute("webkitdirectory");
+    const el = e.target;
+    // Snapshot the selection *before* resetting the input. `input.files` is a
+    // live FileList — the same object on every read — so clearing `value` to
+    // make the same file re-pickable also empties the reference we are holding.
+    const fl = Array.from(el.files || []);
+    const pickedFromFolder = el.hasAttribute("webkitdirectory");
     if (fileRef.current) fileRef.current.value = "";
     if (folderRef.current) folderRef.current.value = "";
-    if (!fl?.length) return;
+    if (!fl.length) return;
     setReading(true);
     try {
       // A ZIP or a whole folder opens the project workspace: the files are read
       // into an in-memory tree so the model can edit them and we can re-export.
-      const archive = pickedFromFolder ? null : Array.from(fl).find((f) => /\.zip$/i.test(f.name));
+      const archive = pickedFromFolder ? null : fl.find((f) => /\.zip$/i.test(f.name));
       if (archive) {
         await loadProjectFromZip(archive);
         return;
       }
       if (pickedFromFolder) {
-        await loadProjectFromFolder(Array.from(fl));
+        await loadProjectFromFolder(fl);
         return;
       }
 
@@ -676,7 +727,12 @@ function selectChat(id: string) {
         tool_calls: calls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) } })),
       });
       for (const tc of calls) {
-        const toolResult = await runGodEyeTool(tc.name, tc.arguments || {});
+        // Server tools (web search, URL fetch, APIs, SQL, image generation)
+        // need the active provider key, which never reaches this component
+        // decrypted unless we hand it over per call.
+        const toolResult = await runGodEyeTool(tc.name, tc.arguments || {}, {
+          provider, model, vault: decryptedVault,
+        });
         history.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(toolResult) });
         const produced = toolResult.files || [];
         if (produced.length) {
@@ -778,6 +834,8 @@ function selectChat(id: string) {
   async function send() {
     if (!input.trim() && files.length === 0 && !projectFiles.length) return;
     if (!activeChat) return;
+    // Interrupting playback keeps a new turn from talking over the old answer.
+    if (speakReplies) stopSpeaking();
     const chatId = activeChat.id;
     const userContent = input.trim();
     const attachments = files.length
@@ -1140,9 +1198,27 @@ function selectChat(id: string) {
           <div className="max-w-3xl mx-auto">
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
               <div className="flex items-end gap-2">
-                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can save files, folders, Word docs, PDFs, ZIPs and run commands on your PC" : "GodEye can create files, folders, Word docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
+                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can browse the web, call APIs, query the database, generate images, and save, edit, move or delete files on your PC" : "GodEye can browse the web, call APIs, query the database, generate images, and create files, docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
                 <button onClick={()=>fileRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title={`Attach files — images, PDFs, code, or a .zip project${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4"/></button>
                 <button onClick={()=>folderRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title="Open a whole project folder — deps and build output are skipped"><FolderOpen className="h-4 w-4"/></button>
+                {dictation.supported && (
+                  <button
+                    onClick={toggleDictation}
+                    className={`p-2 rounded-xl shrink-0 transition-colors ${dictation.listening ? "text-red-500 bg-red-500/10 animate-pulse" : "hover:bg-muted"}`}
+                    title={dictation.listening ? "Stop dictation" : `Dictate your message (${dictation.listening ? "listening" : "click to speak"}) — free, uses your mic`}
+                  >
+                    {dictation.listening ? <MicOff className="h-4 w-4"/> : <Mic className="h-4 w-4"/>}
+                  </button>
+                )}
+                {autoSpeak.supported && (
+                  <button
+                    onClick={toggleSpeak}
+                    className={`p-2 rounded-xl shrink-0 transition-colors ${speakReplies ? "text-emerald-500 hover:bg-muted" : "opacity-40 hover:bg-muted hover:opacity-100"}`}
+                    title={speakReplies ? "Read replies aloud — ON" : "Read replies aloud — OFF"}
+                  >
+                    {speakReplies ? <Volume2 className="h-4 w-4"/> : <VolumeX className="h-4 w-4"/>}
+                  </button>
+                )}
                 <input ref={fileRef} type="file" multiple accept={ACCEPTED_FILE_TYPES} className="hidden" onChange={handleFiles}/>
                 <input ref={folderRef} type="file" {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple className="hidden" onChange={handleFiles}/>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if (shouldSendOnEnter(e)){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode${projectFiles.length ? ` • project: ${projectName} (${projectFiles.length} files)` : ""} • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>

@@ -5,6 +5,7 @@
 // so the same UI powers both the desktop app and the web build.
 import type { GodEyeSystemInfo } from "@/types/desktop";
 import { makeZip, makeDocx, makePdf, bufToBase64, base64ToBuf, MIME_DOCX } from "./file-builder";
+import { isServerTool } from "./tools";
 
 interface GodEyeDesktopBridge {
   isDesktop: boolean;
@@ -21,7 +22,43 @@ interface GodEyeDesktopBridge {
   runCommand(payload: { command: string; cwd?: string; timeoutMs?: number }): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string; timedOut: boolean }>;
   writeProject?(payload: { name: string; files: { path: string; base64: string }[]; mode?: "into" | "new"; dir?: string }): Promise<{ ok: boolean; canceled?: boolean; path?: string; written?: number; skipped?: string[]; failed?: string[]; error?: string; detail?: string }>;
   openPath(target: string): Promise<{ ok: boolean; error?: string }>;
+  listDir?(payload: { path?: string; recursive?: boolean; maxEntries?: number }): Promise<{ ok: boolean; path?: string; count?: number; entries?: DirEntry[]; truncated?: boolean; error?: string }>;
+  editFile?(payload: { path: string; content?: string; find?: string; replace?: string; all?: boolean; createIfMissing?: boolean }): Promise<{ ok: boolean; path?: string; created?: boolean; unchanged?: boolean; bytes?: number; error?: string; detail?: string }>;
+  movePath?(payload: { from: string; to: string; overwrite?: boolean }): Promise<{ ok: boolean; path?: string; error?: string; detail?: string }>;
+  copyPath?(payload: { from: string; to: string; recursive?: boolean; overwrite?: boolean }): Promise<{ ok: boolean; path?: string; count?: number; error?: string; detail?: string }>;
+  deletePath?(payload: { path: string; recursive?: boolean; dryRun?: boolean }): Promise<{ ok: boolean; path?: string; dryRun?: boolean; error?: string; detail?: string }>;
+  sysStats?(): Promise<SystemStats>;
 }
+
+export interface DirEntry {
+  path: string;
+  rel: string;
+  type: "file" | "dir" | "link";
+  size: number;
+  modified: string | null;
+}
+
+export interface SystemStats {
+  ok: boolean;
+  cpu: { busyPercent: number; cores: number; model: string; speedMhz: number; perCore: number[]; loadAvg: number[] | null };
+  memory: { totalBytes: number; freeBytes: number; usedBytes: number; usedPercent: number };
+  disk: { path: string; totalBytes: number; freeBytes: number } | null;
+  network: { receivedBytes: number; sentBytes: number } | null;
+  interfaces: { name: string; address: string; family: string | number; internal: boolean; mac: string }[];
+  system: {
+    platform: string;
+    release: string;
+    arch: string;
+    hostname: string;
+    user: string | null;
+    uptimeSeconds: number;
+    processUptimeSeconds: number;
+    node: string;
+    electron: string;
+    chrome: string;
+  };
+}
+
 
 export interface ToolFile {
   name: string;
@@ -37,6 +74,13 @@ export interface ToolResult {
   detail?: string;
   path?: string;
   files?: ToolFile[];
+}
+
+/** Chat context a server-side tool needs (provider key, active model). */
+export interface ToolContext {
+  provider?: string;
+  model?: string;
+  vault?: Record<string, unknown>;
 }
 
 const encoder = new TextEncoder();
@@ -118,8 +162,76 @@ async function deliverFiles(
   return out;
 }
 
-export async function runGodEyeTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+/**
+ * Run a server-side tool (web search, URL fetch, API call, database query,
+ * image generation). These need the network without CORS, the D1 binding, or a
+ * provider key that must not live in the renderer, so they are executed by
+ * `POST /api/tools/run` instead. Files it produces are delivered exactly like
+ * locally-created ones: written to disk on desktop, downloadable in a browser.
+ */
+async function runServerTool(
+  name: string,
+  args: Record<string, unknown>,
+  ctx?: ToolContext
+): Promise<ToolResult> {
+  let payload: { ok?: boolean; summary?: string; detail?: string; path?: string; files?: ToolFile[]; error?: string };
+  try {
+    const res = await fetch("/api/tools/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, args, provider: ctx?.provider, model: ctx?.model, vault: ctx?.vault }),
+    });
+    payload = await res.json();
+    if (!res.ok && !payload?.summary) throw new Error(payload?.error || `HTTP ${res.status}`);
+  } catch (e) {
+    return { ok: false, summary: `${name} failed: ${String((e && (e as Error).message) || e)}` };
+  }
+
+  const summary = payload.summary || `${name} done`;
+  if (payload.ok === false) return { ok: false, summary, detail: payload.detail };
+
+  // Persist anything the server generated (generated images) like a local save.
+  let files = payload.files;
+  if (files?.length && bridge()) {
+    files = await deliverFiles(
+      files.map((f) => ({ name: f.name, content: f.content, base64: f.base64, type: f.type })),
+      args.folder as string | undefined
+    );
+  }
+  return { ok: true, summary, detail: payload.detail, path: payload.path, files };
+}
+
+function humanBytes(n: number): string {
+  if (!Number.isFinite(n)) return "n/a";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+function formatStats(s: SystemStats): string {
+  const mins = Math.floor(s.system.uptimeSeconds / 60);
+  const uptime = mins < 60 ? `${mins}m` : mins < 1440 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${Math.floor(mins / 1440)}d ${Math.floor((mins % 1440) / 60)}h`;
+  const lines = [
+    `CPU ${s.cpu.busyPercent}% busy — ${s.cpu.cores} cores, ${s.cpu.model}`,
+    `  per-core: ${s.cpu.perCore.join("% / ")}%`,
+    s.cpu.loadAvg ? `  load average: ${s.cpu.loadAvg.join("  ")}` : "",
+    `Memory ${s.memory.usedPercent}% used — ${humanBytes(s.memory.usedBytes)} of ${humanBytes(s.memory.totalBytes)} (${humanBytes(s.memory.freeBytes)} free)`,
+    s.disk ? `Disk ${s.disk.path} — ${humanBytes(s.disk.freeBytes)} free of ${humanBytes(s.disk.totalBytes)}` : "Disk: not reported on this platform",
+    s.network ? `Network — ${humanBytes(s.network.receivedBytes)} received / ${humanBytes(s.network.sentBytes)} sent (since boot)` : "Network counters: Windows only",
+    `Up ${uptime} — ${s.system.hostname}${s.system.user ? ` (${s.system.user})` : ""} · ${s.system.platform} ${s.system.release} ${s.system.arch}`,
+    `Interfaces: ${s.interfaces.filter((i) => !i.internal).map((i) => `${i.name} ${i.address}`).join(", ") || "none external"}`,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+
+export async function runGodEyeTool(name: string, args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult> {
   const b = bridge();
+  if (isServerTool(name)) return runServerTool(name, args, ctx);
   try {
     switch (name) {
       case "godeye_saveFile": {
@@ -214,6 +326,72 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>)
           path: r.path,
         };
       }
+
+      /* ---- advanced file operations (desktop) ------------------------------ */
+      case "godeye_listDir": {
+        if (!b?.listDir) return { ok: false, summary: "listDir needs the desktop app (browser can't browse your folders)" };
+        const r = await b.listDir({
+          path: args?.path as string | undefined,
+          recursive: args?.recursive === true,
+          maxEntries: typeof args?.maxEntries === "number" ? args.maxEntries : 200,
+        });
+        if (!r.ok) return { ok: false, summary: r.error || "Could not list folder" };
+        const entries = r.entries || [];
+        const listing = entries
+          .map((e) => `${e.type === "dir" ? "[dir] " : e.type === "link" ? "[link]" : "      "}${e.rel}${e.type === "file" ? `  (${humanBytes(e.size)}, ${e.modified?.slice(0, 16).replace("T", " ") ?? "?"})` : ""}`)
+          .join("\n");
+        return {
+          ok: true,
+          summary: `${r.count} entr${r.count === 1 ? "y" : "ies"} in ${r.path}${r.truncated ? " (truncated)" : ""}`,
+          detail: listing,
+          path: r.path,
+        };
+      }
+      case "godeye_editFile": {
+        if (!b?.editFile) return { ok: false, summary: "editFile needs the desktop app (browser can't edit files in place)" };
+        const r = await b.editFile({
+          path: String(args?.path ?? ""),
+          content: args?.content as string | undefined,
+          find: args?.find as string | undefined,
+          replace: args?.replace as string | undefined,
+          all: args?.all === true,
+          createIfMissing: args?.createIfMissing === true,
+        });
+        if (r.unchanged) return { ok: true, summary: `No change to ${r.path}`, detail: r.detail, path: r.path };
+        return { ok: r.ok, summary: r.ok ? `${r.created ? "Created" : "Edited"} ${r.path}` : r.error || "Edit failed", detail: r.detail, path: r.path };
+      }
+      case "godeye_movePath": {
+        if (!b?.movePath) return { ok: false, summary: "movePath needs the desktop app (browser can't move files)" };
+        const r = await b.movePath({ from: String(args?.from ?? ""), to: String(args?.to ?? ""), overwrite: args?.overwrite === true });
+        return { ok: r.ok, summary: r.ok ? `Moved to ${r.path}` : r.error || "Move failed", detail: r.detail, path: r.path };
+      }
+      case "godeye_copyPath": {
+        if (!b?.copyPath) return { ok: false, summary: "copyPath needs the desktop app (browser can't copy files)" };
+        const r = await b.copyPath({
+          from: String(args?.from ?? ""),
+          to: String(args?.to ?? ""),
+          recursive: args?.recursive !== false,
+          overwrite: args?.overwrite === true,
+        });
+        return { ok: r.ok, summary: r.ok ? `Copied to ${r.path}` : r.error || "Copy failed", detail: r.detail, path: r.path };
+      }
+      case "godeye_deletePath": {
+        if (!b?.deletePath) return { ok: false, summary: "deletePath needs the desktop app (browser can't delete files)" };
+        const r = await b.deletePath({
+          path: String(args?.path ?? ""),
+          recursive: args?.recursive === true,
+          dryRun: args?.dryRun === true,
+        });
+        return { ok: r.ok, summary: r.ok ? (r.dryRun ? "Dry run" : `Deleted ${r.path}`) : r.error || "Delete failed", detail: r.detail, path: r.path };
+      }
+
+      /* ---- system monitoring (desktop) ------------------------------------- */
+      case "godeye_systemStats": {
+        if (!b?.sysStats) return { ok: false, summary: "systemStats needs the desktop app (browser can't read machine metrics)" };
+        const s = await b.sysStats();
+        return { ok: true, summary: `CPU ${s.cpu.busyPercent}% • RAM ${s.memory.usedPercent}% • up ${Math.floor(s.system.uptimeSeconds / 60)}m`, detail: formatStats(s) };
+      }
+
       default:
         return { ok: false, summary: `Unknown tool: ${name}` };
     }

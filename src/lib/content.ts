@@ -3,6 +3,7 @@
 // per provider in `llm-router`. Shared by the client (file intake) and the
 // server (wire encoding) so both sides agree on the contract.
 import type { ProviderId } from "./providers";
+import { unzipSync } from "fflate";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -279,6 +280,123 @@ export function classifyFile(name: string, mime: string): FileKind {
   return "binary";
 }
 
+/* -------------------------------------------------------------------------- */
+/* Office (OOXML) text extraction                                              */
+/* -------------------------------------------------------------------------- */
+
+// Word / Excel / PowerPoint are ZIP containers of XML. Reading the text out is
+// enough for a model to read the document, and it keeps the format working in
+// every provider instead of needing a native-PDF-style capability. The legacy
+// binary formats (.doc/.xls/.ppt) are OLE2 and are *not* handled here.
+const OOXML_PARTS: Record<string, RegExp> = {
+  docx: /^word\/document\.xml$/,
+  docm: /^word\/document\.xml$/,
+  pptx: /^ppt\/slides\/slide\d+\.xml$/,
+  pptm: /^ppt\/slides\/slide\d+\.xml$/,
+};
+
+/** True for the ZIP-based Office formats we can read text out of. */
+function isOfficeExt(ext: string): boolean {
+  return ext in OOXML_PARTS || ext === "xlsx" || ext === "xlsm";
+}
+
+function decodeXml(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/** Flatten WordprocessingML/PresentationML into readable lines. */
+function xmlToText(xml: string): string {
+  // Cell boundaries are stashed behind a sentinel first: a table cell wraps its
+  // own paragraph, so converting </w:p> straight to a newline would split every
+  // row across several lines instead of emitting one tab-separated row.
+  const CELL = "\u0001";
+  return decodeXml(
+    xml
+      .replace(/<w:tab\b[^>]*\/>/g, "\t")
+      .replace(/<a:br\b[^>]*\/>/g, "\n")
+      .replace(/<w:br\b[^>]*\/>/g, "\n")
+      .replace(/<\/w:tc>/g, CELL)
+      .replace(/<\/w:p>/g, "\n")
+      .replace(/<\/a:p>/g, "\n")
+      .replace(/<\/w:tr>/g, "\n")
+      .replace(/<[^>]+>/g, "")
+      // a paragraph break right before a cell edge belongs to the cell, not the row
+      .replace(/\n(?=[ \t]*\u0001)/g, "")
+      .replace(/\u0001/g, "\t")
+  )
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** SpreadsheetML: shared strings plus each sheet's cell values, tab-separated. */
+function spreadsheetText(parts: Map<string, string>): string {
+  const shared: string[] = [];
+  const ss = parts.get("xl/sharedStrings.xml");
+  if (ss) {
+    for (const m of ss.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) shared.push(xmlToText(m[1]));
+  }
+  const sheets = [...parts.keys()].filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort();
+  const out: string[] = [];
+  for (const sheet of sheets) {
+    const xml = parts.get(sheet) || "";
+    const rows: string[] = [];
+    for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+      const cells: string[] = [];
+      for (const cell of row[1].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const attrs = cell[1] || "";
+        const inner = cell[2] || "";
+        const type = /\bt="([^"]+)"/.exec(attrs)?.[1];
+        if (type === "s") {
+          const idx = Number(/<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? NaN);
+          cells.push(shared[idx] ?? "");
+        } else if (type === "inlineStr") {
+          cells.push(xmlToText(inner));
+        } else {
+          cells.push(decodeXml(/<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? ""));
+        }
+      }
+      // trailing empty cells add nothing to the prompt
+      while (cells.length && cells[cells.length - 1] === "") cells.pop();
+      if (cells.length) rows.push(cells.join("\t"));
+    }
+    if (rows.length) out.push(`--- ${sheet.replace("xl/worksheets/", "")} ---\n${rows.join("\n")}`);
+  }
+  return out.join("\n\n");
+}
+
+/** Extract readable text from a .docx/.xlsx/.pptx buffer. Empty string when the
+ *  container is unreadable or holds no text (e.g. password-protected). */
+export function extractOfficeText(name: string, buffer: ArrayBuffer): string {
+  const ext = extOf(name);
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(new Uint8Array(buffer));
+  } catch {
+    return "";
+  }
+  const utf8 = new TextDecoder("utf-8", { fatal: false });
+  const parts = new Map<string, string>();
+  for (const [k, v] of Object.entries(entries)) parts.set(k, utf8.decode(v));
+
+  if (ext === "xlsx" || ext === "xlsm") return spreadsheetText(parts);
+
+  const pattern = OOXML_PARTS[ext];
+  if (!pattern) return "";
+  const names = [...parts.keys()].filter((k) => pattern.test(k)).sort();
+  const chunks = names.map((n) => xmlToText(parts.get(n)!)).filter(Boolean);
+  return chunks.join("\n\n");
+}
+
+
 /** Providers that accept a raw PDF and do the text extraction (and OCR) for us. */
 export function supportsNativePdf(provider: ProviderId): boolean {
   return provider === "anthropic" || provider === "google" || provider === "openrouter";
@@ -360,6 +478,23 @@ export async function readPendingFiles(
         out.push({ ...base, text: await f.text() });
       } catch (e) {
         out.push({ ...base, note: `could not read file (${(e as Error).message})` });
+      }
+      continue;
+    }
+    if (isOfficeExt(extOf(f.name))) {
+      if (f.size > MAX_TEXT_FILE_BYTES) {
+        out.push({ ...base, note: `${f.name} is ${(f.size / 1048576).toFixed(1)}MB — max ${MAX_TEXT_FILE_BYTES / 1048576}MB` });
+        continue;
+      }
+      try {
+        const text = extractOfficeText(f.name, await f.arrayBuffer());
+        if (!text.trim()) {
+          out.push({ ...base, note: "no readable text found (encrypted, empty, or a legacy binary format)" });
+        } else {
+          out.push({ ...base, kind: "text", text });
+        }
+      } catch (e) {
+        out.push({ ...base, note: `could not read document (${(e as Error).message})` });
       }
       continue;
     }

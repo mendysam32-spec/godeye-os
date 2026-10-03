@@ -1,6 +1,6 @@
 "use client";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 import { partsForStorage, type ContentPart, type FileKind } from "./content";
 
@@ -340,8 +340,99 @@ function readUserData(userId: string): WorkspaceData | null {
   return null;
 }
 
+/** Binary bodies are the only unbounded part of the persisted blob. */
+function slimHeavyPayload(value: string): string {
+  const parsed = JSON.parse(value) as { state?: Record<string, unknown> } & Record<string, unknown>;
+  const slim = (state: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = { ...state };
+    if (Array.isArray(state.chats)) {
+      out.chats = state.chats.map((c) => {
+        const chat = c as { messages?: Array<Record<string, unknown>> };
+        if (!Array.isArray(chat.messages)) return c;
+        return { ...chat, messages: chat.messages.map((m) => ({ ...m, ...(m.parts ? { parts: slimParts(m.parts) } : {}) })) };
+      });
+    }
+    if (Array.isArray(state.projects)) {
+      out.projects = state.projects.map((p) => {
+        const proj = p as { files?: Array<Record<string, unknown>> };
+        if (!Array.isArray(proj.files)) return p;
+        return { ...proj, files: proj.files.map((f) => (f.binary ? { path: f.path, text: "", binary: true } : f)) };
+      });
+    }
+    return out;
+  };
+  // persist() wraps the payload as { state, version }; the per-user workspace
+  // blob stores the state fields at the top level. Handle both.
+  if (parsed.state && typeof parsed.state === "object") return JSON.stringify({ ...parsed, state: slim(parsed.state) });
+  return JSON.stringify(slim(parsed));
+}
+
+function slimParts(parts: unknown): unknown {
+  if (!Array.isArray(parts)) return parts;
+  return parts.map((p) => {
+    const part = p as { type?: string; data?: string };
+    if (!part || part.type === "text") return p;
+    return { ...part, data: "", note: "attachment body too large to keep in local cache - re-attach it" };
+  });
+}
+
+/**
+ * localStorage is ~5MB per origin and zustand's persist calls setItem straight
+ * from every store action with no try/catch, so one QuotaExceededError (a couple
+ * of image attachments, or a project folder holding binaries) escapes the action
+ * and takes the UI down with it. Degrade instead of throwing: full payload, then
+ * the same payload with attachment bodies stripped, then memory for this session.
+ */
+function writeLocal(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    /* quota exceeded, or storage disabled - fall through */
+  }
+  try {
+    localStorage.setItem(key, slimHeavyPayload(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function quotaSafeStorage(): StateStorage<void> {
+  const memory = new Map<string, string>();
+  return {
+    getItem: (name) => {
+      const cached = memory.get(name);
+      if (cached != null) return cached;
+      try {
+        return localStorage.getItem(name);
+      } catch {
+        return null;
+      }
+    },
+    setItem: (name, value) => {
+      if (writeLocal(name, value)) return;
+      memory.set(name, value); // session-only, but nothing throws
+    },
+    removeItem: (name) => {
+      try {
+        localStorage.removeItem(name);
+      } catch {
+        /* ignore */
+      }
+      memory.delete(name);
+    },
+  };
+}
+
+/** Exactly the slice that reaches localStorage (see partialize below). */
+type PersistedSlice = Pick<
+  GodEyeState,
+  "profile" | "settings" | "vault" | "agents" | "chats" | "activeChatId" | "projects" | "folders" | "lastProvider" | "lastModelByProvider" | "wsUpdatedAt"
+>;
+
 export const useGodEye = create<GodEyeState>()(
-  persist(
+  persist<GodEyeState, [], [], PersistedSlice>(
     (set, get) => ({
       profile: freshProfile(),
       setProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
@@ -641,25 +732,16 @@ export const useGodEye = create<GodEyeState>()(
           };
         });
         if (u) {
-          try {
-            const after = get();
-            localStorage.setItem(workspaceKey(u.id), JSON.stringify({ ...after.collectWorkspace(), updatedAt: after.wsUpdatedAt }));
-          } catch {
-            /* ignore */
-          }
+          writeLocal(workspaceKey(u.id), JSON.stringify({ ...get().collectWorkspace(), updatedAt: get().wsUpdatedAt }));
         }
       },
       logoutUser: () => {
         const s = get();
         if (s.currentUser) {
-          try {
-            localStorage.setItem(
-              workspaceKey(s.currentUser.id),
-              JSON.stringify({ ...s.collectWorkspace(), updatedAt: new Date().toISOString() })
-            );
-          } catch {
-            /* ignore */
-          }
+          writeLocal(
+            workspaceKey(s.currentUser.id),
+            JSON.stringify({ ...s.collectWorkspace(), updatedAt: new Date().toISOString() })
+          );
         }
         set({ ...freshScopedState(), activeChatId: null, currentUser: null, wsUpdatedAt: "" });
       },
@@ -780,7 +862,7 @@ export const useGodEye = create<GodEyeState>()(
           };
         }),
     }),
-    { name: "godeye-os-v1", partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
+    { name: "godeye-os-v1", storage: createJSONStorage<PersistedSlice, void>(() => quotaSafeStorage()), partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );
 

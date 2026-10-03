@@ -146,7 +146,223 @@ export const GODEYE_TOOLS: GodEyeToolFunction[] = [
       },
     },
   },
+  /* ---- internet access ---------------------------------------------------- */
+  {
+    type: "function",
+    function: {
+      name: "godeye_webSearch",
+      description:
+        "Search the live web and get back ranked results (title, URL, snippet). Use this FIRST whenever the answer depends on anything current — news, prices, releases, documentation, 'latest', today's date, any fact you are not certain about. Never guess a fact you could search for. Then use godeye_fetchUrl to read the promising pages.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The search query. Prefer keywords over full questions." },
+          count: { type: "number", description: "How many results to return (1-10, default 6)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_fetchUrl",
+      description:
+        "Download a URL and return its content. HTML pages come back as readable text (scripts/styles/nav stripped) so you can quote them; JSON and plain text come back verbatim. Use it after godeye_webSearch to read a page, or to pull an API endpoint. Refuses private/internal addresses.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) URL to fetch" },
+          format: { type: "string", description: "'text' (default, HTML converted to readable text), 'html' (raw markup), or 'json' (parsed + pretty-printed)" },
+          maxChars: { type: "number", description: "Truncate the result to this many characters (default 12000, max 60000)" },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  /* ---- external APIs ------------------------------------------------------ */
+  {
+    type: "function",
+    function: {
+      name: "godeye_httpRequest",
+      description:
+        "Call any REST/HTTP API with a chosen method, headers and JSON body, and get the status + response back. Use it for external services the user asks about (weather, stocks, sports, exchange rates, a company's API, webhooks you are integrating). Runs server-side so there is no CORS limit. Set `header` values to '{{VAULT:openai}}' to inject a key stored in the Providers Vault without ever seeing it.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) endpoint" },
+          method: { type: "string", description: "GET, POST, PUT, PATCH or DELETE (default GET)" },
+          headers: { type: "object", description: "Request headers as key/value pairs, e.g. { \"Accept\": \"application/json\" }" },
+          body: { type: "string", description: "Request body for POST/PUT/PATCH. Plain text, or JSON string." },
+          contentType: { type: "string", description: "Content-Type for the body (default application/json)" },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  /* ---- database ----------------------------------------------------------- */
+  {
+    type: "function",
+    function: {
+      name: "godeye_queryDb",
+      description:
+        "Run a read-only SQL query against GodEye's own database (SQLite/D1) and get rows back. Inspect users, chat threads and chat messages, plus any table created in the app. SELECT / WITH / PRAGMA only — writes are rejected. Use `godeye_listTables` first when you do not know the schema, and always filter by the current user's uid rather than dumping every row.",
+      parameters: {
+        type: "object",
+        properties: {
+          sql: { type: "string", description: "A single read-only statement: SELECT ... or WITH ... SELECT ... Use ? placeholders for values." },
+          params: { type: "array", items: {}, description: "Values for the ? placeholders, in order" },
+          limit: { type: "number", description: "Max rows to return (default 50, max 200)" },
+        },
+        required: ["sql"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_listTables",
+      description:
+        "List every table in GodEye's database with its column names and row count. Call this before godeye_queryDb whenever the schema is unknown.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  /* ---- image generation --------------------------------------------------- */
+  {
+    type: "function",
+    function: {
+      name: "godeye_generateImage",
+      description:
+        "Generate a real image from a text prompt with the current provider's image model and attach it to the conversation as a downloadable file. Use it whenever the user wants a picture, logo, diagram, mockup, illustration or icon — describe the image fully (subject, style, lighting, composition, aspect) instead of only telling the user what it would look like.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "Detailed image prompt" },
+          size: { type: "string", description: "Optional size, e.g. 1024x1024, 1792x1024, 1024x1792" },
+          name: { type: "string", description: "Optional file name for the saved image, e.g. hero-banner.png" },
+        },
+        required: ["prompt"],
+      },
+    },
+  },
+  /* ---- advanced file operations (desktop) ---------------------------------- */
+  {
+    type: "function",
+    function: {
+      name: "godeye_listDir",
+      description:
+        "List a folder on the user's computer (desktop app only) with sizes and modified dates. Use it to explore a codebase or find files before reading/editing them. Read it first when you do not know what is in a directory.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Absolute folder path (omit for the GodEye folder)" },
+          recursive: { type: "boolean", description: "Walk sub-folders too (default false)" },
+          maxEntries: { type: "number", description: "Max entries to return (default 200, max 2000)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_editFile",
+      description:
+        "Edit a file in place on the user's computer (desktop app only). Either pass `content` to rewrite the whole file, or pass `find` + `replace` to patch one or more spots without resending the entire file — patching is far cheaper for large files. Set `createIfMissing` to make a new file. Returns a diff-style summary of what changed.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Absolute path of the file to edit" },
+          content: { type: "string", description: "New full content (omitted when using find/replace)" },
+          find: { type: "string", description: "Exact text to search for" },
+          replace: { type: "string", description: "Replacement text for `find`" },
+          all: { type: "boolean", description: "Replace every occurrence, not just the first (default false)" },
+          createIfMissing: { type: "boolean", description: "Create the file when it does not exist (default false)" },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_movePath",
+      description:
+        "Move or rename a file or folder on the user's computer (desktop app only). Use it to reorganise, rename, or tidy up files the user has.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Absolute source path" },
+          to: { type: "string", description: "Absolute destination path (full new name, not just a folder)" },
+          overwrite: { type: "boolean", description: "Replace the destination if it exists (default false)" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_copyPath",
+      description:
+        "Copy a file or folder on the user's computer (desktop app only), optionally recursing into folders. Use it for backups and duplicates.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Absolute source path" },
+          to: { type: "string", description: "Absolute destination path" },
+          recursive: { type: "boolean", description: "Copy folder contents too (default true for folders)" },
+          overwrite: { type: "boolean", description: "Replace the destination if it exists (default false)" },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "godeye_deletePath",
+      description:
+        "Delete a file or folder on the user's computer (desktop app only). Folders need `recursive: true`. Irreversible — only call it when the user clearly asked for the deletion, and never for anything outside a path they named. Set `dryRun` to preview what would be removed.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Absolute path to delete" },
+          recursive: { type: "boolean", description: "Required to delete a non-empty folder" },
+          dryRun: { type: "boolean", description: "Report what would be deleted without deleting (default false)" },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  /* ---- system monitoring -------------------------------------------------- */
+  {
+    type: "function",
+    function: {
+      name: "godeye_systemStats",
+      description:
+        "Read live system metrics from the user's computer (desktop app only): CPU load per core, memory used/total, free disk space, uptime, network interfaces and throughput. Use it to answer 'how much RAM is free', 'is the CPU maxed', 'how full is the disk', or to check a machine before/after running heavy work.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
+
+/**
+ * Tools that must execute server-side: they need the network (CORS blocks the
+ * browser), a database binding, or a provider API key. The client dispatcher
+ * forwards these to `POST /api/tools/run` instead of handling them locally.
+ */
+export const SERVER_TOOL_NAMES = [
+  "godeye_webSearch",
+  "godeye_fetchUrl",
+  "godeye_httpRequest",
+  "godeye_queryDb",
+  "godeye_listTables",
+  "godeye_generateImage",
+] as const;
+
+export function isServerTool(name: string): boolean {
+  return (SERVER_TOOL_NAMES as readonly string[]).includes(name);
+}
 
 // Providers with native (or OpenAI-compatible) `tools`/tool_calls support.
 // Anthropic, Google and Cohere speak their own tool formats which the router

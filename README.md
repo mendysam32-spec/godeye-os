@@ -7,10 +7,45 @@ Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, Open
 ## Features
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
 - **Workforce** — Multi-model crews fan out in parallel to any provider
-- **Chat** — 7 modes (coding/image/plan/search/chat/research/terminal) with file upload + streaming
+- **Chat** — 8 modes (coding/image/plan/search/chat/research/terminal/video) with file upload + streaming
+- **Agent tools** — 18 tools across internet, APIs, database, files and system metrics (see below)
+- **Voice** — Free dictation + read-aloud via the Web Speech API (no API keys)
 - **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
 - **5 Themes** — Light, Dark, Glass (frosted modern), Midnight (navy premium), Aurora (cream warm) + accent + density
 - **Responsive** — Mobile drawer, adaptive grids, touch-friendly
+
+### Agent tools
+
+Tools split by where they run. Definitions live in `src/lib/tools.ts`.
+
+**Server-side** (`src/lib/web-tools.ts` → `POST /api/tools/run`) — need the network without CORS, the D1 binding, or a provider key that must stay off the client:
+
+| Tool | What it does |
+| --- | --- |
+| `godeye_webSearch` | Keyless DuckDuckGo search → ranked titles, URLs, snippets |
+| `godeye_fetchUrl` | Downloads a page and returns readable text (scripts/nav stripped), or JSON |
+| `godeye_httpRequest` | Any REST call: method, headers, JSON body. `{{VAULT:openai}}` in a header injects a vault key server-side |
+| `godeye_queryDb` | Read-only SQL against GodEye's D1 (`godeye_db`) |
+| `godeye_listTables` | Tables, columns and row counts — call this before `godeye_queryDb` |
+| `godeye_generateImage` | Real image generation from the chat's provider, saved to disk (desktop) or downloadable |
+
+Safety rails: `safeUrl()` refuses non-http(s) and private/loopback/link-local/metadata addresses, requests time out at 20s, downloads are byte-capped, and `assertReadOnlySql()` rejects anything that is not a single `SELECT`/`WITH`/`PRAGMA` reader (including `WITH … INSERT`, multi-statement tricks and write keywords).
+
+**Desktop-only** (Electron bridge) — need real disk and real metrics:
+
+| Tool | What it does |
+| --- | --- |
+| `godeye_listDir` | Browse a folder (optionally recursive) with sizes and mtimes |
+| `godeye_editFile` | Rewrite a file, or patch it with `find`/`replace` (`all` for every match) |
+| `godeye_movePath` | Move or rename, falling back to copy+remove across volumes |
+| `godeye_copyPath` | Copy a file or folder |
+| `godeye_deletePath` | Delete a file/folder; refuses non-empty folders without `recursive`, supports `dryRun` |
+| `godeye_systemStats` | CPU % (two-sample, per-core), memory, disk free, uptime, interfaces, network throughput |
+
+Guards: clobbering an existing destination needs `overwrite`; symlinked directories are never traversed; binary files are refused for text edits.
+
+In the browser these report a clear reason instead of failing silently.
+
 
 ## Run locally
 ```bash
@@ -62,4 +97,8 @@ Alternatively connect Cloudflare Dashboard:
 - Glass theme uses `backdrop-blur(16px)` for modern clean look
 
 ## Stack
-Next.js 16, React 19, Zustand, Tailwind 4, OpenNext Cloudflare, Wrangler 4
+Next.js 16, React 19, Zustand, Tailwind 4, OpenNext Cloudflare, Wrangler 4, Electron 33
+
+## Notes
+- Voice (`src/lib/voice.ts`) uses the browser's built-in `SpeechRecognition` / `speechSynthesis`, so it is free and keyless but Chromium-only (Chrome, Edge, the desktop shell). The mic and speaker buttons hide themselves elsewhere.
+- `godeye_queryDb` reads D1 only — it needs the deployed Worker, not `next dev`.
