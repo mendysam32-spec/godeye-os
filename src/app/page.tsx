@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Eye, ArrowRight, Zap, Shield, Layers, Cpu, Sparkles, Check } from "lucide-react";
+import { MedusaHead } from "@/components/medusa-head";
 
 export default function Home() {
   return (
@@ -19,18 +20,25 @@ export default function Home() {
       </header>
 
       <section className="mx-auto max-w-6xl px-6 pt-16 pb-8">
-        <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"/> Workforce OS • Cloud + Windows App • Any LLM
-        </div>
-        <h1 className="mt-6 text-5xl md:text-6xl font-semibold tracking-tight leading-[1.05]">
-          The workforce OS <br /><span className="text-muted-foreground">that sees everything.</span>
-        </h1>
-        <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
-          Build multi-agent teams that code, write and operate with any provider — Nvidia, OpenRouter, OmeRoute, OpenAI, Anthropic and more. One control plane. Own it like it&apos;s yours.
-        </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-foreground text-background px-6 py-3 text-sm font-medium">Open dashboard <ArrowRight className="h-4 w-4" /></Link>
-          <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border px-6 py-3 text-sm font-medium">Open dashboard</Link>
+        <div className="grid md:grid-cols-2 gap-8 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"/> Workforce OS • Cloud + Windows App • Any LLM
+            </div>
+            <h1 className="mt-6 text-5xl md:text-6xl font-semibold tracking-tight leading-[1.05]">
+              The workforce OS <br /><span className="text-muted-foreground">that sees everything.</span>
+            </h1>
+            <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
+              Build multi-agent teams that code, write and operate with any provider — Nvidia, OpenRouter, OmeRoute, OpenAI, Anthropic and more. One control plane. Own it like it&apos;s yours.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-foreground text-background px-6 py-3 text-sm font-medium">Open dashboard <ArrowRight className="h-4 w-4" /></Link>
+              <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border px-6 py-3 text-sm font-medium">Open dashboard</Link>
+            </div>
+          </div>
+          <div className="order-first md:order-none flex justify-center">
+            <MedusaHead size={340} />
+          </div>
         </div>
 
         <div className="mt-12 grid md:grid-cols-3 gap-4">

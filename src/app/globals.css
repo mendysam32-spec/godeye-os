@@ -413,3 +413,54 @@ input, textarea, select, [contenteditable="true"] {
   color: #a5b4fc;
 }
 
+
+/* Medusa 3D head */
+.medusa-scene {
+  perspective: 900px;
+  margin-inline: auto;
+}
+.medusa-float {
+  animation: medusa-float 6s ease-in-out infinite alternate;
+}
+.medusa-rig {
+  will-change: transform;
+  transition: transform 0.08s linear;
+}
+.medusa-back,
+.medusa-front {
+  will-change: transform;
+}
+.medusa-snake {
+  animation: medusa-sway 3.6s ease-in-out infinite alternate;
+}
+.medusa-eye {
+  animation: medusa-blink 4.6s ease-in-out infinite;
+}
+.medusa-tongue {
+  animation: medusa-flick 2.8s ease-in-out infinite;
+  transform-origin: 199px 290px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .medusa-float,
+  .medusa-snake,
+  .medusa-eye,
+  .medusa-tongue {
+    animation: none;
+  }
+}
+@keyframes medusa-float {
+  from { transform: translateY(-6px); }
+  to { transform: translateY(6px); }
+}
+@keyframes medusa-sway {
+  from { transform: rotate(-2.5deg); }
+  to { transform: rotate(2.5deg); }
+}
+@keyframes medusa-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.06); }
+}
+@keyframes medusa-flick {
+  0%, 100% { opacity: 0; transform: scaleY(0.2); }
+  40%, 60% { opacity: 1; transform: scaleY(1); }
+}
