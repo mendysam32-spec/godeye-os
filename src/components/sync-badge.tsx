@@ -1,5 +1,5 @@
 "use client";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { Check, CloudOff, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
 
 /**
@@ -11,7 +11,7 @@ import { Check, CloudOff, Loader2, RefreshCw, AlertTriangle } from "lucide-react
  * actually needs to notice.
  */
 export function SyncBadge({ className = "" }: { className?: string }) {
-  const { chatSync } = useGodEye();
+  const { chatSync } = useMEDUSA();
   const { status, pending, lastSyncedAt } = chatSync;
 
   if (status === "idle") return null;
@@ -63,7 +63,7 @@ export function SyncBadge({ className = "" }: { className?: string }) {
 
 /** A mobile-only dot so the header still communicates sync state without text. */
 export function SyncDot({ className = "" }: { className?: string }) {
-  const { chatSync } = useGodEye();
+  const { chatSync } = useMEDUSA();
   if (chatSync.status === "idle" || chatSync.status === "synced") return null;
   const color = chatSync.status === "error" ? "bg-destructive" : "bg-amber-500";
   return (

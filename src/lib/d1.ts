@@ -3,7 +3,7 @@
  *
  * `auth.ts` deliberately keeps its own private accessor because auth must work
  * even when the binding is missing. Everything else goes through here so there
- * is one place that knows how to reach the `godeye_db` binding.
+ * is one place that knows how to reach the `medusa_db` binding.
  *
  * Two things matter for callers:
  *   - `getDb()` never throws. If there is no binding (plain `next dev` on a
@@ -91,7 +91,7 @@ export function getDb(): Promise<D1Like | null> {
     try {
       const { getCloudflareContext } = await import("@opennextjs/cloudflare");
       const ctx = await getCloudflareContext({ async: true });
-      const db = (ctx.env as { godeye_db?: D1Like }).godeye_db;
+      const db = (ctx.env as { medusa_db?: D1Like }).medusa_db;
       return db ?? null;
     } catch {
       return null;

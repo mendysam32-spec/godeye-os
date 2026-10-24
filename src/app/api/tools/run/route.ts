@@ -8,7 +8,7 @@ import { isServerTool } from "@/lib/tools";
 /**
  * Server-side half of the agent tool loop.
  *
- * The browser half (`runGodEyeTool` in src/lib/desktop.ts) owns anything that
+ * The browser half (`runMEDUSATool` in src/lib/desktop.ts) owns anything that
  * touches the user's disk. This route owns everything that needs the network
  * without CORS, the D1 binding, or a provider key that must not be handed to
  * the renderer. It speaks the same `{ ok, summary, detail, files }` shape as
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (body.name) {
-      case "godeye_webSearch": {
+      case "medusa_webSearch": {
         const r = await runWebSearch(args as { query?: string; count?: number });
         const lines = r.results.map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}${h.snippet ? `\n   ${h.snippet}` : ""}`);
         return NextResponse.json({
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      case "godeye_fetchUrl": {
+      case "medusa_fetchUrl": {
         const doc = await runFetchUrl(args as { url?: string; format?: string; maxChars?: number });
         return NextResponse.json({
           ok: true,
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      case "godeye_httpRequest": {
+      case "medusa_httpRequest": {
         const r = await runHttpRequest(
           args as { url?: string; method?: string; headers?: Record<string, string>; body?: string; contentType?: string },
           (id) => vaultKeyFor(vault, id)
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      case "godeye_queryDb": {
+      case "medusa_queryDb": {
         const r = await runQuery(args as { sql?: string; params?: unknown[]; limit?: number });
         const rows = r.rows.map((row) => JSON.stringify(row)).join("\n");
         return NextResponse.json({
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      case "godeye_listTables": {
+      case "medusa_listTables": {
         const r = await runListTables();
         if (!r.tables.length) {
           return NextResponse.json({ ok: true, summary: "Database has no tables yet", detail: "" });
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, summary: `${r.tables.length} table(s)`, detail });
       }
 
-      case "godeye_generateImage": {
+      case "medusa_generateImage": {
         const prompt = String(args.prompt ?? "").trim();
         if (!prompt) return NextResponse.json({ error: "prompt required" }, { status: 400 });
         if (!provider || !model) {
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
         // Hand the bytes back as files so the desktop build writes them to disk
         // and the browser build offers a download, exactly like media in chat.
         const files = out.images.map((img, i) => {
-          const name = String(args.name ?? `godeye-image-${i + 1}.png`).replace(/\.(png|jpe?g|webp|gif)$/i, "");
+          const name = String(args.name ?? `medusa-image-${i + 1}.png`).replace(/\.(png|jpe?g|webp|gif)$/i, "");
           const ext = /^data:image\/(\w+)/.exec(img.src)?.[1]?.replace("jpeg", "jpg") || "png";
           const fileName = out.images.length > 1 ? `${name}-${i + 1}.${ext}` : `${name}.${ext}`;
           if (img.src.startsWith("data:")) {

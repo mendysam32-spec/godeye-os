@@ -1,10 +1,10 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap, Cloud } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { isDesktop, desktopBridge } from "@/lib/desktop";
-import type { GodEyeSystemInfo } from "@/types/desktop";
+import type { MEDUSASystemInfo } from "@/types/desktop";
 import { useDriveAuth } from "@/lib/use-drive-auth";
 
 // The account project exports are meant to land in. Purely a UI guard so a
@@ -67,10 +67,10 @@ const ACCENTS = [
 ];
 
 export default function SettingsPage() {
-  const { profile, setProfile, settings, setSettings, vault, agents, chats, projects } = useGodEye() as any;
+  const { profile, setProfile, settings, setSettings, vault, agents, chats, projects } = useMEDUSA() as any;
   const fileRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
-  const [sysInfo, setSysInfo] = useState<GodEyeSystemInfo | null>(null);
+  const [sysInfo, setSysInfo] = useState<MEDUSASystemInfo | null>(null);
   const desktop = isDesktop();
 
   useEffect(() => {
@@ -215,7 +215,7 @@ export default function SettingsPage() {
 
           {/* Behavior */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <div className="flex items-center gap-2 font-medium"><Sliders className="h-4 w-4"/> Reasoning & depth — how hard GodEye thinks</div>
+            <div className="flex items-center gap-2 font-medium"><Sliders className="h-4 w-4"/> Reasoning & depth — how hard MEDUSA thinks</div>
             <p className="text-xs text-muted-foreground mt-1">Fast = quick answers. Think = step-by-step. Deep = multi-approach verification for code & research. Max 🧠 = extra-high depth for complex projects, big docs, question banks and data work (slower, more tokens).</p>
             <div className="mt-4 grid md:grid-cols-2 gap-4">
               <label className="block"><span className="text-xs font-medium">Reasoning effort (default)</span>
@@ -276,21 +276,21 @@ export default function SettingsPage() {
           {/* Power */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="flex items-center gap-2 font-medium"><Zap className="h-4 w-4" style={{color:'var(--accent)'}}/> Power — files & commands</div>
-            <p className="text-xs text-muted-foreground mt-1">When tools are ON, GodEye can create/read files on your computer, run commands, and verify its own work. Full power needs the desktop app; in the browser files download instead.</p>
+            <p className="text-xs text-muted-foreground mt-1">When tools are ON, MEDUSA can create/read files on your computer, run commands, and verify its own work. Full power needs the desktop app; in the browser files download instead.</p>
 
             <div className="mt-4 flex flex-col sm:flex-row gap-4">
               <label className="flex items-center gap-2 text-sm rounded-xl border bg-muted px-3 py-2.5 cursor-pointer hover:bg-muted/80">
                 <input type="checkbox" checked={settings.agentTools !== false} onChange={e=>setSettings({ agentTools: e.target.checked })} className="rounded"/>
                 Agent tools <span className="text-muted-foreground">(save file • read file • run command)</span>
               </label>
-              <div className="text-xs text-muted-foreground self-center">{settings.agentTools !== false ? "ON — ask GodEye to save or run code." : "OFF — text only."}</div>
+              <div className="text-xs text-muted-foreground self-center">{settings.agentTools !== false ? "ON — ask MEDUSA to save or run code." : "OFF — text only."}</div>
             </div>
 
               <div className="mt-4 rounded-xl border bg-muted p-4">
               <div className="flex items-center gap-2 text-sm font-medium"><Cloud className="h-4 w-4"/> Google Drive — cross-device project storage</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Connect once and the <b>Drive</b> button on a loaded project saves the improved ZIP to
-                <code className="mx-1">GodEye/Projects/</code> in your own Drive — reachable from any device signed into that account.
+                <code className="mx-1">MEDUSA/Projects/</code> in your own Drive — reachable from any device signed into that account.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {driveConnected ? (
@@ -310,7 +310,7 @@ export default function SettingsPage() {
                 )}
               </div>
               {driveMsg && <div className="mt-2 text-xs text-muted-foreground">{driveMsg}</div>}
-              <p className="mt-2 text-[11px] text-muted-foreground">Sign in as <b>{EXPECTED_DRIVE_EMAIL}</b> on the Google screen. Scope is <code>drive.file</code> — GodEye can only see files it created.</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">Sign in as <b>{EXPECTED_DRIVE_EMAIL}</b> on the Google screen. Scope is <code>drive.file</code> — MEDUSA can only see files it created.</p>
             </div>
 
             <div className="mt-4 rounded-xl border bg-muted p-4">
@@ -319,13 +319,13 @@ export default function SettingsPage() {
                 <div className="mt-2 grid md:grid-cols-2 gap-2 text-xs">
                   <div className="rounded-lg border bg-card px-3 py-2">Platform: <b>{sysInfo?.platform || "…"} · {sysInfo?.arch || "…"}</b></div>
                   <div className="rounded-lg border bg-card px-3 py-2">Electron: <b>{sysInfo?.versions?.electron || "…"}</b> · Chrome {sysInfo?.versions?.chrome || "…"}</div>
-                  <div className="rounded-lg border bg-card px-3 py-2 md:col-span-2 break-all">GodEye folder: <b>{sysInfo?.baseFolder || "…"}</b></div>
+                  <div className="rounded-lg border bg-card px-3 py-2 md:col-span-2 break-all">MEDUSA folder: <b>{sysInfo?.baseFolder || "…"}</b></div>
                   <button onClick={async () => { const b = desktopBridge(); if (b) b.openPath(sysInfo?.baseFolder || ""); }} className="inline-flex items-center justify-center gap-1.5 rounded-full bg-foreground text-background px-4 py-2 text-xs font-medium"><HardDrive className="h-3.5 w-3.5"/> Open folder</button>
                   {settings.agentTools !== false && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-700 flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5"/> Tools live — files & commands run on this PC.</div>}
                 </div>
               ) : (
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">Running in browser — Save still works (downloads). Open the <b>GodEye OS desktop app</b> for run-command + read-file power.</span>
+                  <span className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">Running in browser — Save still works (downloads). Open the <b>MEDUSA OS desktop app</b> for run-command + read-file power.</span>
                 </div>
               )}
             </div>
@@ -340,7 +340,7 @@ export default function SettingsPage() {
                 const data = { profile, settings, vault, agents, chats, projects, exportedAt: new Date().toISOString(), version: 1 };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement("a"); a.href = url; a.download = `godeye-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+                const a = document.createElement("a"); a.href = url; a.download = `medusa-backup-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
               }} className="inline-flex items-center justify-center gap-2 rounded-full bg-foreground text-background px-5 py-2.5 text-sm font-medium">
                 <Download className="h-4 w-4"/> Export backup (JSON)
               </button>
@@ -354,9 +354,9 @@ export default function SettingsPage() {
                   if (j.profile) setProfile(j.profile);
                   if (j.settings) setSettings(j.settings);
                   // vault/agents/chats/projects need direct localStorage merge — use zustand persist key
-                  const uid = useGodEye.getState().currentUser?.id;
-                  const baseKey = uid ? `godeye:workspace:${uid}` : "godeye-os-v1";
-                  const raw = localStorage.getItem(baseKey) ?? (baseKey !== "godeye-os-v1" ? localStorage.getItem("godeye-os-v1") : null);
+                  const uid = useMEDUSA.getState().currentUser?.id;
+                  const baseKey = uid ? `medusa:workspace:${uid}` : "medusa-os-v1";
+                  const raw = localStorage.getItem(baseKey) ?? (baseKey !== "medusa-os-v1" ? localStorage.getItem("medusa-os-v1") : null);
                   const cur = raw ? JSON.parse(raw) : {};
                   const curState = cur.state || cur;
                   const next = {
@@ -373,8 +373,8 @@ export default function SettingsPage() {
                     version: 0,
                   };
                   // write into the active user's workspace so the import survives login reload
-                  localStorage.setItem(uid ? `godeye:workspace:${uid}` : "godeye-os-v1", JSON.stringify(next.state));
-                  localStorage.setItem("godeye-os-v1", JSON.stringify(next));
+                  localStorage.setItem(uid ? `medusa:workspace:${uid}` : "medusa-os-v1", JSON.stringify(next.state));
+                  localStorage.setItem("medusa-os-v1", JSON.stringify(next));
                   setImportMsg("✓ Imported — reload to see chats/projects");
                   setTimeout(() => window.location.reload(), 800);
                 } catch (err: any) { setImportMsg("✗ Import failed: " + err.message); }
@@ -383,8 +383,8 @@ export default function SettingsPage() {
             </div>
             {importMsg && <div className="mt-2 text-xs p-2 rounded-xl border bg-muted">{importMsg}</div>}
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><HardDrive className="h-3 w-3"/> localStorage: godeye-os-v1</span>
-              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><ShieldCheck className="h-3 w-3"/> D1: godeye-db • KV: CACHE ready</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><HardDrive className="h-3 w-3"/> localStorage: medusa-os-v1</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><ShieldCheck className="h-3 w-3"/> D1: medusa-db • KV: CACHE ready</span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border">migrations/0001_init.sql</span>
             </div>
           </div>
@@ -430,7 +430,7 @@ export default function SettingsPage() {
             <div className="mt-3 text-xs text-muted-foreground">Changes persist locally (and will sync to cloud + Windows app). Your OS, your rules.</div>
           </div>
 
-          <div className="text-center text-xs text-muted-foreground">GodEye OS by S&P Group — 5 themes • Glass • Midnight • Aurora • Clean modern design</div>
+          <div className="text-center text-xs text-muted-foreground">MEDUSA OS by S&P Group — 5 themes • Glass • Midnight • Aurora • Clean modern design</div>
         </div>
       </main>
     </div>

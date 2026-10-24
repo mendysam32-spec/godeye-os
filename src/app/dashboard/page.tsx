@@ -1,6 +1,6 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { PROVIDERS } from "@/lib/providers";
 import { Play, Code2, FileText, Bot, Eye, Sparkles, Plus, Layers, Loader2, Copy, Check, AlertTriangle, FolderKanban, Search, Trash2, Archive, X, Folder, ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -22,7 +22,7 @@ export default function DashboardPage() {
 function DashboardInner() {
   const searchParams = useSearchParams();
   const folderParam = searchParams.get("folder");
-  const { agents, vault, settings, projects, addProject, updateProject, removeProject, folders, chats } = useGodEye();
+  const { agents, vault, settings, projects, addProject, updateProject, removeProject, folders, chats } = useMEDUSA();
   const [prompt, setPrompt] = useState("Build a landing page hero in React + Tailwind plus a blog post for our new AI feature launch");
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<WorkResult[] | null>(null);
@@ -260,7 +260,7 @@ function DashboardInner() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} /> New workforce task — multi-model execution</div>
               <label className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs">🧠
-                <select value={settings.reasoningEffort || "medium"} onChange={e => useGodEye.getState().setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent outline-none">
+                <select value={settings.reasoningEffort || "medium"} onChange={e => useMEDUSA.getState().setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent outline-none">
                   <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max 🧠</option>
                 </select>
               </label>
@@ -345,7 +345,7 @@ function DashboardInner() {
           </div>
 
           <div className="rounded-2xl bg-foreground text-background p-4 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0"><Eye className="h-5 w-5 shrink-0" /><div className="min-w-0"><div className="font-medium text-sm md:text-base">GodEye OS sees the whole pipeline — live</div><div className="text-xs opacity-70">Orchestrated • Traced • Costed — Providers: Nvidia, OpenRouter, OmeRoute + 8 more • Online via Cloudflare</div></div></div>
+            <div className="flex items-center gap-3 min-w-0"><Eye className="h-5 w-5 shrink-0" /><div className="min-w-0"><div className="font-medium text-sm md:text-base">MEDUSA OS sees the whole pipeline — live</div><div className="text-xs opacity-70">Orchestrated • Traced • Costed — Providers: Nvidia, OpenRouter, OmeRoute + 8 more • Online via Cloudflare</div></div></div>
             <Link href="/settings" className="rounded-full bg-background text-foreground px-4 py-2 text-sm whitespace-nowrap shrink-0">Customize OS →</Link>
           </div>
         </div>

@@ -110,7 +110,7 @@ export async function generateImage(call: GenerationCall): Promise<{ images: Gen
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${call.apiKey}`,
-      ...(call.provider === "openrouter" ? { "HTTP-Referer": "https://godeye.sandpgroup.com", "X-Title": "GodEye OS" } : {}),
+      ...(call.provider === "openrouter" ? { "HTTP-Referer": "https://medusa.sandpgroup.com", "X-Title": "MEDUSA OS" } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -124,10 +124,10 @@ export async function generateImage(call: GenerationCall): Promise<{ images: Gen
   const stamp = Date.now();
   const images = data.map((d, i) => {
     if (typeof d?.b64_json === "string" && d.b64_json) {
-      return { src: `data:image/png;base64,${d.b64_json}`, mime: "image/png", filename: `godeye-image-${stamp}-${i}.png` };
+      return { src: `data:image/png;base64,${d.b64_json}`, mime: "image/png", filename: `medusa-image-${stamp}-${i}.png` };
     }
     const url = String(d?.url || "").trim();
-    if (url) return { src: url, url, mime: "image/png", filename: `godeye-image-${stamp}-${i}.png` };
+    if (url) return { src: url, url, mime: "image/png", filename: `medusa-image-${stamp}-${i}.png` };
     throw new Error("Image provider returned no data");
   });
   return { images, meta: { model: json.model } };
@@ -163,7 +163,7 @@ async function generateGoogleImage(call: GenerationCall): Promise<{ images: Gene
       .map((p, i) => ({
         src: `data:${p.inlineData?.mimeType || "image/png"};base64,${p.inlineData?.data}`,
         mime: p.inlineData?.mimeType || "image/png",
-        filename: `godeye-image-${stamp}-${i}.png`,
+        filename: `medusa-image-${stamp}-${i}.png`,
       }));
     if (!images.length) throw new Error("Gemini returned no image");
     return { images, meta: { model: j.candidates?.[0]?.modelVersion } };
@@ -191,7 +191,7 @@ async function generateGoogleImage(call: GenerationCall): Promise<{ images: Gene
     const b64 = pred?.bytesBase64Encoded ?? pred?.bytesBase64 ?? pred?.b64_json;
     if (!b64) throw new Error("Imagen returned no prediction bytes");
     return {
-      images: [{ src: `data:image/png;base64,${b64}`, mime: "image/png", filename: `godeye-image-${stamp}.png` }],
+      images: [{ src: `data:image/png;base64,${b64}`, mime: "image/png", filename: `medusa-image-${stamp}.png` }],
       meta: { model: call.model },
     };
   }
@@ -289,8 +289,8 @@ export async function pollVideo(call: GenerationCall, job: string): Promise<Vide
       const inline = await inlineIfSmall(uri);
       videos.push(
         inline
-          ? { ...inline, filename: `godeye-video-${stamp}-${i}.mp4` }
-          : { src: uri, url: uri, mime: "video/mp4", filename: `godeye-video-${stamp}-${i}.mp4` }
+          ? { ...inline, filename: `medusa-video-${stamp}-${i}.mp4` }
+          : { src: uri, url: uri, mime: "video/mp4", filename: `medusa-video-${stamp}-${i}.mp4` }
       );
     }
     return videos.length ? { status: "done", videos } : { status: "error", error: "Veo returned no playable video" };
@@ -313,7 +313,7 @@ export async function pollVideo(call: GenerationCall, job: string): Promise<Vide
   const url = String(j.asset?.video?.url || "").trim();
   if (!url) return { status: "error", error: "Sora completed but returned no video URL" };
   const inline = await inlineIfSmall(url, call.apiKey);
-  const filename = `godeye-video-${Date.now()}.mp4`;
+  const filename = `medusa-video-${Date.now()}.mp4`;
   return {
     status: "done",
     videos: inline

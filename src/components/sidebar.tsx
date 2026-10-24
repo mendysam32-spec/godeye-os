@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap } from "lucide-react";
-import { useGodEye, type Folder, type Project } from "@/lib/store";
+import { useMEDUSA, type Folder, type Project } from "@/lib/store";
 import { toast } from "@/components/toast";
 import { useState } from "react";
 
@@ -28,8 +28,8 @@ export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
         <div className="md:hidden fixed top-0 left-0 right-0 z-30 border-b bg-card/80 backdrop-blur safe-top">
           <div className="h-14 flex items-center justify-between px-4">
             <Link href="/" className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-4 w-4" /></div>
-              <div><div className="text-sm font-semibold leading-none">GodEye</div></div>
+              <div className="h-8 w-8 rounded-xl grid place-items-center" style={{ background: "var(--home-brand-accent)", color: "#fff" }}><Eye className="h-4 w-4" /></div>
+              <div><div className="text-sm font-semibold leading-none">MEDUSA</div></div>
             </Link>
             <button
               onClick={() => setOpen(!open)}
@@ -44,7 +44,7 @@ export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
           <div className="md:hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)}>
             <div className="w-[min(280px,85vw)] h-full bg-card border-r flex flex-col safe-top safe-bottom safe-x" onClick={e => e.stopPropagation()}>
               <div className="p-4 flex items-center justify-between border-b">
-                <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> GodEye</div>
+                <div className="flex items-center gap-2 font-semibold"><Eye className="h-5 w-5" /> MEDUSA</div>
                 <button onClick={() => setOpen(false)} aria-label="Close menu" className="h-11 w-11 -mr-2 grid place-items-center rounded-lg hover:bg-muted"><X className="h-4 w-4" /></button>
               </div>
               <div className="flex-1 overflow-y-auto overscroll-contain">
@@ -61,11 +61,11 @@ export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
       <aside className={`${variant === "drawer" ? "flex h-full" : "hidden md:flex"} w-[260px] shrink-0 flex-col border-r bg-card/50 backdrop-blur`}>
         <div className="p-6">
           <Link href="/" className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-foreground text-background grid place-items-center">
+            <div className="h-9 w-9 rounded-xl grid place-items-center" style={{ background: "var(--home-brand-accent)", color: "#fff" }}>
               <Eye className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-[15px] font-semibold tracking-tight leading-none">GodEye</div>
+              <div className="text-[15px] font-semibold tracking-tight leading-none">MEDUSA</div>
             </div>
           </Link>
         </div>
@@ -79,7 +79,7 @@ export function Sidebar({ variant = "app" }: { variant?: "app" | "drawer" }) {
 }
 
 function ProfileFooter() {
-  const { profile, currentUser } = useGodEye();
+  const { profile, currentUser } = useMEDUSA();
   const admin = currentUser?.role === "admin";
   return (
     <div className="p-4 border-t space-y-3">
@@ -94,7 +94,7 @@ function ProfileFooter() {
         </div>
       </div>
       <button
-        onClick={() => window.dispatchEvent(new Event("godeye:logout"))}
+        onClick={() => window.dispatchEvent(new Event("medusa:logout"))}
         className="w-full inline-flex items-center justify-center gap-2 rounded-xl border bg-background px-3 py-2 text-sm font-medium text-muted-foreground hover:text-red-600 hover:border-red-200"
       >
         <LogOut className="h-4 w-4" /> Sign out
@@ -106,9 +106,9 @@ function ProfileFooter() {
 function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { folders, addFolder, removeFolder, currentUser, projects, chats, agents, vault } = useGodEye();
+  const { folders, addFolder, removeFolder, currentUser, projects, chats, agents, vault } = useMEDUSA();
   const [expanded, setExpanded] = useState<Set<string>>(() => {
-    const s: Folder[] = useGodEye.getState().folders;
+    const s: Folder[] = useMEDUSA.getState().folders;
     return new Set(s.map(f => f.id));
   });
   const [adding, setAdding] = useState<string | null | false>(false);
@@ -170,7 +170,7 @@ function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
         {navItems.map(n => {
           const active = pathname === n.href || pathname?.startsWith(n.href + "/");
           return (
-            <Link key={n.href} href={n.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "bg-foreground text-background" : "hover:bg-muted text-foreground/80"}`}>
+            <Link key={n.href} href={n.href} onClick={onNavigate} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${active ? "nav-active" : "nav-hover"}`}>
               <n.icon className="h-4 w-4" /> {n.label}
             </Link>
           );
@@ -251,7 +251,7 @@ function ProjectRow({ p, depth, pathname, onNavigate }: { p: Project; depth: num
 
 function FolderTree({ folder, depth, expanded, toggle, adding, newName, setNewName, startAdd, cancelAdd, submitAdd, onDelete, openFolder, pathname, onNavigate }:
   { folder: Folder; depth: number; expanded: Set<string>; toggle: (id: string) => void; adding: string | null | false; newName: string; setNewName: (v: string) => void; startAdd: (p: string | null) => void; cancelAdd: () => void; submitAdd: () => void; onDelete: (f: Folder) => void; openFolder: (f: { id: string }) => void; pathname: string | null; onNavigate?: () => void }) {
-  const { folders, projects } = useGodEye();
+  const { folders, projects } = useMEDUSA();
   const children = folders.filter(f => f.parentId === folder.id);
   const projs = projects.filter(p => p.folderId === folder.id);
   const isOpen = expanded.has(folder.id);

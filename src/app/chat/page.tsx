@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { useGodEye, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
+import { useMEDUSA, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
 import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, Mic, MicOff, Volume2, VolumeX, type LucideIcon } from "lucide-react";
@@ -8,7 +8,7 @@ import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
 import { toast } from "@/components/toast";
-import { isDesktop, runGodEyeTool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
+import { isDesktop, runMEDUSATool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
 import { isToolProvider } from "@/lib/tools";
 import { makeDocx, makePdf, makeZip, bufToBase64, MIME_DOCX } from "@/lib/file-builder";
 import { readChatStream, type ToolCallWire } from "@/lib/chat-stream";
@@ -16,7 +16,7 @@ import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
 import { SyncBadge, SyncDot } from "@/components/sync-badge";
 import { noteChatDeleted } from "@/lib/chat-sync-client";
 import { extractZip, packZip, uint8ToBase64, base64ToUint8 } from "@/lib/zip";
-import { ensureDriveToken, ensureGodEyeFolders, uploadZipToDrive } from "@/lib/google-drive";
+import { ensureDriveToken, ensureMEDUSAFolders, uploadZipToDrive } from "@/lib/google-drive";
 import { useDriveAuth } from "@/lib/use-drive-auth";
 import { useDictation, useAutoSpeak, stopSpeaking } from "@/lib/voice";
 import {
@@ -191,22 +191,22 @@ function suggestSaveFile(content: string, mode: ChatMode, chatTitle: string): { 
   const blocks = extractCodeBlocks(content);
   const lang = blocks[0]?.lang?.toLowerCase() || (mode === "coding" ? "py" : mode === "terminal" ? "sh" : "md");
   const ext = EXT[lang] || "md";
-  const base = (chatTitle || "godeye").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `godeye-${mode}`;
+  const base = (chatTitle || "medusa").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `medusa-${mode}`;
   const code = blocks.length === 1 ? blocks[0].code.trim() : content;
   return { name: `${base}.${ext}`, content: code };
 }
 
 function buildChatExport(title: string, messages: { role: string; content: string; timestamp: string; provider?: string; model?: string; mode?: string }[]): string {
-  const head = `# ${title}\n\nExported from GodEye OS — ${new Date().toISOString()}\n\n---\n\n`;
+  const head = `# ${title}\n\nExported from MEDUSA OS — ${new Date().toISOString()}\n\n---\n\n`;
   return head + messages.map((m) => {
-    const who = m.role === "user" ? "You" : "GodEye";
+    const who = m.role === "user" ? "You" : "MEDUSA";
     const meta = `${m.provider || ""}${m.provider && m.model ? "/" : ""}${m.model || ""} ${m.mode ? `\u00b7 ${m.mode}` : ""}`.trim();
     return `### ${who}${meta ? ` — ${meta}` : ""}\n${m.timestamp ? `*${new Date(m.timestamp).toLocaleString()}*\n\n` : ""}${m.content}\n\n---\n\n`;
   }).join("");
 }
 
 async function downloadMedia(md: ChatMedia) {
-  const name = md.filename || (md.kind === "image" ? "godeye-image.png" : "godeye-video.mp4");
+  const name = md.filename || (md.kind === "image" ? "medusa-image.png" : "medusa-video.mp4");
   const a = document.createElement("a");
   if (md.src.startsWith("data:")) {
     a.href = md.src;
@@ -236,14 +236,14 @@ async function mediaToToolFile(md: ChatMedia): Promise<ToolFile | null> {
   if (comma < 0) return null;
   const mime = /^data:([^;]+)/.exec(md.src)?.[1] || md.mime || (md.kind === "image" ? "image/png" : "video/mp4");
   const base64 = md.src.slice(comma + 1);
-  const name = md.filename || (md.kind === "image" ? "godeye-image.png" : "godeye-video.mp4");
-  const r = await runGodEyeTool("godeye_saveFile", { name, base64, type: mime });
+  const name = md.filename || (md.kind === "image" ? "medusa-image.png" : "medusa-video.mp4");
+  const r = await runMEDUSATool("medusa_saveFile", { name, base64, type: mime });
   if (r.files?.length) return r.files[0];
   return { name, base64, type: mime };
 }
 
 export default function ChatPage() {
-  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito } = useGodEye();
+  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito } = useMEDUSA();
   const activeChat = chats.find(c => c.id === activeChatId) || null;
 
   const plugins = settings.plugins || { ...DEFAULT_PLUGINS };
@@ -254,7 +254,7 @@ export default function ChatPage() {
   const [model, setModel] = useState(() => {
     if (activeChat?.model) return activeChat.model;
     const pid = settings.defaultProvider;
-    const remembered = useGodEye.getState().lastModelByProvider?.[pid];
+    const remembered = useMEDUSA.getState().lastModelByProvider?.[pid];
     const list = modelsFor(PROVIDERS.find(p => p.id === pid), vault[pid]?.models);
     if (remembered && list.some(m => m.id === remembered)) return remembered;
     return list[0]?.id || "anthropic/claude-sonnet-4";
@@ -288,7 +288,7 @@ export default function ChatPage() {
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [menuTab, setMenuTab] = useState<"model" | "connector" | "plugins">("model");
   const modelMenuRef = useRef<HTMLDivElement>(null);
-  const lastModelByProvider = useGodEye((s) => s.lastModelByProvider);
+  const lastModelByProvider = useMEDUSA((s) => s.lastModelByProvider);
 
   // ---- voice (Web Speech, no keys) ----------------------------------------
   // Dictation streams into the composer as you talk; read-aloud speaks each
@@ -414,7 +414,7 @@ function selectChat(id: string) {
   // Incognito: when this chat page unmounts (you navigate away), wipe every
   // incognito chat from memory. Nothing was ever written to storage.
   useEffect(() => {
-    const purge = () => useGodEye.getState().purgeIncognito();
+    const purge = () => useMEDUSA.getState().purgeIncognito();
     return () => purge();
   }, []);
 
@@ -549,7 +549,7 @@ function selectChat(id: string) {
     if (!projectFiles.length || !desktop) return;
     setProjectBusy(true);
     try {
-      const r = await runGodEyeTool("godeye_writeProject", {
+      const r = await runMEDUSATool("medusa_writeProject", {
         name: (projectName || "project").replace(/[^\w.-]+/g, "-"),
         files: projectFiles.map((f) => ({ path: f.path, base64: f.binary ? f.base64 : uint8ToBase64(utf8e.encode(f.text)) })),
       });
@@ -578,14 +578,14 @@ function selectChat(id: string) {
         toast("Google Drive session expired - reconnect", "error");
         return;
       }
-      const { projectsId } = await ensureGodEyeFolders(token.accessToken);
+      const { projectsId } = await ensureMEDUSAFolders(token.accessToken);
       const base = (projectName || "project").replace(/[^\w.-]+/g, "-");
       const up = await uploadZipToDrive(token.accessToken, `${base}-improved.zip`, packedProject(), projectsId ?? undefined);
       if (!up) {
         toast("Drive upload failed - reconnect or check your quota", "error");
         return;
       }
-      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2601\uFE0F saved to Google Drive/GodEye/Projects/${base}-improved.zip`]);
+      setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2601\uFE0F saved to Google Drive/MEDUSA/Projects/${base}-improved.zip`]);
       toast(`Saved to Google Drive${drive.email ? ` (${drive.email})` : ""}`, "success");
       if (up.webViewLink) window.open(up.webViewLink, "_blank", "noopener");
     } finally {
@@ -730,7 +730,7 @@ function selectChat(id: string) {
         // Server tools (web search, URL fetch, APIs, SQL, image generation)
         // need the active provider key, which never reaches this component
         // decrypted unless we hand it over per call.
-        const toolResult = await runGodEyeTool(tc.name, tc.arguments || {}, {
+        const toolResult = await runMEDUSATool(tc.name, tc.arguments || {}, {
           provider, model, vault: decryptedVault,
         });
         history.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(toolResult) });
@@ -898,7 +898,7 @@ function selectChat(id: string) {
       abortRef.current = null;
       // Fenced ```path blocks in the reply become real edits in the workspace.
       try {
-        const last = useGodEye.getState().chats.find((c) => c.id === chatId)?.messages.at(-1);
+        const last = useMEDUSA.getState().chats.find((c) => c.id === chatId)?.messages.at(-1);
         if (last?.role === "assistant" && last.content) applyProjectReply(last.content);
       } catch {}
     }
@@ -923,7 +923,7 @@ function selectChat(id: string) {
     for (const b of blocks) {
       if (!b.code.trim()) continue;
       setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u25b6 $ ${b.code.split("\n")[0]}${b.code.split("\n").length > 1 ? " \u2026" : ""}`]);
-      const r = await runGodEyeTool("godeye_runCommand", { command: b.code });
+      const r = await runMEDUSATool("medusa_runCommand", { command: b.code });
       results.push(`$ ${b.code}\n${r.detail || r.summary}`);
       setLogs(l => [...l, `  ${(r.summary.split("\n")[0] || "").slice(0, 100)}`]);
     }
@@ -932,7 +932,7 @@ function selectChat(id: string) {
 
   async function saveAsFormat(m: ChatMessage, fmt: "docx" | "pdf" | "zip") {
     const suggested = suggestSaveFile(m.content, m.mode || mode, activeChat?.title || "chat");
-    const base = suggested.name.replace(/\.[^.]+$/, "") || "godeye-doc";
+    const base = suggested.name.replace(/\.[^.]+$/, "") || "medusa-doc";
     const content = suggested.content || m.content || "";
     if (fmt === "docx") {
       const buf = makeDocx({ title: activeChat?.title || base, content });
@@ -1000,7 +1000,7 @@ function selectChat(id: string) {
           ))}
         </div>
         <div className="p-3 border-t space-y-2">
-          {!desktop && <div className="rounded-xl border bg-muted px-3 py-2 text-[11px] text-muted-foreground">Browser mode — files GodEye creates (code, docs, PDFs, ZIPs, folders) show up as downloads in the chat. Running commands needs the <b>desktop app</b>.</div>}
+          {!desktop && <div className="rounded-xl border bg-muted px-3 py-2 text-[11px] text-muted-foreground">Browser mode — files MEDUSA creates (code, docs, PDFs, ZIPs, folders) show up as downloads in the chat. Running commands needs the <b>desktop app</b>.</div>}
           <button onClick={()=>setShowTerminal(!showTerminal)} className="w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs">
             <Terminal className="h-3.5 w-3.5"/> {showTerminal ? "Hide terminal" : "Show terminal"}
           </button>
@@ -1038,7 +1038,7 @@ function selectChat(id: string) {
           </div>
           {/* model switch */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1" title="Reasoning depth — how hard GodEye thinks">
+            <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1" title="Reasoning depth — how hard MEDUSA thinks">
               <span className="text-xs">🧠</span>
               <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-xs outline-none">
                 <option value="off">Fast</option>
@@ -1066,9 +1066,9 @@ function selectChat(id: string) {
         <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 overscroll-contain">
           {!activeChat || activeChat.messages.length===0 ? (
             <div className="max-w-2xl mx-auto text-center py-16">
-              <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"><span className="h-2 w-2 rounded-full bg-emerald-500"/> GodEye OS • {mode} mode • {providerObj?.name}</div>
-              <h2 className="mt-4 text-2xl font-semibold">What should GodEye do?</h2>
-              <p className="text-sm text-muted-foreground mt-1">Pick a mode, attach files as reference, change model anytime. {desktop && toolsOn && toolCapable ? "Tools are live — GodEye can create files, folders, Word docs, PDFs and ZIPs, plus run commands on your PC." : toolsOn && toolCapable ? "Tools are live — GodEye can create files, folders, Word docs, PDFs and ZIPs that show up here to download." : "On the desktop app GodEye can also save files and run commands."}</p>
+              <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"><span className="h-2 w-2 rounded-full bg-emerald-500"/> MEDUSA OS • {mode} mode • {providerObj?.name}</div>
+              <h2 className="mt-4 text-2xl font-semibold">What should MEDUSA do?</h2>
+              <p className="text-sm text-muted-foreground mt-1">Pick a mode, attach files as reference, change model anytime. {desktop && toolsOn && toolCapable ? "Tools are live — MEDUSA can create files, folders, Word docs, PDFs and ZIPs, plus run commands on your PC." : toolsOn && toolCapable ? "Tools are live — MEDUSA can create files, folders, Word docs, PDFs and ZIPs that show up here to download." : "On the desktop app MEDUSA can also save files and run commands."}</p>
             </div>
           ) : activeChat.messages.map(m => (
             <div key={m.id} className={`max-w-3xl mx-auto flex gap-3 ${m.role==="user" ? "justify-end" : "justify-start"}`}>
@@ -1099,7 +1099,7 @@ function selectChat(id: string) {
                           <video src={md.src} controls playsInline preload="metadata" className="max-h-[28rem] w-full"/>
                         )}
                         <div className="flex items-center justify-between gap-2 border-t bg-foreground/5 px-3 py-2">
-                          <span className="truncate text-[11px] opacity-60">{md.filename || (md.kind==="image" ? "godeye-image.png" : "godeye-video.mp4")}</span>
+                          <span className="truncate text-[11px] opacity-60">{md.filename || (md.kind==="image" ? "medusa-image.png" : "medusa-video.mp4")}</span>
                           <button onClick={()=>downloadMedia(md)} className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium opacity-70 hover:opacity-100">
                             <Download className="h-3 w-3"/> Download
                           </button>
@@ -1154,7 +1154,7 @@ function selectChat(id: string) {
               </div>
             </div>
           ))}
-          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"/> {stage || `GodEye is thinking (${settings.reasoningEffort || "medium"}) — ${provider}/${model} • ${mode}`}</div>}
+          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"/> {stage || `MEDUSA is thinking (${settings.reasoningEffort || "medium"}) — ${provider}/${model} • ${mode}`}</div>}
         </div>
 
         {/* composer - Codex style */}
@@ -1170,7 +1170,7 @@ function selectChat(id: string) {
                 <button onClick={()=>exportProjectDownload("improved")} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title="Download the improved project as a ZIP">
                   <Download className="h-3.5 w-3.5"/> ZIP
                 </button>
-                <button onClick={()=>exportProjectToDrive()} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title={drive.status === "connected" ? `Save to Google Drive/GodEye/Projects${drive.email ? ` (${drive.email})` : ""}` : "Connect Google Drive and save there"}>
+                <button onClick={()=>exportProjectToDrive()} disabled={projectBusy} className="inline-flex items-center gap-1 rounded-lg border bg-background px-2 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50" title={drive.status === "connected" ? `Save to Google Drive/MEDUSA/Projects${drive.email ? ` (${drive.email})` : ""}` : "Connect Google Drive and save there"}>
                   <Cloud className="h-3.5 w-3.5"/> {drive.status === "connected" ? "Drive" : "Drive…"}
                 </button>
                 {desktop && (
@@ -1198,7 +1198,7 @@ function selectChat(id: string) {
           <div className="max-w-3xl mx-auto">
             <div className="rounded-2xl border bg-background p-2 shadow-sm">
               <div className="flex items-end gap-2">
-                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "GodEye can browse the web, call APIs, query the database, generate images, and save, edit, move or delete files on your PC" : "GodEye can browse the web, call APIs, query the database, generate images, and create files, docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
+                <button onClick={()=>{ const next = !toolsOn; setToolsOn(next); setSettings({ agentTools: next, plugins: { ...plugins, tools: next } }); }} className={`p-2 rounded-xl shrink-0 transition-colors ${toolsOn ? "text-amber-500 hover:bg-muted" : "opacity-40 hover:bg-muted"}`} title={`Agent tools ${toolsOn ? "ON" : "OFF"} — ${toolCapable ? (desktop ? "MEDUSA can browse the web, call APIs, query the database, generate images, and save, edit, move or delete files on your PC" : "MEDUSA can browse the web, call APIs, query the database, generate images, and create files, docs, PDFs and ZIPs you can download") : desktop ? "need a tool-capable provider (OpenAI/NVIDIA/OpenRouter)" : "need the desktop app"}`}><Zap className={`h-4 w-4 ${toolsOn && !toolCapable ? "opacity-40" : ""}`}/></button>
                 <button onClick={()=>fileRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title={`Attach files — images, PDFs, code, or a .zip project${supportsNativePdf(provider) ? " — PDFs are sent whole and read by the model" : " — switch to Anthropic/Google/OpenRouter to read PDFs"}`}><Paperclip className="h-4 w-4"/></button>
                 <button onClick={()=>folderRef.current?.click()} disabled={reading} className="p-2 rounded-xl hover:bg-muted shrink-0 disabled:opacity-40" title="Open a whole project folder — deps and build output are skipped"><FolderOpen className="h-4 w-4"/></button>
                 {dictation.supported && (
@@ -1319,7 +1319,7 @@ function selectChat(id: string) {
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span className="hidden sm:inline">{genModeActive ? <><Clapperboard className={`inline h-3 w-3 ${mode==="video" ? "text-violet-500" : "text-amber-500"}`}/> Generation live — send a prompt and {model} renders a real {mode==="video" ? "video" : "image"} directly. </> : <>{toolsOn ? <><Zap className="inline h-3 w-3 text-amber-500"/> Tools ON — ask GodEye to save this to a file or run it. </> : <><Zap className="inline h-3 w-3"/> Tools OFF. </>}</>}Enter to send • Shift+Enter newline • Upload files as reference</span>
+              <span className="hidden sm:inline">{genModeActive ? <><Clapperboard className={`inline h-3 w-3 ${mode==="video" ? "text-violet-500" : "text-amber-500"}`}/> Generation live — send a prompt and {model} renders a real {mode==="video" ? "video" : "image"} directly. </> : <>{toolsOn ? <><Zap className="inline h-3 w-3 text-amber-500"/> Tools ON — ask MEDUSA to save this to a file or run it. </> : <><Zap className="inline h-3 w-3"/> Tools OFF. </>}</>}Enter to send • Shift+Enter newline • Upload files as reference</span>
               <span className="sm:hidden">{footerHint("")}</span>
               <span className="flex items-center gap-2">
                 <label className="inline-flex items-center gap-1 md:hidden">🧠

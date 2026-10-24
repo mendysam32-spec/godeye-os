@@ -1,5 +1,5 @@
 // Pure-JS, zero-dependency builders for ZIP / DOCX / PDF files plus base64 helpers.
-// Runs in any browser or the Electron renderer, so GodEye can mint real files
+// Runs in any browser or the Electron renderer, so MEDUSA can mint real files
 // (downloadable in the browser, auto-written to disk on the desktop app).
 
 export const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";

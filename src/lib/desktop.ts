@@ -1,17 +1,17 @@
 "use client";
 
-// Client-side wrapper around the Electron desktop bridge (window.godeye).
+// Client-side wrapper around the Electron desktop bridge (window.medusa).
 // In a plain browser every function degrades gracefully (download / "N/A"),
 // so the same UI powers both the desktop app and the web build.
-import type { GodEyeSystemInfo } from "@/types/desktop";
+import type { MEDUSASystemInfo } from "@/types/desktop";
 import { makeZip, makeDocx, makePdf, bufToBase64, base64ToBuf, MIME_DOCX } from "./file-builder";
 import { isServerTool } from "./tools";
 
-interface GodEyeDesktopBridge {
+interface MEDUSADesktopBridge {
   isDesktop: boolean;
   platform: string;
   bridgeVersion?: number;
-  systemInfo(): Promise<GodEyeSystemInfo>;
+  systemInfo(): Promise<MEDUSASystemInfo>;
   baseFolder(): Promise<{ path: string; exists: boolean }>;
   saveFile(options: { content: string; defaultName?: string; title?: string }): Promise<{ canceled: boolean; filePath?: string; error?: string }>;
   writeFile(payload: { path: string; content: string }): Promise<{ ok: boolean; path?: string; error?: string }>;
@@ -85,9 +85,9 @@ export interface ToolContext {
 
 const encoder = new TextEncoder();
 
-function bridge(): GodEyeDesktopBridge | null {
+function bridge(): MEDUSADesktopBridge | null {
   if (typeof window === "undefined") return null;
-  return (window as unknown as { godeye?: GodEyeDesktopBridge }).godeye ?? null;
+  return (window as unknown as { medusa?: MEDUSADesktopBridge }).medusa ?? null;
 }
 
 export const desktopBridge = bridge;
@@ -136,7 +136,7 @@ export async function saveTextToDisk(content: string, filename: string, title?: 
   return { ok: true, summary: `Downloaded ${downloadFallback(content, filename)}`, path: `download:${filename}` };
 }
 
-// Deliver generated files. Desktop: write each into the Documents/GodEye base
+// Deliver generated files. Desktop: write each into the Documents/MEDUSA base
 // folder (sub-folders allowed) and return real paths. Browser: hand back the
 // data so the UI can offer per-file download buttons.
 async function deliverFiles(
@@ -229,12 +229,12 @@ function formatStats(s: SystemStats): string {
   return lines.filter(Boolean).join("\n");
 }
 
-export async function runGodEyeTool(name: string, args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult> {
+export async function runMEDUSATool(name: string, args: Record<string, unknown>, ctx?: ToolContext): Promise<ToolResult> {
   const b = bridge();
   if (isServerTool(name)) return runServerTool(name, args, ctx);
   try {
     switch (name) {
-      case "godeye_saveFile": {
+      case "medusa_saveFile": {
         const fileName = String(args?.name ?? "output.txt");
         const content = String(args?.content ?? "");
         const base64 = args?.base64 as string | undefined;
@@ -246,7 +246,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
         const loc = f?.savedPath ? f.savedPath : "download available";
         return { ok: true, summary: `${base64 ? "Saved binary" : "Saved"} ${fileName} (${loc})`, files: delivered };
       }
-      case "godeye_createFolder": {
+      case "medusa_createFolder": {
         const folder = String(args?.folder ?? args?.name ?? "folder").replace(/^[/\\]+/, "").replace(/[\\/]+$/, "");
         if (!folder) return { ok: false, summary: "No folder name given" };
         if (b?.createFolder) {
@@ -263,7 +263,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
           files: [{ name: `${safeName}.zip`, type: "application/zip", base64: bufToBase64(zip) }],
         };
       }
-      case "godeye_createZip": {
+      case "medusa_createZip": {
         const rawFiles = Array.isArray(args?.files) ? (args.files as { path?: string; name?: string; content?: string; base64?: string; type?: string }[]) : [];
         const entries = rawFiles
           .filter((f) => f && (f.path || f.name))
@@ -279,24 +279,24 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
         const delivered = await deliverFiles([{ name: zipName, base64: bufToBase64(zip), type: "application/zip" }], args?.folder as string | undefined);
         return { ok: true, summary: `Zipped ${entries.length} file(s)${delivered[0]?.savedPath ? ` → ${delivered[0].savedPath}` : " — download available"}`, files: delivered };
       }
-      case "godeye_createDocx": {
+      case "medusa_createDocx": {
         const docName = String(args?.name ?? args?.filename ?? "document.docx").replace(/\.docx$/i, "") + ".docx";
         const doc = makeDocx({ title: String(args?.title ?? args?.heading ?? ""), content: String(args?.content ?? "") });
         const delivered = await deliverFiles([{ name: docName, base64: bufToBase64(doc), type: MIME_DOCX }], args?.folder as string | undefined);
         return { ok: true, summary: `Created Word document ${docName}${delivered[0]?.savedPath ? ` → ${delivered[0].savedPath}` : " — download available"}`, files: delivered };
       }
-      case "godeye_createPdf": {
+      case "medusa_createPdf": {
         const pdfName = String(args?.name ?? args?.filename ?? "document.pdf").replace(/\.pdf$/i, "") + ".pdf";
         const pdf = makePdf({ title: String(args?.title ?? args?.heading ?? ""), content: String(args?.content ?? "") });
         const delivered = await deliverFiles([{ name: pdfName, base64: bufToBase64(pdf), type: "application/pdf" }], args?.folder as string | undefined);
         return { ok: true, summary: `Created PDF ${pdfName}${delivered[0]?.savedPath ? ` → ${delivered[0].savedPath}` : " — download available"}`, files: delivered };
       }
-      case "godeye_readFile": {
+      case "medusa_readFile": {
         if (!b) return { ok: false, summary: "readFile needs the desktop app (browser can't read your files)" };
         const r = await b.readText(String(args?.path ?? ""));
         return r.ok ? { ok: true, summary: `Read ${r.path}`, detail: r.content } : { ok: false, summary: r.error || "Read failed" };
       }
-      case "godeye_runCommand": {
+      case "medusa_runCommand": {
         if (!b) return { ok: false, summary: "runCommand needs the desktop app (browser can't run commands)" };
         const r = await b.runCommand({
           command: String(args?.command ?? ""),
@@ -310,7 +310,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
           detail: out,
         };
       }
-      case "godeye_writeProject": {
+      case "medusa_writeProject": {
         if (!b?.writeProject) return { ok: false, summary: "writeProject needs the desktop app (browser can't write to a folder)" };
         const r = await b.writeProject({
           name: String(args?.name ?? "project"),
@@ -328,7 +328,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
       }
 
       /* ---- advanced file operations (desktop) ------------------------------ */
-      case "godeye_listDir": {
+      case "medusa_listDir": {
         if (!b?.listDir) return { ok: false, summary: "listDir needs the desktop app (browser can't browse your folders)" };
         const r = await b.listDir({
           path: args?.path as string | undefined,
@@ -347,7 +347,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
           path: r.path,
         };
       }
-      case "godeye_editFile": {
+      case "medusa_editFile": {
         if (!b?.editFile) return { ok: false, summary: "editFile needs the desktop app (browser can't edit files in place)" };
         const r = await b.editFile({
           path: String(args?.path ?? ""),
@@ -360,12 +360,12 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
         if (r.unchanged) return { ok: true, summary: `No change to ${r.path}`, detail: r.detail, path: r.path };
         return { ok: r.ok, summary: r.ok ? `${r.created ? "Created" : "Edited"} ${r.path}` : r.error || "Edit failed", detail: r.detail, path: r.path };
       }
-      case "godeye_movePath": {
+      case "medusa_movePath": {
         if (!b?.movePath) return { ok: false, summary: "movePath needs the desktop app (browser can't move files)" };
         const r = await b.movePath({ from: String(args?.from ?? ""), to: String(args?.to ?? ""), overwrite: args?.overwrite === true });
         return { ok: r.ok, summary: r.ok ? `Moved to ${r.path}` : r.error || "Move failed", detail: r.detail, path: r.path };
       }
-      case "godeye_copyPath": {
+      case "medusa_copyPath": {
         if (!b?.copyPath) return { ok: false, summary: "copyPath needs the desktop app (browser can't copy files)" };
         const r = await b.copyPath({
           from: String(args?.from ?? ""),
@@ -375,7 +375,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
         });
         return { ok: r.ok, summary: r.ok ? `Copied to ${r.path}` : r.error || "Copy failed", detail: r.detail, path: r.path };
       }
-      case "godeye_deletePath": {
+      case "medusa_deletePath": {
         if (!b?.deletePath) return { ok: false, summary: "deletePath needs the desktop app (browser can't delete files)" };
         const r = await b.deletePath({
           path: String(args?.path ?? ""),
@@ -386,7 +386,7 @@ export async function runGodEyeTool(name: string, args: Record<string, unknown>,
       }
 
       /* ---- system monitoring (desktop) ------------------------------------- */
-      case "godeye_systemStats": {
+      case "medusa_systemStats": {
         if (!b?.sysStats) return { ok: false, summary: "systemStats needs the desktop app (browser can't read machine metrics)" };
         const s = await b.sysStats();
         return { ok: true, summary: `CPU ${s.cpu.busyPercent}% • RAM ${s.memory.usedPercent}% • up ${Math.floor(s.system.uptimeSeconds / 60)}m`, detail: formatStats(s) };

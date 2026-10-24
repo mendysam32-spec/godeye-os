@@ -5,8 +5,8 @@
 // Not a replacement for server-side Secrets Store, but hides plaintext
 // from casual localStorage inspection and clipboard leaks.
 
-const SALT = "godeye-vault-salt-v1";
-const PASSPHRASE = "godeye-local-encryption-key-v1"; // device-local, not user secret
+const SALT = "medusa-vault-salt-v1";
+const PASSPHRASE = "medusa-local-encryption-key-v1"; // device-local, not user secret
 const ENC_PREFIX = "enc:";
 
 async function deriveKey(): Promise<CryptoKey> {

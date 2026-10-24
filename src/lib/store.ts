@@ -150,7 +150,7 @@ export interface Project {
   updatedAt: string;
 }
 
-interface GodEyeState {
+interface MEDUSAState {
   profile: UserProfile;
   setProfile: (p: Partial<UserProfile>) => void;
   settings: ProgramSettings;
@@ -180,7 +180,7 @@ interface GodEyeState {
     pending: number;
     error?: string;
   };
-  setChatSync: (patch: Partial<GodEyeState["chatSync"]>) => void;
+  setChatSync: (patch: Partial<MEDUSAState["chatSync"]>) => void;
   /** merge remote threads into local state; used only by the sync client.
    *  `deletedIds` are server tombstones and must be dropped locally. */
   applyRemoteChats: (chats: ChatSession[], deletedIds?: string[]) => void;
@@ -206,9 +206,9 @@ interface GodEyeState {
   removeFolder: (id: string) => void;
 }
 
-const LEGACY_STORAGE_KEY = "godeye-os-v1";
-const MIGRATED_FLAG = "godeye:legacy:migrated";
-const workspaceKey = (userId: string) => `godeye:workspace:${userId}`;
+const LEGACY_STORAGE_KEY = "medusa-os-v1";
+const MIGRATED_FLAG = "medusa:legacy:migrated";
+const workspaceKey = (userId: string) => `medusa:workspace:${userId}`;
 
 /* -------------------------------------------------------------------------- */
 /* chat change notifications                                                   */
@@ -238,13 +238,13 @@ function notifyChatsChanged(): void {
 }
 
 function freshProfile(): UserProfile {
-  return { name: "GodEye User", email: "", avatar: "", role: "Member", bio: "" };
+  return { name: "MEDUSA User", email: "", avatar: "", role: "Member", bio: "" };
 }
 
 function freshSettings(): ProgramSettings {
   return {
-    theme: "light",
-    accent: "amber",
+    theme: "dark",
+    accent: "violet",
     density: "comfortable",
     animations: true,
     soundEffects: false,
@@ -276,7 +276,7 @@ function freshAgents(): Agent[] {
 function freshProjects(): Project[] {
   const now = new Date().toISOString();
   return [
-    { id: "p1", name: "GodEye Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2", "4"], tasksTotal: 12, tasksDone: 7, createdAt: now, updatedAt: now },
+    { id: "p1", name: "MEDUSA Launch", description: "Landing + workforce canvas + docs", status: "active", color: "#f59e0b", agentIds: ["1", "2", "4"], tasksTotal: 12, tasksDone: 7, createdAt: now, updatedAt: now },
     { id: "p2", name: "AI Blog Pipeline", description: "Research → draft → SEO → publish", status: "active", color: "#8b5cf6", agentIds: ["3", "5", "6"], tasksTotal: 8, tasksDone: 3, createdAt: now, updatedAt: now },
     { id: "p3", name: "Nvidia Demo App", description: "Llama 405B showcase build", status: "draft", color: "#76b900", agentIds: ["1", "2", "4", "6"], tasksTotal: 5, tasksDone: 1, createdAt: now, updatedAt: now },
   ];
@@ -427,12 +427,12 @@ function quotaSafeStorage(): StateStorage<void> {
 
 /** Exactly the slice that reaches localStorage (see partialize below). */
 type PersistedSlice = Pick<
-  GodEyeState,
+  MEDUSAState,
   "profile" | "settings" | "vault" | "agents" | "chats" | "activeChatId" | "projects" | "folders" | "lastProvider" | "lastModelByProvider" | "wsUpdatedAt"
 >;
 
-export const useGodEye = create<GodEyeState>()(
-  persist<GodEyeState, [], [], PersistedSlice>(
+export const useMEDUSA = create<MEDUSAState>()(
+  persist<MEDUSAState, [], [], PersistedSlice>(
     (set, get) => ({
       profile: freshProfile(),
       setProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
@@ -609,7 +609,7 @@ export const useGodEye = create<GodEyeState>()(
         // Never clobber rehydrated data just because the per-user localStorage slot is empty or stale.
         const fallback = hasData ? current : freshScopedState();
         // Vault needs union merge — per-user slot can be stale (Connect wrote only to
-        // godeye-os-v1 before). Rehydrated current has the just-connected keys.
+        // medusa-os-v1 before). Rehydrated current has the just-connected keys.
         const mergedVault = (() => {
           const a = data?.vault as Record<ProviderId, VaultKey> | undefined;
           const b = fallback.vault as Record<ProviderId, VaultKey> | undefined;
@@ -654,7 +654,7 @@ export const useGodEye = create<GodEyeState>()(
           profile: {
             ...base.profile,
             email: base.profile.email || u.email,
-            name: base.profile.name === "GodEye User" ? u.displayName : base.profile.name,
+            name: base.profile.name === "MEDUSA User" ? u.displayName : base.profile.name,
           },
           activeChatId: data?.activeChatId ?? (hasData ? current.activeChatId : null),
           currentUser: u,
@@ -721,7 +721,7 @@ export const useGodEye = create<GodEyeState>()(
           const profile = {
             ...merged.profile,
             email: merged.profile.email || u?.email || "",
-            name: merged.profile.name === "GodEye User" ? u?.displayName || merged.profile.name : merged.profile.name,
+            name: merged.profile.name === "MEDUSA User" ? u?.displayName || merged.profile.name : merged.profile.name,
           };
           const wsUpdatedAt = data.updatedAt || s.wsUpdatedAt || new Date().toISOString();
           return {
@@ -862,7 +862,7 @@ export const useGodEye = create<GodEyeState>()(
           };
         }),
     }),
-    { name: "godeye-os-v1", storage: createJSONStorage<PersistedSlice, void>(() => quotaSafeStorage()), partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
+    { name: "medusa-os-v1", storage: createJSONStorage<PersistedSlice, void>(() => quotaSafeStorage()), partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );
 

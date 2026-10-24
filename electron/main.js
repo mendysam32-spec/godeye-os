@@ -6,10 +6,11 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 let win, tray;
-const CLOUD_URL = process.env.GODEYE_URL || 'http://localhost:3000';
+// Deployed cloud build is the default; set MEDUSA_URL to point at a local/dev URL.
+const CLOUD_URL = process.env.MEDUSA_URL || 'https://medusa-os.grade-up.workers.dev';
 
 function baseFolder() {
-  return path.join(app.getPath('documents'), 'GodEye');
+  return path.join(app.getPath('documents'), 'MEDUSA');
 }
 
 function ensureBaseFolder() {
@@ -19,7 +20,7 @@ function ensureBaseFolder() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 800,
-    title: 'GodEye OS — by S&P Group',
+    title: 'MEDUSA OS — by S&P Group',
     backgroundColor: '#fcfcf9',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
@@ -58,7 +59,7 @@ function runShellCommand(command, cwd, timeoutMs = 60000) {
     proc.on('error', (e) => { clearTimeout(timer); resolve({ exitCode: -1, stdout, stderr: stderr || String(e.message || e), timedOut }); });
     proc.on('close', (code) => {
       clearTimeout(timer);
-      notify('GodEye OS command finished', `${command.slice(0, 60)}${timedOut ? ' (timed out)' : ` → exit ${code}`}`);
+      notify('MEDUSA OS command finished', `${command.slice(0, 60)}${timedOut ? ' (timed out)' : ` → exit ${code}`}`);
       resolve({ exitCode: code ?? -1, stdout, stderr, timedOut });
     });
   });
@@ -106,7 +107,7 @@ function capture(cmd, timeoutMs = 6000) {
 }
 
 function registerIpc() {
-  ipcMain.handle('godeye:system-info', () => ({
+  ipcMain.handle('medusa:system-info', () => ({
     platform: process.platform,
     arch: process.arch,
     versions: {
@@ -118,14 +119,14 @@ function registerIpc() {
     foldersExist: fs.existsSync(baseFolder()),
   }));
 
-  ipcMain.handle('godeye:base-folder', () => ({ path: baseFolder(), exists: fs.existsSync(baseFolder()) }));
+  ipcMain.handle('medusa:base-folder', () => ({ path: baseFolder(), exists: fs.existsSync(baseFolder()) }));
 
-  ipcMain.handle('godeye:save-file', async (_e, options = {}) => {
+  ipcMain.handle('medusa:save-file', async (_e, options = {}) => {
     const { content, defaultName, title } = options;
     ensureBaseFolder();
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
-      title: title || 'Save with GodEye OS',
-      defaultPath: path.join(baseFolder(), defaultName || 'godeye-output.txt'),
+      title: title || 'Save with MEDUSA OS',
+      defaultPath: path.join(baseFolder(), defaultName || 'medusa-output.txt'),
     });
     if (canceled || !filePath) return { canceled: true };
     try {
@@ -136,13 +137,13 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:write-file', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:write-file', async (_e, payload = {}) => {
     const { path: filePath, content } = payload;
     if (!filePath) return { ok: false, error: 'No path given' };
     try {
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
       await fs.promises.writeFile(filePath, content ?? '', 'utf8');
-      notify('GodEye OS saved file', path.basename(filePath));
+      notify('MEDUSA OS saved file', path.basename(filePath));
       return { ok: true, path: filePath };
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err), path: filePath };
@@ -150,13 +151,13 @@ function registerIpc() {
   });
 
   // Write a binary file (ZIP / DOCX / PDF / images) from base64.
-  ipcMain.handle('godeye:write-binary', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:write-binary', async (_e, payload = {}) => {
     const { path: filePath, base64 } = payload;
     if (!filePath) return { ok: false, error: 'No path given' };
     try {
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
       await fs.promises.writeFile(filePath, Buffer.from(base64 || '', 'base64'));
-      notify('GodEye OS saved file', path.basename(filePath));
+      notify('MEDUSA OS saved file', path.basename(filePath));
       return { ok: true, path: filePath };
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err), path: filePath };
@@ -164,7 +165,7 @@ function registerIpc() {
   });
 
   // Create a folder (recursively) anywhere on disk.
-  ipcMain.handle('godeye:create-folder', async (_e, folderPath) => {
+  ipcMain.handle('medusa:create-folder', async (_e, folderPath) => {
     if (!folderPath) return { ok: false, error: 'No path given' };
     try {
       await fs.promises.mkdir(folderPath, { recursive: true });
@@ -174,7 +175,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:read-text', async (_e, filePath) => {
+  ipcMain.handle('medusa:read-text', async (_e, filePath) => {
     if (!filePath) return { ok: false, error: 'No path given' };
     try {
       const content = await fs.promises.readFile(filePath, 'utf8');
@@ -184,7 +185,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:pick-read', async (_e, filters = []) => {
+  ipcMain.handle('medusa:pick-read', async (_e, filters = []) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       properties: ['openFile'],
       filters: filters.length ? filters : [{ name: 'All files', extensions: ['*'] }],
@@ -198,14 +199,14 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:run-command', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:run-command', async (_e, payload = {}) => {
     const { command, cwd, timeoutMs } = payload;
     if (!command || typeof command !== 'string') return { ok: false, exitCode: -1, stdout: '', stderr: 'No command given', timedOut: false };
     const r = await runShellCommand(command, cwd, timeoutMs);
     return { ok: r.exitCode === 0, ...r };
   });
 
-  ipcMain.handle('godeye:open-path', async (_e, target) => {
+  ipcMain.handle('medusa:open-path', async (_e, target) => {
     try {
       const res = await shell.openPath(target || baseFolder());
       return res ? { ok: false, error: res } : { ok: true };
@@ -249,7 +250,7 @@ function registerIpc() {
     return out;
   }
 
-  ipcMain.handle('godeye:list-dir', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:list-dir', async (_e, payload = {}) => {
     const target = absTarget(typeof payload === 'string' ? payload : payload.path, baseFolder());
     const st = statOrNull(target);
     if (!st || !st.isDirectory()) return { ok: false, error: `Not a folder: ${target}` };
@@ -262,7 +263,7 @@ function registerIpc() {
   // Rewrite a whole file, or patch it with find/replace when only the new
   // content is passed. Patching avoids round-tripping a large file through the
   // model and lets it change one line of a 5000-line file.
-  ipcMain.handle('godeye:edit-file', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:edit-file', async (_e, payload = {}) => {
     const target = absTarget(payload.path, '');
     if (!target) return { ok: false, error: 'No path given' };
     const before = exists(target);
@@ -304,7 +305,7 @@ function registerIpc() {
       await fs.promises.mkdir(path.dirname(target), { recursive: true });
       await fs.promises.writeFile(target, next, 'utf8');
       const delta = prior === null ? next.length : next.length - prior.length;
-      notify('GodEye OS edited file', path.basename(target));
+      notify('MEDUSA OS edited file', path.basename(target));
       return {
         ok: true,
         path: target,
@@ -317,7 +318,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:move-path', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:move-path', async (_e, payload = {}) => {
     const from = absTarget(payload.from, '');
     const to = absTarget(payload.to, '');
     if (!from || !to) return { ok: false, error: 'Both `from` and `to` are required' };
@@ -328,7 +329,7 @@ function registerIpc() {
       await fs.promises.mkdir(path.dirname(to), { recursive: true });
       if (exists(to)) await fs.promises.rm(to, { recursive: true, force: true });
       await fs.promises.rename(from, to);
-      notify('GodEye OS moved', `${path.basename(from)} → ${path.basename(to)}`);
+      notify('MEDUSA OS moved', `${path.basename(from)} → ${path.basename(to)}`);
       return { ok: true, path: to, detail: `Moved ${from} → ${to}` };
     } catch (err) {
       // rename() fails across devices; fall back to copy + remove.
@@ -342,7 +343,7 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('godeye:copy-path', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:copy-path', async (_e, payload = {}) => {
     const from = absTarget(payload.from, '');
     const to = absTarget(payload.to, '');
     if (!from || !to) return { ok: false, error: 'Both `from` and `to` are required' };
@@ -355,7 +356,7 @@ function registerIpc() {
       if (exists(to)) await fs.promises.rm(to, { recursive: true, force: true });
       await fs.promises.cp(from, to, { recursive });
       const count = walk(to, recursive, 2000).length;
-      notify('GodEye OS copied', path.basename(to));
+      notify('MEDUSA OS copied', path.basename(to));
       return { ok: true, path: to, count, detail: `Copied ${from} → ${to} (${count} entr${count === 1 ? 'y' : 'ies'})` };
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err) };
@@ -364,7 +365,7 @@ function registerIpc() {
 
   // Deletion is irreversible, so it reports exactly what it would remove first
   // when asked to dry-run and refuses a non-empty folder without `recursive`.
-  ipcMain.handle('godeye:delete-path', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:delete-path', async (_e, payload = {}) => {
     const target = absTarget(payload.path, '');
     if (!target) return { ok: false, error: 'No path given' };
     if (!exists(target)) return { ok: false, error: `Nothing to delete at ${target}` };
@@ -390,14 +391,14 @@ function registerIpc() {
         };
       }
       await fs.promises.rm(target, { recursive: true, force: true });
-      notify('GodEye OS deleted folder', path.basename(target));
+      notify('MEDUSA OS deleted folder', path.basename(target));
       return { ok: true, path: target, detail: `Deleted folder ${target} (${children.length} entr${children.length === 1 ? 'y' : 'ies'})` };
     }
     if (payload.dryRun === true) {
       return { ok: true, dryRun: true, path: target, detail: `Would delete file ${target} (${humanBytes(st ? st.size : 0)})` };
     }
     await fs.promises.rm(target, { force: true });
-    notify('GodEye OS deleted file', path.basename(target));
+    notify('MEDUSA OS deleted file', path.basename(target));
     return { ok: true, path: target, detail: `Deleted file ${target}` };
   });
 
@@ -405,7 +406,7 @@ function registerIpc() {
   // CPU needs two samples a moment apart to be a real percentage; memory and
   // disk are instantaneous. Network byte counters are Windows-only because
   // Node exposes no portable per-interface traffic counters.
-  ipcMain.handle('godeye:sys-stats', async () => {
+  ipcMain.handle('medusa:sys-stats', async () => {
     const sample = () => {
       let idle = 0;
       let total = 0;
@@ -481,7 +482,7 @@ function registerIpc() {
 
   // Write a whole project tree (path -> base64) into a chosen folder. Every
   // entry is resolved against the chosen root and rejected if it escapes it.
-  ipcMain.handle('godeye:write-project', async (_e, payload = {}) => {
+  ipcMain.handle('medusa:write-project', async (_e, payload = {}) => {
     const { name, files, mode, dir } = payload;
     if (!Array.isArray(files) || !files.length) return { ok: false, error: 'No files to write' };
 
@@ -522,7 +523,7 @@ function registerIpc() {
 
     const ok = written.length > 0 && failed.length === 0;
     if (written.length) {
-      notify('GodEye OS wrote project', `${written.length} file(s) → ${absRoot}`);
+      notify('MEDUSA OS wrote project', `${written.length} file(s) → ${absRoot}`);
       // open the folder so the user sees the result immediately
       shell.openPath(absRoot).catch(() => {});
     }
@@ -544,9 +545,9 @@ app.whenReady().then(() => {
   createWindow();
   try {
     tray = new Tray(path.join(__dirname, 'icon.png'));
-    tray.setToolTip('GodEye OS — Workforce OS');
+    tray.setToolTip('MEDUSA OS — Workforce OS');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Show GodEye OS', click: () => win.show() },
+      { label: 'Show MEDUSA OS', click: () => win.show() },
       { label: 'Dashboard', click: () => { win.show(); win.loadURL(CLOUD_URL + '/dashboard'); } },
       { label: 'Providers Vault', click: () => { win.show(); win.loadURL(CLOUD_URL + '/vault'); } },
       { type: 'separator' },

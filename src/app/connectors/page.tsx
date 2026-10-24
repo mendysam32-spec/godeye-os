@@ -1,7 +1,7 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "@/lib/providers";
-import { useGodEye, DEFAULT_PLUGINS, type PluginId } from "@/lib/store";
+import { useMEDUSA, DEFAULT_PLUGINS, type PluginId } from "@/lib/store";
 import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, PlugZap, Loader2, Shield, AlertCircle, Lock, Zap, Image as ImageIcon, Clapperboard, Search, Terminal, Sparkles, Link2, ArrowRight, Cloud, FolderOpen, Unplug } from "lucide-react";
 import Link from "next/link";
@@ -30,9 +30,9 @@ const REASONING_OPTIONS = [
 ];
 
 export default function ConnectorsPage() {
-  const { vault, setVaultKey, setSettings } = useGodEye() as any;
-  const pPlugins = ((useGodEye((s) => (s as any).settings.plugins) as any) || { ...DEFAULT_PLUGINS }) as Record<PluginId, boolean>;
-  const reasoning = useGodEye((s) => (s as any).settings.reasoningEffort || "medium");
+  const { vault, setVaultKey, setSettings } = useMEDUSA() as any;
+  const pPlugins = ((useMEDUSA((s) => (s as any).settings.plugins) as any) || { ...DEFAULT_PLUGINS }) as Record<PluginId, boolean>;
+  const reasoning = useMEDUSA((s) => (s as any).settings.reasoningEffort || "medium");
 
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -114,7 +114,7 @@ export default function ConnectorsPage() {
             </div>
             {/* reasoning + file creation note */}
             <div className="mt-4 rounded-xl border bg-muted p-4">
-              <div className="text-xs font-medium flex items-center gap-1.5">Reasoning depth <span className="text-muted-foreground font-normal">— how hard GodEye thinks (maps to model-native thinking budgets)</span></div>
+              <div className="text-xs font-medium flex items-center gap-1.5">Reasoning depth <span className="text-muted-foreground font-normal">— how hard MEDUSA thinks (maps to model-native thinking budgets)</span></div>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {REASONING_OPTIONS.map(o => (
                   <button key={o.id} onClick={() => setSettings({ reasoningEffort: o.id })} title={o.desc} className={`rounded-full border px-3 py-1.5 text-xs ${reasoning === o.id ? "bg-foreground text-background" : "bg-card hover:bg-muted"}`}>{o.label}</button>
@@ -129,8 +129,8 @@ export default function ConnectorsPage() {
             <div className="flex items-center gap-2 font-medium"><Cloud className="h-4 w-4" /> Google Drive — project storage across devices</div>
             <p className="text-xs text-muted-foreground mt-1">
               Sign in with Google and every improved project can be saved straight to
-              <code className="mx-1">GodEye/Projects/</code> in your Drive — then open it on any phone or laptop signed into that account.
-              Scope is <code>drive.file</code>, so GodEye can only ever see files it created itself.
+              <code className="mx-1">MEDUSA/Projects/</code> in your Drive — then open it on any phone or laptop signed into that account.
+              Scope is <code>drive.file</code>, so MEDUSA can only ever see files it created itself.
             </p>
 
             <div className="mt-4 rounded-2xl border p-4 bg-muted/40">
@@ -200,7 +200,7 @@ export default function ConnectorsPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Shield className="h-3 w-3" /> drive.file scope — only files GodEye creates</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Shield className="h-3 w-3" /> drive.file scope — only files MEDUSA creates</span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Lock className="h-3 w-3" /> Token stays in this browser</span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 border"><Cloud className="h-3 w-3" /> Connect once per device</span>
             </div>

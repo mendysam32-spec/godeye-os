@@ -7,9 +7,9 @@ export default function Home() {
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-foreground text-background grid place-items-center"><Eye className="h-5 w-5" /></div>
+            <div className="h-9 w-9 rounded-xl grid place-items-center" style={{ background: "var(--home-brand-accent)", color: "#fff" }}><Eye className="h-5 w-5" /></div>
             <div>
-              <div className="font-semibold leading-none">GodEye</div>
+              <div className="font-semibold leading-none">MEDUSA</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">© {new Date().getFullYear()} S&P Group — GodEye OS. All rights reserved.</footer>
+      <footer className="border-t py-6 text-center text-xs text-muted-foreground">© {new Date().getFullYear()} S&P Group — MEDUSA OS. All rights reserved.</footer>
     </div>
   );
 }

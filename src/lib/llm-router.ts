@@ -57,7 +57,7 @@ function providerConfig(provider: ProviderId) {
 }
 
 // OpenAI-style tools ({type:"function", function:{name, description, parameters}})
-// as passed by the API route from GODEYE_TOOLS. Providers that speak their own
+// as passed by the API route from MEDUSA_TOOLS. Providers that speak their own
 // tool format translate them below.
 interface WireTool { type?: string; function?: { name?: string; description?: string; parameters?: unknown } }
 function wireTools(tools?: unknown[]): WireTool[] {
@@ -184,8 +184,8 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
   };
   // OpenRouter requires extra headers for ranking
   if (call.provider === "openrouter") {
-    headers["HTTP-Referer"] = "https://godeye.sandpgroup.com";
-    headers["X-Title"] = "GodEye OS";
+    headers["HTTP-Referer"] = "https://medusa.sandpgroup.com";
+    headers["X-Title"] = "MEDUSA OS";
   }
   // AgentRouter rejects generic clients with `401 unauthorized client detected`.
   // It only serves requests that carry the OpenAI-SDK / Roo Code identity headers.

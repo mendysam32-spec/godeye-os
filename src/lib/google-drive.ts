@@ -104,7 +104,7 @@ export async function driveExchangeCode(code: string): Promise<{ token: GDriveTo
     sessionStorage.removeItem('gd_return');
     return { token };
   } catch {
-    return { token: null, error: "Could not reach the GodEye token endpoint." };
+    return { token: null, error: "Could not reach the MEDUSA token endpoint." };
   }
 }
 
@@ -183,8 +183,8 @@ async function findOrCreateFolder(token: string, name: string, parentId?: string
   return j2.id ?? null;
 }
 
-export async function ensureGodEyeFolders(token: string): Promise<{ rootId: string | null; projectsId: string | null }> {
-  const root = await findOrCreateFolder(token, 'GodEye');
+export async function ensureMEDUSAFolders(token: string): Promise<{ rootId: string | null; projectsId: string | null }> {
+  const root = await findOrCreateFolder(token, 'MEDUSA');
   const projects = root ? await findOrCreateFolder(token, 'Projects', root) : null;
   return { rootId: root, projectsId: projects };
 }

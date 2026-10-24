@@ -1,11 +1,11 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { useGodEye, type AuthUserInfo, type WorkspaceData } from "@/lib/store";
+import { useMEDUSA, type AuthUserInfo, type WorkspaceData } from "@/lib/store";
 import { adoptUser, pullChats, startChatSync } from "@/lib/chat-sync-client";
 import { Eye, Lock, Loader2, Mail, User, ArrowRight, AlertTriangle, X, HelpCircle, UserPlus } from "lucide-react";
 
 const OWNER_EMAIL = "mendysam32@gmail.com";
-const LOGOUT_EVENT = "godeye:logout";
+const LOGOUT_EVENT = "medusa:logout";
 
 type Status = "boot" | "anon" | "authed";
 
@@ -16,13 +16,13 @@ type Status = "boot" | "anon" | "authed";
  * was still streaming on a desktop. Chat sync is per-thread instead.
  */
 async function syncChats() {
-  adoptUser(useGodEye.getState().currentUser?.id ?? "anon");
+  adoptUser(useMEDUSA.getState().currentUser?.id ?? "anon");
   await pullChats(true);
 }
 
 async function syncWorkspace() {
   try {
-    const store = useGodEye.getState();
+    const store = useMEDUSA.getState();
     const res = await fetch("/api/auth/workspace", { cache: "no-store" });
     let remote: WorkspaceData | null = null;
     if (res.ok) {
@@ -32,10 +32,10 @@ async function syncWorkspace() {
     const rt = remote?.updatedAt ? Date.parse(remote.updatedAt) : 0;
     const lt = local.updatedAt ? Date.parse(local.updatedAt) : 0;
     if (remote && !Number.isNaN(rt) && rt > lt) {
-      useGodEye.getState().applyWorkspace(remote);
+      useMEDUSA.getState().applyWorkspace(remote);
     } else {
-      useGodEye.getState().markWorkspaceSynced();
-      const blob = useGodEye.getState().collectWorkspace();
+      useMEDUSA.getState().markWorkspaceSynced();
+      const blob = useMEDUSA.getState().collectWorkspace();
       await fetch("/api/auth/workspace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -51,7 +51,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("boot");
 
   const handleLoggedIn = useCallback((user: AuthUserInfo) => {
-    useGodEye.getState().loginUser(user);
+    useMEDUSA.getState().loginUser(user);
     setStatus("authed");
     void syncWorkspace();
     void syncChats();
@@ -59,7 +59,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const handleLogout = useCallback(async () => {
     try {
-      const store = useGodEye.getState();
+      const store = useMEDUSA.getState();
       if (store.currentUser) {
         store.markWorkspaceSynced();
         const blob = store.collectWorkspace();
@@ -77,7 +77,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-    useGodEye.getState().logoutUser();
+    useMEDUSA.getState().logoutUser();
     setStatus("anon");
     void syncChats();
   }, []);
@@ -95,7 +95,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         if (!cancelled) {
           if (res.ok) {
             const { user } = await res.json();
-            useGodEye.getState().loginUser(user as AuthUserInfo);
+            useMEDUSA.getState().loginUser(user as AuthUserInfo);
             setStatus("authed");
             void syncWorkspace();
             void syncChats();
@@ -201,10 +201,10 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUserInfo) => void 
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <div className="mx-auto h-14 w-14 rounded-2xl bg-foreground text-background grid place-items-center">
+          <div className="mx-auto h-14 w-14 rounded-2xl grid place-items-center" style={{ background: "var(--home-brand-accent)", color: "#fff" }}>
             <Eye className="h-7 w-7" />
           </div>
-          <div className="mt-4 text-lg font-semibold tracking-tight">GodEye OS</div>
+          <div className="mt-4 text-lg font-semibold tracking-tight">MEDUSA OS</div>
           <div className="text-sm text-muted-foreground mt-1">Sign in to your workforce</div>
         </div>
 
@@ -286,13 +286,13 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUserInfo) => void 
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground">
                   Password resets are handled by the account owner. Email{" "}
-                  <a href={`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent("GodEye password reset request")}&body=${encodeURIComponent("Hi, my password is not working. Please reset it.\nMy username: ")}`} className="font-medium text-foreground underline">
+                  <a href={`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent("MEDUSA password reset request")}&body=${encodeURIComponent("Hi, my password is not working. Please reset it.\nMy username: ")}`} className="font-medium text-foreground underline">
                     {OWNER_EMAIL}
                   </a>{" "}
                   and you will be sent a new password.
                 </p>
                 <a
-                  href={`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent("GodEye password reset request")}&body=${encodeURIComponent(`Hi, my password is not working. Please reset it.\nMy username: ${username}`)}`}
+                  href={`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent("MEDUSA password reset request")}&body=${encodeURIComponent(`Hi, my password is not working. Please reset it.\nMy username: ${username}`)}`}
                   className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-full bg-foreground text-background py-2.5 text-sm font-medium"
                 >
                   <Mail className="h-4 w-4" /> Email the owner

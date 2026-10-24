@@ -1,11 +1,11 @@
 "use client";
 import { useEffect } from "react";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 
 const THEMES = ["light", "dark", "glass", "blacklime", "aurora", "indigoblack"] as const;
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const { settings, setSettings } = useGodEye();
+  const { settings, setSettings } = useMEDUSA();
   useEffect(() => {
     // migrate legacy "system" -> light
     if (!(THEMES as readonly string[]).includes(settings.theme as string)) {
@@ -26,7 +26,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const accentMap: Record<string, string> = {
       amber: "#f59e0b",
-      violet: "#8b5cf6",
+      violet: "#9a99ff",
       emerald: "#10b981",
       blue: "#3b82f6",
       rose: "#f43f5e",

@@ -1,15 +1,15 @@
 {
-  "name": "godeye-os-desktop",
+  "name": "medusa-os-desktop",
   "version": "1.0.0",
-  "description": "GodEye OS Desktop by S&P Group — Workforce OS Windows App",
+  "description": "MEDUSA OS Desktop by S&P Group — Designer Workforce OS Windows App",
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
     "build": "electron-builder --win"
   },
   "build": {
-    "appId": "com.sandpgroup.godeyeos",
-    "productName": "GodEye OS",
+    "appId": "com.sandpgroup.medusaos",
+    "productName": "MEDUSA OS",
     "copyright": "Copyright © S&P Group",
     "win": { "target": "nsis", "icon": "icon.png" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }

@@ -1,12 +1,12 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
 import { useState } from "react";
 import { Plus, Trash2, Bot } from "lucide-react";
 
 export default function AgentsPage() {
-  const { agents, addAgent, updateAgent, removeAgent, vault } = useGodEye();
+  const { agents, addAgent, updateAgent, removeAgent, vault } = useMEDUSA();
   const [show, setShow] = useState(false);
   const [form, setForm] = useState({ name:"", role:"", provider:"openrouter" as ProviderId, model:"", prompt:"" });
 

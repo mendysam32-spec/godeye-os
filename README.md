@@ -1,8 +1,8 @@
-# GodEye OS — by S&P Group
+# MEDUSA OS — by S&P Group
 
 Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, OpenRouter, OmeRoute, OpenAI, Anthropic + 8 more)
 
-**Live:** https://godeye-os.grade-up.workers.dev
+**Live:** https://medusa-os.grade-up.workers.dev
 
 ## Features
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
@@ -22,12 +22,12 @@ Tools split by where they run. Definitions live in `src/lib/tools.ts`.
 
 | Tool | What it does |
 | --- | --- |
-| `godeye_webSearch` | Keyless DuckDuckGo search → ranked titles, URLs, snippets |
-| `godeye_fetchUrl` | Downloads a page and returns readable text (scripts/nav stripped), or JSON |
-| `godeye_httpRequest` | Any REST call: method, headers, JSON body. `{{VAULT:openai}}` in a header injects a vault key server-side |
-| `godeye_queryDb` | Read-only SQL against GodEye's D1 (`godeye_db`) |
-| `godeye_listTables` | Tables, columns and row counts — call this before `godeye_queryDb` |
-| `godeye_generateImage` | Real image generation from the chat's provider, saved to disk (desktop) or downloadable |
+| `medusa_webSearch` | Keyless DuckDuckGo search → ranked titles, URLs, snippets |
+| `medusa_fetchUrl` | Downloads a page and returns readable text (scripts/nav stripped), or JSON |
+| `medusa_httpRequest` | Any REST call: method, headers, JSON body. `{{VAULT:openai}}` in a header injects a vault key server-side |
+| `medusa_queryDb` | Read-only SQL against MEDUSA's D1 (`medusa_db`) |
+| `medusa_listTables` | Tables, columns and row counts — call this before `medusa_queryDb` |
+| `medusa_generateImage` | Real image generation from the chat's provider, saved to disk (desktop) or downloadable |
 
 Safety rails: `safeUrl()` refuses non-http(s) and private/loopback/link-local/metadata addresses, requests time out at 20s, downloads are byte-capped, and `assertReadOnlySql()` rejects anything that is not a single `SELECT`/`WITH`/`PRAGMA` reader (including `WITH … INSERT`, multi-statement tricks and write keywords).
 
@@ -35,12 +35,12 @@ Safety rails: `safeUrl()` refuses non-http(s) and private/loopback/link-local/me
 
 | Tool | What it does |
 | --- | --- |
-| `godeye_listDir` | Browse a folder (optionally recursive) with sizes and mtimes |
-| `godeye_editFile` | Rewrite a file, or patch it with `find`/`replace` (`all` for every match) |
-| `godeye_movePath` | Move or rename, falling back to copy+remove across volumes |
-| `godeye_copyPath` | Copy a file or folder |
-| `godeye_deletePath` | Delete a file/folder; refuses non-empty folders without `recursive`, supports `dryRun` |
-| `godeye_systemStats` | CPU % (two-sample, per-core), memory, disk free, uptime, interfaces, network throughput |
+| `medusa_listDir` | Browse a folder (optionally recursive) with sizes and mtimes |
+| `medusa_editFile` | Rewrite a file, or patch it with `find`/`replace` (`all` for every match) |
+| `medusa_movePath` | Move or rename, falling back to copy+remove across volumes |
+| `medusa_copyPath` | Copy a file or folder |
+| `medusa_deletePath` | Delete a file/folder; refuses non-empty folders without `recursive`, supports `dryRun` |
+| `medusa_systemStats` | CPU % (two-sample, per-core), memory, disk free, uptime, interfaces, network throughput |
 
 Guards: clobbering an existing destination needs `overwrite`; symlinked directories are never traversed; binary files are refused for text edits.
 
@@ -58,18 +58,18 @@ OpenRouter keys work both locally and online — server `fetch` to `https://open
 
 ```bash
 npm run cf:build   # builds .open-next
-npm run cf:deploy  # deploys to https://godeye-os.<subdomain>.workers.dev
-# already deployed: https://godeye-os.grade-up.workers.dev
+npm run cf:deploy  # deploys to https://medusa-os.<subdomain>.workers.dev
+# already deployed: https://medusa-os.grade-up.workers.dev
 ```
 
 Config:
-- `wrangler.jsonc` — Worker name `godeye-os`, `nodejs_compat`, assets `/.open-next/assets`
+- `wrangler.jsonc` — Worker name `medusa-os`, `nodejs_compat`, assets `/.open-next/assets`
 - `open-next.config.ts` — Cloudflare adapter
 - `wrangler login` already authenticated as `mendysam32@gmail.com`
 
 ### Test OpenRouter online
 ```bash
-curl -X POST https://godeye-os.grade-up.workers.dev/api/providers/test \
+curl -X POST https://medusa-os.grade-up.workers.dev/api/providers/test \
   -H "Content-Type: application/json" \
   -d '{"provider":"openrouter","apiKey":"sk-or-v1-..."}'
 # -> {ok:true, message:"Connected"} with valid key
@@ -77,8 +77,8 @@ curl -X POST https://godeye-os.grade-up.workers.dev/api/providers/test \
 
 ## Push to GitHub (host code online)
 ```bash
-# create repo on github.com/new (name: godeye-os, no README)
-git remote add origin https://github.com/<YOUR_USERNAME>/godeye-os.git
+# create repo on github.com/new (name: medusa-os, no README)
+git remote add origin https://github.com/<YOUR_USERNAME>/medusa-os.git
 git push -u origin main
 ```
 
@@ -89,7 +89,7 @@ GitHub Actions auto-deploy is ready (`.github/workflows/deploy.yml`):
 2. Push to `main` → auto builds & deploys to Cloudflare Workers
 
 Alternatively connect Cloudflare Dashboard:
-- Cloudflare > Workers & Pages > Create > Workers > Connect to Git > select `godeye-os` > Build `npx opennextjs-cloudflare build` > Deploy `npx opennextjs-cloudflare deploy`
+- Cloudflare > Workers & Pages > Create > Workers > Connect to Git > select `medusa-os` > Build `npx opennextjs-cloudflare build` > Deploy `npx opennextjs-cloudflare deploy`
 
 ## Adaptable to all screens
 - Sidebar: desktop 260px, mobile fixed top bar + slide drawer
@@ -101,4 +101,4 @@ Next.js 16, React 19, Zustand, Tailwind 4, OpenNext Cloudflare, Wrangler 4, Elec
 
 ## Notes
 - Voice (`src/lib/voice.ts`) uses the browser's built-in `SpeechRecognition` / `speechSynthesis`, so it is free and keyless but Chromium-only (Chrome, Edge, the desktop shell). The mic and speaker buttons hide themselves elsewhere.
-- `godeye_queryDb` reads D1 only — it needs the deployed Worker, not `next dev`.
+- `medusa_queryDb` reads D1 only — it needs the deployed Worker, not `next dev`.

@@ -36,7 +36,7 @@ export interface AuthState {
 }
 
 export const OWNER_EMAIL = "mendysam32@gmail.com";
-export const COOKIE_NAME = "godeye_session";
+export const COOKIE_NAME = "medusa_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_SESSIONS = 200;
 const MAX_FAILED_ATTEMPTS = 5;
@@ -233,7 +233,7 @@ async function getStore(): Promise<Store> {
       // Cloudflare Workers (OpenNext deploy) -> D1
       try {
         const ctx = await getCloudflareContext({ async: true });
-        const db = (ctx.env as { godeye_db?: D1Like }).godeye_db;
+        const db = (ctx.env as { medusa_db?: D1Like }).medusa_db;
         if (db) return new D1Store(db);
       } catch {
         /* not on Cloudflare */
@@ -305,7 +305,7 @@ export async function ensureSeed(): Promise<void> {
     id: randomBytes(8).toString("hex"),
     username: "venom",
     email: OWNER_EMAIL,
-    displayName: "GodEye Owner",
+    displayName: "MEDUSA Owner",
     role: "admin",
     enabled: true,
     failedAttempts: 0,

@@ -175,7 +175,7 @@ export interface FetchedDoc {
   truncated: boolean;
 }
 
-/** `godeye_fetchUrl` — download a page and return readable text. */
+/** `medusa_fetchUrl` — download a page and return readable text. */
 export async function runFetchUrl(args: { url?: string; format?: string; maxChars?: number }): Promise<FetchedDoc> {
   const url = safeUrl(String(args.url ?? ""));
   const want = String(args.format ?? "text").toLowerCase();
@@ -272,7 +272,7 @@ function parseLiteResults(html: string, limit: number): SearchHit[] {
 }
 
 /**
- * `godeye_webSearch` — keyless web search.
+ * `medusa_webSearch` — keyless web search.
  *
  * DuckDuckGo's no-JS endpoints are used first and `lite` as the fallback; both
  * are scraped rather than proxied through an API that needs a paid key. Rate
@@ -310,7 +310,7 @@ export async function runWebSearch(args: { query?: string; count?: number }): Pr
     }
   }
 
-  throw new Error(`Web search failed — ${errors.join(" | ")}. Try godeye_fetchUrl with a direct URL instead.`);
+  throw new Error(`Web search failed — ${errors.join(" | ")}. Try medusa_fetchUrl with a direct URL instead.`);
 }
 
 /* -------------------------------------------------------------------------- */

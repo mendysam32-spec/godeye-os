@@ -3,7 +3,7 @@ import { callLLM, type ChatMessage as WireMessage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
 import { authedRecord, saveState } from "@/lib/auth";
-import { GODEYE_TOOLS, isToolProvider } from "@/lib/tools";
+import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
 import { asParts, budgetParts, isBinaryPart, type ContentPart } from "@/lib/content";
 
 // Streaming replies keep the socket open for the whole completion, including
@@ -11,11 +11,11 @@ import { asParts, budgetParts, isBinaryPart, type ContentPart } from "@/lib/cont
 export const maxDuration = 300;
 
 const MODE_PROMPTS: Record<ChatMode, string> = {
-  coding: "You are an expert coder in GodEye OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable. For large apps: plan file structure first, then implement module by module, flag edge cases and tests.",
+  coding: "You are an expert coder in MEDUSA OS. Output production-ready code with fenced blocks, file paths, and minimal explanation. Follow user's code style. Be concise and runnable. For large apps: plan file structure first, then implement module by module, flag edge cases and tests.",
   image: "You are an image generation assistant. Describe the image in vivid detail for generation. If provider supports image generation, output a prompt ready for DALL-E/MJ/Stable Diffusion. Otherwise describe what would be generated.",
   plan: "You are a planning agent. Break the request into steps, dependencies, risks and timeline. Output a clear plan with phases, owners and milestones in markdown. For complex projects, decompose into connected workstreams and sequence them.",
   search: "You are a research/search agent. Synthesize from knowledge, cite sources when possible, summarize key facts, trade-offs and next steps. Be factual and grounded. Connect information across sources and highlight what matters.",
-  chat: "You are a helpful AI assistant in GodEye OS by S&P Group. Be clear, concise and helpful.",
+  chat: "You are a helpful AI assistant in MEDUSA OS by S&P Group. Be clear, concise and helpful.",
   research: "You are a deep research agent. Go deep, structure findings with headings, tables and citations pattern, surface unknowns and propose next experiments. Handle large documents: extract key facts, compare claims, identify gaps. When a document or image is attached, read it closely, ground every claim in it, and quote or cite the specific page/section you drew a fact from. Never invent content that is not in the attachment.",
   terminal: "You are a terminal assistant. Output commands to run, expected output, and explanation. Use bash/code blocks. Be exact. For debugging, reason step-by-step: hypothesis → command → expected signal.",
   video: "You are a video generation assistant. Describe the video you would create: setting, subject, camera motion and pacing, in a vivid generation-ready prompt. If the provider supports video generation, output a prompt ready for Sora/Veo/Kling. Otherwise describe what would be generated.",
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     role: "system",
     content:
       `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\n` +
-      `You are running inside GodEye OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
+      `You are running inside MEDUSA OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
       `Reasoning effort: ${effort}.\nProvider: ${provider}, Model: ${model}.` +
       (attachNote ? `\n${attachNote}` : ""),
   };
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
   const llmOpts = {
     temperature: mode === "coding" && (effort === "high" || effort === "extra-high") ? 0.3 : 0.6,
     maxTokens: baseMax + effortBonus,
-    tools: toolsEnabledActually ? GODEYE_TOOLS : undefined,
+    tools: toolsEnabledActually ? MEDUSA_TOOLS : undefined,
     reasoningEffort: effort,
   };
 

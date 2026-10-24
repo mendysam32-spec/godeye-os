@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "godeye-os",
+	"name": "medusa-os",
 	"compatibility_date": "2026-09-17",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"main": ".open-next/worker.js",
@@ -16,8 +16,8 @@
 	},
 	"d1_databases": [
 		{
-			"binding": "godeye_db",
-			"database_name": "godeye-db",
+			"binding": "medusa_db",
+			"database_name": "medusa-db",
 			"database_id": "0734fda3-b6cb-497c-ac3e-08ba2ce2e277"
 		}
 	]

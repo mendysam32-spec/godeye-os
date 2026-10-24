@@ -52,3 +52,11 @@ worker-configuration.d.ts
 
 # local auth store (JSON fallback; in prod this lives in D1)
 /.data/
+
+# electron desktop build artifacts
+/electron/node_modules
+/electron/dist
+/electron/dev-server.log
+
+# dev server log
+/dev-server.log

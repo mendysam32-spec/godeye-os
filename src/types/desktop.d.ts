@@ -1,27 +1,27 @@
-// Type declarations for the GodEye OS desktop bridge injected by
-// electron/preload.js via contextBridge.exposeInMainWorld("godeye", ...).
+// Type declarations for the MEDUSA OS desktop bridge injected by
+// electron/preload.js via contextBridge.exposeInMainWorld("medusa", ...).
 import type { ToolResult } from "../lib/desktop";
 
-interface GodEyeSaveResult {
+interface MEDUSASaveResult {
   canceled: boolean;
   filePath?: string;
   error?: string;
 }
 
-interface GodEyeFileResult {
+interface MEDUSAFileResult {
   ok: boolean;
   path?: string;
   content?: string;
   error?: string;
 }
 
-interface GodEyeWriteResult {
+interface MEDUSAWriteResult {
   ok: boolean;
   path?: string;
   error?: string;
 }
 
-interface GodEyeCommandResult {
+interface MEDUSACommandResult {
   ok: boolean;
   exitCode: number;
   stdout: string;
@@ -29,7 +29,7 @@ interface GodEyeCommandResult {
   timedOut: boolean;
 }
 
-interface GodEyeSystemInfo {
+interface MEDUSASystemInfo {
   platform: string;
   arch: string;
   versions: { electron?: string; node?: string; chrome?: string };
@@ -37,30 +37,30 @@ interface GodEyeSystemInfo {
   foldersExist: boolean;
 }
 
-interface GodEyeBaseFolder {
+interface MEDUSABaseFolder {
   path: string;
   exists: boolean;
 }
 
-interface GodEyeBridge {
+interface MEDUSABridge {
   isDesktop: boolean;
   platform: string;
   bridgeVersion?: number;
-  systemInfo: () => Promise<GodEyeSystemInfo>;
-  baseFolder: () => Promise<GodEyeBaseFolder>;
-  saveFile: (options: { content: string; defaultName?: string; title?: string }) => Promise<GodEyeSaveResult>;
-  writeFile: (payload: { path: string; content: string }) => Promise<GodEyeWriteResult>;
-  readText: (path: string) => Promise<GodEyeFileResult>;
+  systemInfo: () => Promise<MEDUSASystemInfo>;
+  baseFolder: () => Promise<MEDUSABaseFolder>;
+  saveFile: (options: { content: string; defaultName?: string; title?: string }) => Promise<MEDUSASaveResult>;
+  writeFile: (payload: { path: string; content: string }) => Promise<MEDUSAWriteResult>;
+  readText: (path: string) => Promise<MEDUSAFileResult>;
   pickAndRead: (filters?: { name: string; extensions: string[] }[]) => Promise<{ canceled?: boolean; path?: string; content?: string; error?: string }>;
-  runCommand: (payload: { command: string; cwd?: string; timeoutMs?: number }) => Promise<GodEyeCommandResult>;
+  runCommand: (payload: { command: string; cwd?: string; timeoutMs?: number }) => Promise<MEDUSACommandResult>;
   openPath: (target: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
-export type { GodEyeBridge, GodEyeSystemInfo, ToolResult };
+export type { MEDUSABridge, MEDUSASystemInfo, ToolResult };
 
 declare global {
   interface Window {
-    godeye?: GodEyeBridge;
+    medusa?: MEDUSABridge;
   }
 }
 

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, LayoutDashboard, Bot, KeyRound, Settings, Plus, Folder as FolderIcon, FolderKanban, Search, Users as UsersIcon } from "lucide-react";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 
 interface Item {
   id: string;
@@ -18,7 +18,7 @@ export function CommandPalette() {
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
-  const { chats, setActiveChat, createChat, projects, folders, currentUser, settings } = useGodEye();
+  const { chats, setActiveChat, createChat, projects, folders, currentUser, settings } = useMEDUSA();
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

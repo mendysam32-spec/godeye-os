@@ -142,7 +142,7 @@ export function useDictation(options: DictationOptions = {}) {
   const start = useCallback(() => {
     const Ctor = recognitionCtor();
     if (!Ctor) {
-      optsRef.current.onError?.("Dictation needs Chrome, Edge or the GodEye desktop app");
+      optsRef.current.onError?.("Dictation needs Chrome, Edge or the MEDUSA desktop app");
       return;
     }
     if (recRef.current) return;

@@ -16,7 +16,7 @@
  * rather than relying on the caller to remember.
  */
 
-import { useGodEye, subscribeChats, type ChatSession } from "./store";
+import { useMEDUSA, subscribeChats, type ChatSession } from "./store";
 import { mergeThreads, threadToRow, messagesToRows, deletedThreadRow, type SyncThread, type SyncMessage } from "./chat-sync";
 
 const FLUSH_DEBOUNCE_MS = 6_000;
@@ -24,10 +24,10 @@ const PULL_MIN_INTERVAL_MS = 20_000;
 const POLL_INTERVAL_MS = 120_000;
 const ENDPOINT = "/api/chat/sync";
 
-const cursorKey = (uid: string) => `godeye:chatsync:cursor:${uid}`;
-const dirtyKey = (uid: string) => `godeye:chatsync:dirty:${uid}`;
-const tombstonesKey = (uid: string) => `godeye:chatsync:gone:${uid}`;
-const syncedKey = (uid: string) => `godeye:chatsync:synced:${uid}`;
+const cursorKey = (uid: string) => `medusa:chatsync:cursor:${uid}`;
+const dirtyKey = (uid: string) => `medusa:chatsync:dirty:${uid}`;
+const tombstonesKey = (uid: string) => `medusa:chatsync:gone:${uid}`;
+const syncedKey = (uid: string) => `medusa:chatsync:synced:${uid}`;
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -72,7 +72,7 @@ function persistDirty(): void {
   writeJson(dirtyKey(uid), Object.fromEntries(dirty));
   writeJson(tombstonesKey(uid), Object.fromEntries(gone));
   writeJson(syncedKey(uid), Object.fromEntries(synced));
-  useGodEye.getState().setChatSync({ pending: dirty.size + gone.size });
+  useMEDUSA.getState().setChatSync({ pending: dirty.size + gone.size });
 }
 
 /**
@@ -84,7 +84,7 @@ function persistDirty(): void {
  * silently not get their history on other devices.
  */
 function seedDirty(): void {
-  const s = useGodEye.getState();
+  const s = useMEDUSA.getState();
   if (!s.currentUser || s.incognito) return;
   for (const c of s.chats) {
     if (c.incognito || gone.has(c.id)) continue;
@@ -119,7 +119,7 @@ function observeRemovals(present: Set<string>): void {
 }
 
 function onChatsChanged(): void {
-  const s = useGodEye.getState();
+  const s = useMEDUSA.getState();
   // no user, or incognito is on: never touch the network
   if (!s.currentUser || s.incognito) return;
 
@@ -151,7 +151,7 @@ function onChatsChanged(): void {
 }
 
 function markDeleted(chatId: string): void {
-  const s = useGodEye.getState();
+  const s = useMEDUSA.getState();
   if (!s.currentUser || s.incognito) return;
   const at = new Date().toISOString();
   dirty.delete(chatId);
@@ -179,7 +179,7 @@ function scheduleFlush(delay = FLUSH_DEBOUNCE_MS): void {
 
 async function flush(): Promise<void> {
   if (inFlight) return inFlight;
-  const s = useGodEye.getState();
+  const s = useMEDUSA.getState();
   if (!s.currentUser || s.incognito) return;
   if (!dirty.size && !gone.size) return;
 
@@ -212,7 +212,7 @@ async function flush(): Promise<void> {
   }
 
   // Do not let a concurrent push re-enter and interleave batches.
-  useGodEye.getState().setChatSync({ status: "syncing" });
+  useMEDUSA.getState().setChatSync({ status: "syncing" });
 
   inFlight = (async () => {
     try {
@@ -224,7 +224,7 @@ async function flush(): Promise<void> {
       if (!res.ok) throw new Error(`push failed (${res.status})`);
       const out = (await res.json()) as { confirmedIds?: string[]; rejectedIds?: string[]; degraded?: string };
       if (out.degraded) {
-        useGodEye.getState().setChatSync({ status: "offline", error: "server unavailable" });
+        useMEDUSA.getState().setChatSync({ status: "offline", error: "server unavailable" });
         return;
       }
       // The server will never accept these (they collide with another user's
@@ -251,13 +251,13 @@ async function flush(): Promise<void> {
         }
       }
       persistDirty();
-      useGodEye.getState().setChatSync({
+      useMEDUSA.getState().setChatSync({
         status: "synced",
         lastSyncedAt: new Date().toISOString(),
         error: undefined,
       });
     } catch (e) {
-      useGodEye.getState().setChatSync({ status: navigator.onLine ? "error" : "offline", error: (e as Error)?.message });
+      useMEDUSA.getState().setChatSync({ status: navigator.onLine ? "error" : "offline", error: (e as Error)?.message });
     } finally {
       inFlight = null;
       if (dirty.size || gone.size) scheduleFlush();
@@ -271,7 +271,7 @@ async function flush(): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 export async function pullChats(force = false): Promise<void> {
-  const s = useGodEye.getState();
+  const s = useMEDUSA.getState();
   if (!s.currentUser || s.incognito) return;
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
   const now = Date.now();
@@ -303,7 +303,7 @@ export async function pullChats(force = false): Promise<void> {
       else grouped.set(m.threadId, [m]);
     }
 
-    const current = useGodEye.getState();
+    const current = useMEDUSA.getState();
     const result = mergeThreads(current.chats, data.threads, grouped, []);
 
     if (result.chats.length !== current.chats.length || result.overwritten.length) {
@@ -328,7 +328,7 @@ export async function pullChats(force = false): Promise<void> {
     writeJson(cursorKey(who), { cursor: new Date().toISOString() });
     current.setChatSync({ status: "synced", lastSyncedAt: new Date().toISOString(), error: undefined });
   } catch (e) {
-    useGodEye.getState().setChatSync({ status: navigator.onLine ? "error" : "offline", error: (e as Error)?.message });
+    useMEDUSA.getState().setChatSync({ status: navigator.onLine ? "error" : "offline", error: (e as Error)?.message });
   }
 }
 
@@ -340,7 +340,7 @@ export function startChatSync(): () => void {
   if (started || typeof window === "undefined") return () => {};
   started = true;
 
-  const user = useGodEye.getState().currentUser;
+  const user = useMEDUSA.getState().currentUser;
   loadLocal(user?.id ?? "anon");
   seedDirty();
 
@@ -353,11 +353,11 @@ export function startChatSync(): () => void {
     if (document.visibilityState === "visible") void pullChats();
   };
   const onOnline = () => {
-    useGodEye.getState().setChatSync({ status: "idle" });
+    useMEDUSA.getState().setChatSync({ status: "idle" });
     scheduleFlush(0);
     void pullChats(true);
   };
-  const onOffline = () => useGodEye.getState().setChatSync({ status: "offline" });
+  const onOffline = () => useMEDUSA.getState().setChatSync({ status: "offline" });
   const onFocus = () => void pullChats();
   // Best-effort final push. `pagehide` is the reliable one on mobile Safari,
   // where `beforeunload` often never fires.
@@ -409,7 +409,7 @@ export function adoptUser(who: string): void {
   loadLocal(who);
   seedDirty();
   persistDirty();
-  if (useGodEye.getState().currentUser) scheduleFlush(0);
+  if (useMEDUSA.getState().currentUser) scheduleFlush(0);
 }
 
 export type { ChatSession };

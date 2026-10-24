@@ -3,7 +3,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye, type ChatMode } from "@/lib/store";
+import { useMEDUSA, type ChatMode } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { readChatStream } from "@/lib/chat-stream";
@@ -29,7 +29,7 @@ const MODES: { id: ChatMode; label: string; icon: any }[] = [
 export default function FolderPage() {
   const params = useParams<{ id: string }>();
   const folderId = params?.id as string;
-  const { folders, projects, chats, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings } = useGodEye();
+  const { folders, projects, chats, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings } = useMEDUSA();
 
   const folder = folders.find(f => f.id === folderId) || null;
   const folderChats = useMemo(() => chats.filter(c => c.folderId === folderId), [chats, folderId]);
@@ -392,7 +392,7 @@ export default function FolderPage() {
                   </div>
                 </div>
               ))}
-              {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1" /> GodEye is thinking — {provider}/{model} • {mode}</div>}
+              {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1" /> MEDUSA is thinking — {provider}/{model} • {mode}</div>}
             </div>
 
             {/* composer */}

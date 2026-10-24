@@ -3,7 +3,7 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye, type ChatMode } from "@/lib/store";
+import { useMEDUSA, type ChatMode } from "@/lib/store";
 import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { readChatStream } from "@/lib/chat-stream";
@@ -29,7 +29,7 @@ const MODES: { id: ChatMode; label: string; icon: any }[] = [
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const projectId = params?.id as string;
-  const { projects, updateProject, folders, chats, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings } = useGodEye();
+  const { projects, updateProject, folders, chats, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings } = useMEDUSA();
 
   const project = projects.find(p => p.id === projectId) || null;
   const projectChats = useMemo(() => chats.filter(c => c.projectId === projectId), [chats, projectId]);
@@ -354,7 +354,7 @@ export default function ProjectPage() {
               {!activeChat || activeChat.messages.length === 0 ? (
                 <div className="max-w-2xl mx-auto text-center py-16">
                   <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs"><span className="h-2 w-2 rounded-full" style={{ background: project.color }} /> {project.name} workspace</div>
-                  <h2 className="mt-4 text-2xl font-semibold">What should GodEye build for {project.name}?</h2>
+                  <h2 className="mt-4 text-2xl font-semibold">What should MEDUSA build for {project.name}?</h2>
                   <p className="text-sm text-muted-foreground mt-1">Every message stays saved in this project — upgrades, fixes, ideas, all in one place.</p>
                 </div>
               ) : activeChat.messages.map(m => (
@@ -381,7 +381,7 @@ export default function ProjectPage() {
                   </div>
                 </div>
               ))}
-              {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1" /> GodEye is thinking — {provider}/{model} • {mode}</div>}
+              {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1" /> MEDUSA is thinking — {provider}/{model} • {mode}</div>}
             </div>
 
             {/* composer */}

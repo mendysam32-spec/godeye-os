@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar } from "@/components/sidebar";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { Users as UsersIcon, UserPlus, KeyRound, Trash2, Power, ShieldCheck, Copy, Loader2, RefreshCw, AlertTriangle, Mail, X } from "lucide-react";
 
 interface AdminUser {
@@ -29,7 +29,7 @@ function copy(text: string) {
 }
 
 export default function AdminPage() {
-  const currentUser = useGodEye((s) => s.currentUser);
+  const currentUser = useMEDUSA((s) => s.currentUser);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [requests, setRequests] = useState<AccessRequestItem[]>([]);
   const [loaded, setLoaded] = useState(false);

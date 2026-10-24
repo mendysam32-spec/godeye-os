@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     const system: ChatMessage[] = [
       {
         role: "system",
-        content: `You are ${agent.name} — ${agent.role} in GodEye OS by S&P Group.\n${agent.systemPrompt || ""}\n\nWorkforce context: ${behaviorHint} ${codeStyleHint}\nReasoning depth (${effort}): ${depthHint}\n${isCodeRole ? "Output: production-ready code block(s) + brief notes. Use markdown fenced code. For large builds: file map first, then modules, then tests." : "Output: polished content (markdown) ready to ship. For research: facts → analysis → synthesis with key details surfaced."}\nAlways be concise and deliver a finished artifact, not a plan.`,
+        content: `You are ${agent.name} — ${agent.role} in MEDUSA OS by S&P Group.\n${agent.systemPrompt || ""}\n\nWorkforce context: ${behaviorHint} ${codeStyleHint}\nReasoning depth (${effort}): ${depthHint}\n${isCodeRole ? "Output: production-ready code block(s) + brief notes. Use markdown fenced code. For large builds: file map first, then modules, then tests." : "Output: polished content (markdown) ready to ship. For research: facts → analysis → synthesis with key details surfaced."}\nAlways be concise and deliver a finished artifact, not a plan.`,
       },
       { role: "user", content: prompt },
     ];

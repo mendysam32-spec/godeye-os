@@ -1,76 +1,283 @@
 @import "tailwindcss";
 
+/* ============================================================
+   MEDUSA OS — MiniMax-match design tokens
+   Exact token values taken from the MiniMax Design compiled CSS
+   (:root light set + .dark set) so the app looks identical.
+   ============================================================ */
+
 :root {
-  --background: #fcfcf9;
-  --foreground: #0f0f0f;
-  --card: #ffffff;
-  --card-foreground: #0f0f0f;
-  --muted: #f5f5f3;
-  --muted-foreground: #6b6b6b;
-  --border: #e9e9e7;
-  --primary: #0f0f0f;
-  --primary-foreground: #ffffff;
-  --accent: #f59e0b;
-  --accent-foreground: #0f0f0f;
+  /* Core scale — MiniMax light */
+  --background: #fafafa;
+  --foreground: #000;
+  --card: #fff;
+  --card-foreground: #000;
   --radius: 0.75rem;
+  --radius-sm: calc(var(--radius) * .6);
+  --radius-md: calc(var(--radius) * .8);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  /* Elevated / secondary / surfaces — MiniMax light */
+  --elevated-surface: #fff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #000;
+  --secondary-tab-active-bg: #f0f0f0;
+  --button-subtle-bg: #f0f0f0;
+  --button-subtle-bg-hover: #e8e8e8;
+  --text-tertiary: #00000052;
+
+  /* Controls */
+  --popover: var(--elevated-surface);
+  --popover-foreground: #000;
+  --input: #00000014;
+  --ring: #0000004d;
+
+  /* Status colors — MiniMax light */
+  --destructive: oklch(57.7% .245 27.325);
+  --destructive-foreground: #fff;
+  --warning: oklch(75% .183 55);
+  --warning-foreground: oklch(41% .16 55);
+  --success: oklch(60% .19 145);
+  --success-foreground: oklch(36% .15 145);
+  --info: oklch(62% .18 250);
+  --info-foreground: oklch(40% .15 250);
+
+  /* Borders — MiniMax light */
+  --border: #00000014;
+  --border-solid: #e6e6e6;
+  --border-soft: #0000000d;
+  --border-strong: #0000001f;
+
+  /* Shadows — MiniMax light */
+  --shadow-soft-card: 0 0 0 1px #0000000f, 0 1px 2px #0000000a;
+  --shadow-soft-popover: 0 0 0 1px #00000014, 0 4px 8px #0000000a;
+  --shadow-soft-floating: 0 0 0 1px #00000014, 0 8px 16px #00000024, 0 16px 32px #00000012;
+
+  /* Brand accent (MiniMax periwinkle / canvas purple) */
+  --accent: #6d6cff;
+  --accent-foreground: #ffffff;
+
+  /* Home sidebar system (fallback = light values) */
+  --home-content-surface: #ffffff;
+  --home-composer-tray-bg: #f5f5f5;
+  --home-brand-foreground: #1c1c1c;
+  --home-brand-accent: #6d6cff;
+  --home-sidebar-primary-text: #000000d6;
+  --home-sidebar-secondary-text: #000000cc;
+  --home-sidebar-section-text: #00000099;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+
+  /* Font stacks — MiniMax mono */
+  --font-mono-stack: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
+
+  --muted: #fafafa;
+  --muted-foreground: #00000080;
 }
 
-/* Theme: Light — clean modern */
+/* Theme: Light — exact MiniMax light shell */
 .theme-light {
-  --background: #fcfcf9;
-  --foreground: #0f0f0f;
-  --card: #ffffff;
-  --card-foreground: #0f0f0f;
-  --muted: #f5f5f3;
-  --muted-foreground: #6b6b6b;
-  --border: #e9e9e7;
-  --primary: #0f0f0f;
-  --primary-foreground: #ffffff;
+  --background: #fafafa;
+  --foreground: #000;
+  --card: #fff;
+  --card-foreground: #000;
+  --elevated-surface: #fff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #000;
+  --secondary-tab-active-bg: #f0f0f0;
+  --button-subtle-bg: #f0f0f0;
+  --button-subtle-bg-hover: #e8e8e8;
+  --text-tertiary: #00000052;
+  --popover: #fff;
+  --popover-foreground: #000;
+  --input: #00000014;
+  --ring: #0000004d;
+  --primary: #000;
+  --primary-foreground: #fff;
+  --muted: #fafafa;
+  --muted-foreground: #00000080;
+  --accent: #6d6cff;
+  --accent-foreground: #ffffff;
+  --border: #00000014;
+  --border-solid: #e6e6e6;
+  --border-soft: #0000000d;
+  --border-strong: #0000001f;
 }
 
-/* Theme: Dark — OLED dark + orange glow */
+/* Theme: Dark — exact MiniMax dark shell (#181818) */
 .theme-dark {
-  --background: #161616;
-  --foreground: #ffedd5;
-  --card: #202020;
-  --card-foreground: #ffedd5;
-  --muted: #2a241d;
-  --muted-foreground: #b08862;
-  --border: #353027;
-  --primary: #f97316;
-  --primary-foreground: #000000;
+  --background: #181818;
+  --foreground: #e0e0e0;
+  --home-content-surface: #111113;
+  --home-composer-tray-bg: #1f1f1f;
+  --home-brand-foreground: #f2f2f2;
+  --home-brand-accent: #9a99ff;
+  --home-sidebar-primary-text: #ffffffd6;
+  --home-sidebar-secondary-text: #fffc;
+  --home-sidebar-section-text: #fff9;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+
+  --card: #161616;
+  --card-foreground: #fafafa;
+  --elevated-surface: #1f1f1f;
+  --popover: #1f1f1f;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #000;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #fafafa;
+  --secondary-tab-active-bg: #262626;
+  --button-subtle-bg: #262626;
+  --button-subtle-bg-hover: #303030;
+  --muted: #1a1a1a;
+  --muted-foreground: #fff9;
+  --text-tertiary: #ffffff6b;
+  --accent: #9a99ff;
+  --accent-foreground: #ffffff;
+  --destructive: oklch(70.4% .191 22.216);
+  --destructive-foreground: #fafafa;
+  --warning: oklch(80% .15 75);
+  --warning-foreground: oklch(75% .15 75);
+  --success: oklch(70% .17 150);
+  --success-foreground: oklch(80% .17 150);
+  --info: oklch(70% .16 255);
+  --info-foreground: oklch(80% .14 255);
+  --border: #ffffff1a;
+  --border-solid: #454545;
+  --border-soft: #ffffff0d;
+  --border-strong: #ffffff24;
+  --input: #ffffff1a;
+  --ring: #ffffff4d;
+  --shadow-soft-card: 0 0 0 1px #ffffff0f, 0 1px 2px #0006;
+  --shadow-soft-popover: 0 0 0 1px #ffffff14, 0 4px 8px #0006, 0 8px 16px #0006;
+  --shadow-soft-floating: 0 0 0 1px #ffffff1f, 0 8px 16px #00000080, 0 16px 32px #00000080;
 }
 .theme-dark ::selection {
-  background: #ff8a3c;
-  color: #000000;
+  background: #9a99ff;
+  color: #000;
 }
 .theme-dark a:hover {
-  color: #ff8a3c;
-}
-.theme-dark .glass {
-  background: rgba(34, 28, 21, 0.8);
-  border: 1px solid rgba(249, 115, 22, 0.3);
-}
-.theme-dark input:focus-visible,
-.theme-dark button:focus-visible {
-  outline-color: #f97316;
-  outline-width: 2px;
+  color: #b9b8ff;
 }
 
-/* legacy .dark support */
+/* legacy .dark support (same as theme-dark) */
 .dark {
-  --background: #161616;
-  --foreground: #ffedd5;
-  --card: #202020;
-  --card-foreground: #ffedd5;
-  --muted: #2a241d;
-  --muted-foreground: #b08862;
-  --border: #353027;
-  --primary: #f97316;
-  --primary-foreground: #000000;
+  --background: #181818;
+  --foreground: #e0e0e0;
+  --card: #161616;
+  --card-foreground: #fafafa;
+  --elevated-surface: #1f1f1f;
+  --popover: #1f1f1f;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #000;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #fafafa;
+  --secondary-tab-active-bg: #262626;
+  --button-subtle-bg: #262626;
+  --button-subtle-bg-hover: #303030;
+  --muted: #1a1a1a;
+  --muted-foreground: #fff9;
+  --text-tertiary: #ffffff6b;
+  --accent: #9a99ff;
+  --accent-foreground: #ffffff;
+  --border: #ffffff1a;
+  --border-solid: #454545;
+  --border-soft: #ffffff0d;
+  --border-strong: #ffffff24;
+  --input: #ffffff1a;
+  --ring: #ffffff4d;
+  --destructive: oklch(70.4% .191 22.216);
+  --warning: oklch(80% .15 75);
+  --success: oklch(70% .17 150);
+  --info: oklch(70% .16 255);
 }
 
-/* Theme: Glass — modern gradient mixture of colors (aurora glassmorphism) */
+/* Tailwind mapping */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-secondary: var(--secondary);
+  --color-elevated: var(--elevated-surface);
+  --color-tertiary: var(--text-tertiary);
+  --font-sans: var(--font-inter-sans), "Inter Variable", sans-serif;
+  --font-mono: var(--font-mono-stack);
+}
+
+* { border-color: var(--border); }
+html {
+  /* `clip` rather than `hidden`: it stops a wide child from producing a
+     horizontal scrollbar without creating a scroll container, which would
+     break every `position: sticky` header in the app. */
+  overflow-x: clip;
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter-sans), "Inter Variable", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Fixed bars that hug the top edge on phones (Sidebar's mobile header). */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+/* Sticky footers: the chat composers and any bottom sheet. */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* Combine for a bar that needs both edges padded (left/right notch in
+   landscape, e.g. on an iPhone rotated sideways). */
+.safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* iOS Safari zooms the viewport when a focused input computes a font-size
+   below 16px. Everything that can receive the caret opts out of that. */
+input, textarea, select, [contenteditable="true"] {
+  text-size-adjust: 100%;
+}
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* MiniMax home sidebar nav states */
+.nav-active {
+  background: var(--home-sidebar-nav-active);
+  color: var(--home-sidebar-primary-text);
+  font-weight: 500;
+}
+.nav-hover {
+  background: transparent;
+  color: color-mix(in srgb, var(--home-sidebar-primary-text) 85%, transparent);
+}
+.nav-hover:hover {
+  background: var(--home-sidebar-nav-hover);
+  color: var(--home-sidebar-primary-text);
+}
+
+.glass {
+  backdrop-filter: blur(12px);
+  background: rgba(255,255,255,0.7);
+}
+.dark .glass {
+  background: rgba(20,20,20,0.7);
+}
+
+/* Theme: Glass — MiniMax-toned glassmorphism */
 .theme-glass {
   --background: #f1e8fb;
   --foreground: #241a45;
@@ -81,10 +288,11 @@
   --border: rgba(255, 255, 255, 0.65);
   --primary: #4f46e5;
   --primary-foreground: #ffffff;
+  --accent: #6d6cff;
 }
 .theme-glass body {
   background:
-    radial-gradient(1100px 700px at 5% 0%, rgba(244,114,182,0.30), transparent 55%),
+    radial-gradient(1100px 700px at 5% 0%, rgba(154,153,255,0.30), transparent 55%),
     radial-gradient(1000px 600px at 95% 5%, rgba(129,140,248,0.30), transparent 55%),
     radial-gradient(900px 620px at 20% 100%, rgba(45,212,191,0.26), transparent 55%),
     radial-gradient(700px 500px at 82% 100%, rgba(251,191,36,0.22), transparent 55%),
@@ -102,8 +310,53 @@
 .theme-glass .border {
   border-color: rgba(255,255,255,0.6);
 }
+.theme-glass .glass {
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.6);
+}
 
-/* Theme: Black Lime — deep green-black + neon lime glow */
+/* Theme: Aurora — MiniMax-violet gradient */
+.theme-aurora {
+  --background: rgba(67, 56, 202, 0.35);
+  --foreground: #eef2ff;
+  --card: rgba(255, 255, 255, 0.10);
+  --card-foreground: #eef2ff;
+  --muted: rgba(255, 255, 255, 0.10);
+  --muted-foreground: #c7d2fe;
+  --border: rgba(255, 255, 255, 0.18);
+  --primary: #ffffff;
+  --primary-foreground: #3730a3;
+  --accent: #9a99ff;
+}
+.theme-aurora body {
+  background:
+    radial-gradient(1100px 700px at 5% -10%, rgba(154,153,255,0.55), transparent 55%),
+    radial-gradient(1000px 620px at 95% 0%, rgba(139,92,246,0.52), transparent 55%),
+    radial-gradient(900px 600px at 15% 110%, rgba(79,70,229,0.5), transparent 55%),
+    radial-gradient(700px 500px at 85% 100%, rgba(129,140,248,0.4), transparent 55%),
+    linear-gradient(135deg, #312e81, #4338ca 40%, #4f46e5 68%, #5b21b6);
+}
+.theme-aurora .bg-card {
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 8px 32px rgba(30,27,75,0.35), 0 1px 2px rgba(30,27,75,0.2);
+}
+.theme-aurora .bg-background {
+  backdrop-filter: blur(12px);
+}
+.theme-aurora .border {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.theme-aurora .glass {
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Theme: Blacklime — deep green-black + neon lime glow */
 .theme-blacklime {
   --background: #0b1306;
   --foreground: #eef7d9;
@@ -130,56 +383,8 @@
 .theme-blacklime a:hover {
   color: #bef264;
 }
-.theme-blacklime .glass {
-  background: rgba(13, 19, 7, 0.72);
-  border: 1px solid rgba(163, 230, 53, 0.35);
-}
-.theme-blacklime input:focus-visible,
-.theme-blacklime button:focus-visible {
-  outline-color: #a3e635;
-  outline-width: 2px;
-}
 
-/* Theme: Aurora — modern indigo glass gradient */
-.theme-aurora {
-  --background: rgba(67, 56, 202, 0.35);
-  --foreground: #eef2ff;
-  --card: rgba(255, 255, 255, 0.10);
-  --card-foreground: #eef2ff;
-  --muted: rgba(255, 255, 255, 0.10);
-  --muted-foreground: #c7d2fe;
-  --border: rgba(255, 255, 255, 0.18);
-  --primary: #ffffff;
-  --primary-foreground: #3730a3;
-}
-.theme-aurora body {
-  background:
-    radial-gradient(1100px 700px at 5% -10%, rgba(165,180,252,0.55), transparent 55%),
-    radial-gradient(1000px 620px at 95% 0%, rgba(139,92,246,0.52), transparent 55%),
-    radial-gradient(900px 600px at 15% 110%, rgba(79,70,229,0.5), transparent 55%),
-    radial-gradient(700px 500px at 85% 100%, rgba(129,140,248,0.4), transparent 55%),
-    linear-gradient(135deg, #312e81, #4338ca 40%, #4f46e5 68%, #5b21b6);
-}
-.theme-aurora .bg-card {
-  backdrop-filter: blur(18px) saturate(1.4);
-  -webkit-backdrop-filter: blur(18px) saturate(1.4);
-  background: rgba(255, 255, 255, 0.10);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 8px 32px rgba(30,27,75,0.35), 0 1px 2px rgba(30,27,75,0.2);
-}
-.theme-aurora .bg-background {
-  backdrop-filter: blur(12px);
-}
-.theme-aurora .border {
-  border-color: rgba(255, 255, 255, 0.18);
-}
-.theme-aurora .glass {
-  background: rgba(255, 255, 255, 0.10);
-  backdrop-filter: blur(16px) saturate(1.3);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-/* Theme: Indigo Black — deep indigo with neon indigo-violet glow */
+/* Theme: Indigo Black — deep indigo with neon violet glow */
 .theme-indigoblack {
   --background: #0d0a24;
   --foreground: #e6e6ff;
@@ -190,6 +395,7 @@
   --border: #35306e;
   --primary: #818cf8;
   --primary-foreground: #000000;
+  --accent: #9a99ff;
 }
 .theme-indigoblack body {
   background:
@@ -206,84 +412,4 @@
 .theme-indigoblack a:hover {
   color: #a5b4fc;
 }
-.theme-indigoblack .glass {
-  background: rgba(14, 10, 31, 0.72);
-  border: 1px solid rgba(129, 140, 248, 0.35);
-}
-.theme-indigoblack input:focus-visible,
-.theme-indigoblack button:focus-visible {
-  outline-color: #818cf8;
-  outline-width: 2px;
-}
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
-  --color-primary: var(--primary);
-  --color-accent: var(--accent);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-* { border-color: var(--border); }
-html {
-  /* `clip` rather than `hidden`: it stops a wide child from producing a
-     horizontal scrollbar without creating a scroll container, which would
-     break every `position: sticky` header in the app. */
-  overflow-x: clip;
-}
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: clip;
-  /* Respect the notch and the home indicator. `viewportFit=cover` in the
-     layout means content is free to slide under both, so the fixed mobile
-     bars and the chat composer have to move themselves out of the way. */
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-}
-
-/* Fixed bars that hug the top edge on phones (Sidebar's mobile header). */
-.safe-top {
-  padding-top: env(safe-area-inset-top);
-}
-/* Sticky footers: the chat composers and any bottom sheet. */
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
-}
-/* Combine for a bar that needs both edges padded (left/right notch in
-   landscape, e.g. on an iPhone rotated sideways). */
-.safe-x {
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-}
-
-/* iOS Safari zooms the viewport when a focused input computes a font-size
-   below 16px. Everything that can receive the caret opts out of that. */
-input, textarea, select, [contenteditable="true"] {
-  /* keep the caret readable; per-element `text-[16px]` overrides still win */
-  text-size-adjust: 100%;
-}
-@media (pointer: coarse) {
-  input, textarea, select {
-    font-size: 16px;
-  }
-}
-.glass {
-  backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.7);
-}
-.dark .glass {
-  background: rgba(20,20,20,0.7);
-}
-.theme-glass .glass {
-  background: rgba(255,255,255,0.55);
-  backdrop-filter: blur(16px) saturate(1.2);
-  border: 1px solid rgba(255,255,255,0.6);
-}

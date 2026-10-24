@@ -13,7 +13,7 @@ interface Toast {
 let nextId = 1;
 
 export function toast(message: string, kind: ToastKind = "success") {
-  window.dispatchEvent(new CustomEvent("godeye:toast", { detail: { message, kind } }));
+  window.dispatchEvent(new CustomEvent("medusa:toast", { detail: { message, kind } }));
 }
 
 export function Toaster() {
@@ -26,8 +26,8 @@ export function Toaster() {
       setItems((prev) => [...prev.slice(-3), { id, message, kind }]);
       setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), 3200);
     }
-    window.addEventListener("godeye:toast", onToast);
-    return () => window.removeEventListener("godeye:toast", onToast);
+    window.addEventListener("medusa:toast", onToast);
+    return () => window.removeEventListener("medusa:toast", onToast);
   }, []);
 
   if (!items.length) return null;

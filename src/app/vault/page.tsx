@@ -1,13 +1,13 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { PROVIDERS, type ProviderModel } from "@/lib/providers";
-import { useGodEye } from "@/lib/store";
+import { useMEDUSA } from "@/lib/store";
 import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, Download, RefreshCw } from "lucide-react";
 import { encryptKey, decryptKey, maskKey } from "@/lib/vault-crypto";
 
 export default function VaultPage() {
-  const { vault, setVaultKey, clearVaultKey } = useGodEye();
+  const { vault, setVaultKey, clearVaultKey } = useMEDUSA();
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [endpoint, setEndpoint] = useState<Record<string, string>>({});
@@ -177,7 +177,7 @@ export default function VaultPage() {
                       <span className="text-xs text-muted-foreground hidden sm:inline">{dynModels.slice(0,2).map(x=>x.id).join(" • ")} • {dynModels.length} models</span>
                     </div>
                     {p.id === "nvidia" && (
-                      <div className="mt-2 text-[11px] text-muted-foreground">NVIDIA deployment keys use an NVCF URL like <code className="bg-muted px-1 rounded">…/v2/nvcf/deployments/functions/&lt;id&gt;/versions/&lt;ver&gt;</code>. Paste it above — GodEye calls it directly.</div>
+                      <div className="mt-2 text-[11px] text-muted-foreground">NVIDIA deployment keys use an NVCF URL like <code className="bg-muted px-1 rounded">…/v2/nvcf/deployments/functions/&lt;id&gt;/versions/&lt;ver&gt;</code>. Paste it above — MEDUSA calls it directly.</div>
                     )}
                     {m && <div className={`mt-2 text-xs flex gap-1.5 p-2 rounded-xl border break-words ${m.ok ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-amber-50 border-amber-200 text-amber-800"}`}>{m.ok ? <Check className="h-3.5 w-3.5 mt-0.5 shrink-0"/> : <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0"/>}<span>{m.text}</span></div>}
                     {v?.lastTested && <div className="mt-1 text-[11px] text-muted-foreground">Last tested {new Date(v.lastTested).toLocaleString()} • Stored {v.key?.startsWith("enc:") ? "encrypted" : "migrating to encrypted"}</div>}
