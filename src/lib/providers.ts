@@ -198,3 +198,10 @@ export function modelsFor(p: Provider | undefined, dynamic?: ProviderModel[]): P
   if (dynamic && dynamic.length) return dynamic;
   return p?.models || [];
 }
+
+// API keys must be printable ASCII with no whitespace. Anything else (notably
+// newlines or non-ASCII characters pasted from a masked value) makes fetch throw
+// "Invalid header value" before the request even reaches the provider.
+export function isValidApiKey(key: unknown): key is string {
+  return typeof key === "string" && /^[\x21-\x7e]{8,2048}$/.test(key);
+}

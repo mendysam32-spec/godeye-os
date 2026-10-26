@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchProviderModels } from "@/lib/llm-router";
-import type { ProviderId } from "@/lib/providers";
+import { isValidApiKey, type ProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -9,9 +9,13 @@ export async function POST(req: NextRequest) {
 
   const { provider, apiKey, endpoint } = await req.json().catch(() => ({}));
   if (!provider || !apiKey) return NextResponse.json({ error: "provider and apiKey required" }, { status: 400 });
+  const key = String(apiKey).trim();
+  if (!isValidApiKey(key)) {
+    return NextResponse.json({ ok: false, error: "API key contains spaces, line breaks or non-ASCII characters — re-copy it and try again." }, { status: 400 });
+  }
 
   try {
-    const models = await fetchProviderModels(provider as ProviderId, String(apiKey).trim(), endpoint ? String(endpoint).trim() : undefined);
+    const models = await fetchProviderModels(provider as ProviderId, key, endpoint ? String(endpoint).trim() : undefined);
     return NextResponse.json({ ok: true, provider, models });
   } catch {
     return NextResponse.json({ ok: false, error: "Failed to list models" }, { status: 400 });

@@ -1,10 +1,10 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { PROVIDERS, type ProviderModel } from "@/lib/providers";
-import { useMEDUSA } from "@/lib/store";
-import { useState, useEffect } from "react";
-import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, Download, RefreshCw } from "lucide-react";
-import { encryptKey, decryptKey, maskKey } from "@/lib/vault-crypto";
+import { PROVIDERS, isValidApiKey, type ProviderId, type ProviderModel } from "@/lib/providers";
+import { useMEDUSA, type VaultKey } from "@/lib/store";
+import { useState, useEffect, useRef } from "react";
+import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, RefreshCw } from "lucide-react";
+import { encryptKey, readStoredKey, maskKey } from "@/lib/vault-crypto";
 
 export default function VaultPage() {
   const { vault, setVaultKey, clearVaultKey } = useMEDUSA();
@@ -15,40 +15,72 @@ export default function VaultPage() {
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<Record<string, { ok: boolean; text: string }>>({});
 
-  // decrypt stored keys for display (masked when not visible)
+  const repaired = useRef<Set<string>>(new Set());
+
+  // Decrypt stored keys for display, recover keys written before the GodEye
+  // rename, and drop entries that are unreadable or contain garbage.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const out: Record<string, string> = {};
-      for (const [k, v] of Object.entries(vault as any)) {
-        if ((v as any)?.key) out[k] = await decryptKey((v as any).key);
+      const bad: ProviderId[] = [];
+      const migrate: { id: ProviderId; key: string }[] = [];
+      for (const id of Object.keys(vault) as ProviderId[]) {
+        const v: VaultKey | undefined = vault[id];
+        if (!v?.key) continue;
+        const stored = await readStoredKey(v.key);
+        if (!stored.key) { bad.push(id); continue; }
+        out[id] = stored.key;
+        if (stored.legacy && !repaired.current.has(id)) migrate.push({ id, key: stored.key });
       }
-      if (!cancelled) setDecrypted(out);
+      if (cancelled) return;
+      setDecrypted(out);
+      for (const id of bad) {
+        repaired.current.add(id);
+        clearVaultKey(id);
+        setMsg((s) => ({ ...s, [id]: { ok: false, text: `Saved ${id} key was unreadable — cleared. Paste a fresh key and connect.` } }));
+      }
+      for (const m of migrate) {
+        repaired.current.add(m.id);
+        const v = vault[m.id];
+        const enc = await encryptKey(m.key);
+        if (cancelled) return;
+        setVaultKey(m.id, enc, !!v?.connected, v?.endpoint, v?.models);
+      }
     })();
     return () => { cancelled = true; };
-  }, [vault]);
+  }, [vault, setVaultKey, clearVaultKey]);
+
+  function clearMsg(id: ProviderId) {
+    setMsg((s) => { const n = { ...s }; delete n[id]; return n; });
+  }
 
   async function connect(p: (typeof PROVIDERS)[number], val: string, ep?: string) {
-    if (!val.trim()) return;
+    const apiKey = val.trim();
+    if (!apiKey) return;
+    if (!isValidApiKey(apiKey)) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "That key contains spaces, line breaks or non-ASCII characters — re-copy it and paste again." } }));
+      return;
+    }
     setTesting((s) => ({ ...s, [p.id]: true }));
-    setMsg((s) => ({ ...s, [p.id]: undefined as any }));
+    clearMsg(p.id);
     const cleanEp = ep?.trim() || "";
     try {
       const [testRes, modelRes] = await Promise.all([
         fetch("/api/providers/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
+          body: JSON.stringify({ provider: p.id, apiKey, ...(cleanEp ? { endpoint: cleanEp } : {}) }),
         }),
         fetch("/api/providers/models", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: p.id, apiKey: val.trim(), ...(cleanEp ? { endpoint: cleanEp } : {}) }),
+          body: JSON.stringify({ provider: p.id, apiKey, ...(cleanEp ? { endpoint: cleanEp } : {}) }),
         }).then(r => r.json().catch(() => ({ ok: false }))).catch(() => ({ ok: false })),
       ]);
       const j = await testRes.json();
       const models = (modelRes.models || []) as ProviderModel[];
-      const enc = await encryptKey(val.trim());
+      const enc = await encryptKey(apiKey);
       if (resOk(testRes, j)) {
         setVaultKey(p.id, enc, true, cleanEp || undefined, models);
         setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Live verified • connected${models.length ? ` • ${models.length} models synced` : ""} — encrypted at rest` } }));
@@ -57,37 +89,41 @@ export default function VaultPage() {
         setVaultKey(p.id, enc, false, cleanEp || undefined, models);
         setMsg((s) => ({ ...s, [p.id]: { ok: false, text: `${j.message || j.error || "Key saved encrypted but verification failed — check key/endpoint/model"}${models.length ? ` (${models.length} models available)` : ""}` } }));
       }
-    } catch (e: any) {
-      const enc = await encryptKey(val.trim());
+    } catch (e) {
+      const enc = await encryptKey(apiKey);
       setVaultKey(p.id, enc, false, cleanEp || undefined);
-      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: e.message || "Network error — saved encrypted locally" } }));
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: (e instanceof Error ? e.message : "") || "Network error — saved encrypted locally" } }));
     } finally {
       setTesting((s) => ({ ...s, [p.id]: false }));
     }
   }
 
   async function syncModels(p: (typeof PROVIDERS)[number]) {
-    const key = decrypted[p.id];
-    if (!vault[p.id]?.key || !key) return;
+    const entry = vault[p.id];
+    const key = decrypted[p.id]?.trim() ?? "";
+    if (!entry?.key || !key) return;
+    if (!isValidApiKey(key)) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "Saved key is unreadable — disconnect and paste a fresh key." } }));
+      return;
+    }
     setTesting((s) => ({ ...s, [p.id]: true }));
-    setMsg((s) => ({ ...s, [p.id]: undefined as any }));
+    clearMsg(p.id);
     try {
-      const v = vault[p.id];
       const res = await fetch("/api/providers/models", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: p.id, apiKey: key.trim(), ...(v?.endpoint?.trim() ? { endpoint: v.endpoint.trim() } : {}) }),
+        body: JSON.stringify({ provider: p.id, apiKey: key, ...(entry.endpoint?.trim() ? { endpoint: entry.endpoint.trim() } : {}) }),
       });
       const j = await res.json();
       const models = (Array.isArray(j.models) ? j.models : []) as ProviderModel[];
       if (models.length) {
-        setVaultKey(p.id, v!.key as string, !!v?.connected, v?.endpoint, models);
+        setVaultKey(p.id, entry.key, !!entry.connected, entry.endpoint, models);
         setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Synced ${models.length} models from ${p.name}` } }));
       } else {
         setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.error || `No models returned — key may not have model access` } }));
       }
-    } catch (e: any) {
-      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: e.message || "Failed to sync models" } }));
+    } catch (e) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: (e instanceof Error ? e.message : "") || "Failed to sync models" } }));
     } finally {
       setTesting((s) => ({ ...s, [p.id]: false }));
     }

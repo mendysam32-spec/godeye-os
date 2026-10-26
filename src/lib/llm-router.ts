@@ -1,4 +1,4 @@
-import { PROVIDERS, CAPABLE_MODELS_RE, type ProviderId, type ProviderModel } from "./providers";
+import { PROVIDERS, CAPABLE_MODELS_RE, isValidApiKey, type ProviderId, type ProviderModel } from "./providers";
 import {
   asParts, budgetParts, flattenText, isBinaryPart,
   openAIParts, anthropicParts, googleParts, cohereParts,
@@ -678,6 +678,9 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
 }
 
 export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
+  if (!isValidApiKey(apiKey)) {
+    throw new Error("API key contains spaces, line breaks or non-ASCII characters — re-copy it from the provider dashboard.");
+  }
   const cfg = providerConfig(call.provider);
   // route by provider type
   if (call.provider === "anthropic") return callAnthropic(call, apiKey);
@@ -694,6 +697,7 @@ export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: 
 // Models are flagged `image`/`video` when they can generate media so the chat
 // UI can dispatch to the real generation pipeline.
 export async function fetchProviderModels(provider: ProviderId, apiKey: string, endpoint?: string): Promise<ProviderModel[]> {
+  if (!isValidApiKey(apiKey)) return [];
   const cfg = providerConfig(provider);
   try {
     const rawBase = (endpoint || cfg.baseUrl).replace(/\/+$/, "");
