@@ -25,6 +25,9 @@ interface AiBody {
   vault?: Record<ProviderId, { key?: string; endpoint?: string; connected?: boolean } | string>;
   transcript?: string[];
   reasoningEffort?: "off" | "low" | "medium" | "high" | "extra-high";
+  /** "ask" = one-shot advice; "agent" = step N of the auto-run loop */
+  stage?: "ask" | "agent";
+  step?: number;
 }
 
 function vaultKeyFor(vault: AiBody["vault"], id: string): string | null {
@@ -40,6 +43,18 @@ Ground every answer in the recent transcript the user supplies and the platform/
 - After the explanation, include at most 3 candidate commands in bash fenced blocks (one command per block). Commands must be copy-paste ready and adaptive to the platform shown in the facts.
 - If the request is not solvable or safe, say so plainly and give the closest safe command.
 - Never wrap the whole answer in one fence, never add commentary inside fences.`;
+
+const SYSTEM_AGENT = `You drive an autonomous terminal loop for MEDUSA OS ("godseye"). Each round
+the user's shell executes your command and pastes the real output back. Loop rules:
+- Propose exactly ONE next command per step, in a single bash fence. It must be
+  copy-paste ready and adapted to the platform facts (Debian cloud sandbox → bash,
+  no desktop-only tooling; Windows desktop → PowerShell semantics).
+- Start with cheap, read-only reconnaissance (ls/cat/--version/pip list) before
+  mutating anything. Mutating commands only when the request implies them or when
+  the user asked for setup/install work (git, python, wrangler and friends).
+- When a command fails because a tool is missing, the next command should install it.
+- When the goal is achieved — or no further command helps — finish with a short
+  summary (2-4 lines) and NO fenced block at all. The fence indicates "keep looping".`;
 
 function extractCommands(markdown: string): { reply: string; commands: string[] } {
   const commands: string[] = [];
@@ -73,16 +88,20 @@ export async function POST(req: NextRequest) {
       : undefined;
 
   const transcript = (body.transcript ?? []).filter((l) => typeof l === "string").slice(-40).join("\n").slice(0, 4000);
+  const agent = body.stage === "agent";
 
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM },
+    { role: "system", content: agent ? SYSTEM_AGENT : SYSTEM },
     {
       role: "user",
       content: [
         `Facts: platform=${body.platform || (body.backend === "cloud" ? "linux-cloud" : "unknown")}, backend=${body.backend || "unknown"}, cwd=${body.cwd || "/"}.`,
+        agent ? `Loop step: ${body.step ?? "?"}.` : "",
         transcript ? `Recent terminal transcript (oldest → newest):\n${transcript}` : "No prior transcript.",
-        `Question: ${question}`,
-      ].join("\n\n"),
+        `Task: ${question}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
     },
   ];
 
@@ -93,7 +112,7 @@ export async function POST(req: NextRequest) {
         model: body.model,
         messages,
         temperature: 0.2,
-        maxTokens: 600,
+        maxTokens: agent ? 400 : 600,
         reasoningEffort: body.reasoningEffort === undefined ? "medium" : body.reasoningEffort,
       },
       apiKey,

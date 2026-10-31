@@ -13,7 +13,7 @@ export default function TerminalPage() {
           <div>
             <div className="font-semibold">Terminal</div>
             <div className="text-xs text-muted-foreground">
-              opencode-style power terminal — runs on your PC or in your own cloud sandbox, any device
+              opencode-style agent terminal — EXEC / AGENT / ASK, self-installing tools, any model, any device
             </div>
           </div>
         </div>

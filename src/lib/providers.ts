@@ -14,6 +14,8 @@ export interface ProviderModel {
   // can read image inputs (vision) — gates whether attachments are sent as
   // image parts or downgraded to a text marker.
   vision?: boolean;
+  // zero-cost model — surfaced in pickers (terminal UI, model chips)
+  free?: boolean;
 }
 
 export interface ModelCapabilities {
@@ -104,6 +106,9 @@ export const PROVIDERS: Provider[] = [
       { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro (thinking)', context: '1M', reasoning: true, starred: true, vision: true },
       { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', context: '128K', reasoning: true },
       { id: 'deepseek/deepseek-v3', name: 'DeepSeek V3', context: '128K' },
+      // free tier — zero cost with lower rate limits, right there for the terminal
+      { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (free)', context: '128K', reasoning: true, free: true },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', context: '128K', free: true },
       { id: 'openai/dall-e-3', name: 'DALL-E 3 via OR', context: '-', image: true, starred: true },
       { id: 'black-forest-labs/flux-schnell', name: 'FLUX Schnell', context: '-', image: true },
       { id: 'black-forest-labs/flux-1.1-pro', name: 'FLUX 1.1 Pro', context: '-', image: true },
@@ -191,6 +196,23 @@ export const PROVIDERS: Provider[] = [
 ];
 
 export const getProvider = (id: ProviderId) => PROVIDERS.find(p => p.id === id);
+
+// A model is free when the catalog flags it (free:true) or its id carries the
+// OpenRouter `:free` suffix — which also covers live vault model lists that
+// have no explicit flag.
+export function isFreeModel(m: ProviderModel | { id: string } | string): boolean {
+  const id = typeof m === "string" ? m : m.id;
+  return id.endsWith(":free") || (typeof m === "object" && "free" in m && !!m.free);
+}
+
+// Reasoning-capability for ids that may not sit in the static catalog (live
+// vault lists). Catalog flag wins; regex covers the usual reasoning naming.
+export function isReasoningModel(id: string, list?: ProviderModel[]): boolean {
+  const entry = list?.find(m => m.id === id);
+  if (entry) return !!entry.reasoning || !!(entry.reasoning === undefined && CONTENT_REASON_RE.test(id));
+  return CONTENT_REASON_RE.test(id);
+}
+const CONTENT_REASON_RE = /(\bo[134]\b|deepseek[-_ ]?r1|deepseek-reasoner|-thinking|thinking|reasoning|\bqwq\b|qwen3|nemotron)/i;
 
 // effective model list: models fetched live from the provider via the API key take
 // precedence over the static curated list. `dynamic` comes from the vault entry.
