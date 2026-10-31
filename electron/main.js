@@ -119,6 +119,77 @@ function registerIpc() {
     foldersExist: fs.existsSync(baseFolder()),
   }));
 
+  // --- terminal: streaming command sessions ---------------------------------
+  // Each terminal command runs in its own shell process and streams chunks to
+  // the renderer keyed by an id; the renderer keeps the cwd and env state and
+  // echoes the prompt, so the same UI powers desktop and cloud backends.
+  const terminalProcs = new Map();
+
+  ipcMain.handle('medusa:terminal-run', (_e, payload = {}) => {
+    const { id, command, cwd, envNote, timeoutMs } = payload;
+    const sender = _e.sender;
+    const send = (obj) => {
+      try { sender.send('medusa:terminal-data', { id, ...obj }); } catch { /* window gone */ }
+    };
+    if (!id || !command || typeof command !== 'string') {
+      send({ stream: 'exit', code: -1 });
+      return { ok: false, error: 'id and command required' };
+    }
+
+    const env = { ...process.env, ...(envNote && typeof envNote === 'object' ? envNote : {}) };
+    const workdir = cwd && typeof cwd === 'string' ? cwd : baseFolder();
+    const proc = spawn(command, { cwd: workdir, shell: true, windowsHide: true, env });
+
+    terminalProcs.set(id, proc);
+    proc.stdout.on('data', (d) => send({ stream: 'stdout', text: d.toString() }));
+    proc.stderr.on('data', (d) => send({ stream: 'stderr', text: d.toString() }));
+    proc.on('error', (err) => {
+      send({ stream: 'stderr', text: `${String((err && err.message) || err)}\n` });
+      terminalProcs.delete(id);
+      send({ stream: 'exit', code: -1 });
+    });
+    proc.on('close', (code) => {
+      if (!terminalProcs.has(id)) return; // error path already exited
+      terminalProcs.delete(id);
+      send({ stream: 'exit', code: code ?? -1 });
+    });
+    return { ok: true, id };
+  });
+
+  ipcMain.handle('medusa:terminal-kill', (_e, payload = {}) => {
+    const proc = terminalProcs.get(payload?.id);
+    if (!proc) return { ok: false };
+    terminalProcs.delete(payload.id);
+    try {
+      if (process.platform === 'win32') spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true });
+      else proc.kill('SIGKILL');
+    } catch { /* already gone */ }
+    return { ok: true };
+  });
+
+  // Resolve a `cd` target against the real filesystem. Keeps the client-side
+  // prompt (and every subsequent command's working directory) truthful.
+  ipcMain.handle('medusa:cwd-resolve', (_e, payload = {}) => {
+    const from = payload.cwd && typeof payload.cwd === 'string' ? payload.cwd : baseFolder();
+    const target = String(payload.target || '').trim();
+    if (!target || target === '.') return { ok: true, cwd: from };
+    let next;
+    if (target === '~' || /^[uU]sers[\\/]~$/i.test(target)) {
+      next = os.homedir();
+    } else if (path.isAbsolute(target)) {
+      next = path.normalize(target);
+    } else {
+      next = path.resolve(from, target);
+    }
+    try {
+      const st = fs.statSync(next);
+      if (!st.isDirectory()) return { ok: false, error: `Not a directory: ${next}` };
+      return { ok: true, cwd: next };
+    } catch {
+      return { ok: false, error: `No such directory: ${next}` };
+    }
+  });
+
   ipcMain.handle('medusa:base-folder', () => ({ path: baseFolder(), exists: fs.existsSync(baseFolder()) }));
 
   ipcMain.handle('medusa:save-file', async (_e, options = {}) => {

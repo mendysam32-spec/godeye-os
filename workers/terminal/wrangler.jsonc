@@ -1,0 +1,42 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Deploy from C:\Users\kumen\GodEye\workers\terminal so the schema resolves
+	// against the root's node_modules: `npx wrangler deploy -c wrangler.jsonc`
+	"name": "godseye-terminal",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-28",
+	// request.signal aborts inside the Durable Object kill exec()'d processes —
+	// this is what makes Ctrl+C work in the cloud terminal.
+	"compatibility_flags": ["enable_request_signal"],
+	"observability": {
+		"enabled": true
+	},
+	// One container per Durable Object instance; the main app names instances
+	// per user, so each MEDUSA user gets their own Debian sandbox.
+	"containers": [
+		{
+			"class_name": "TerminalShell",
+			"scheduling_policy": "durable_object"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "TerminalShell",
+				"name": "TERMINAL"
+			}
+		]
+	},
+	"exports": {
+		"TerminalShell": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	// Dev-only secret. For production run whichever of these applies:
+	//   npx wrangler secret put TERMINAL_TOKEN -c wrangler.jsonc
+	//   (and keep the same value in the main app's TERMINAL_TOKEN secret)
+	"vars": {
+		"TERMINAL_TOKEN": "dev-shared-token-change-me"
+	}
+}

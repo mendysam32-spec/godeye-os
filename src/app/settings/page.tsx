@@ -1,7 +1,8 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useMEDUSA } from "@/lib/store";
-import { Palette, Sliders, User, Monitor, Sparkles, Check, Sun, Moon, Layers, Stars, Sunrise, Route, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap, Cloud } from "lucide-react";
+import { THEMES, ACCENTS } from "@/lib/themes";
+import { Palette, Sliders, User, Monitor, Sparkles, Check, ChevronLeft, ChevronRight, Download, Upload, Lock, Database, HardDrive, ShieldCheck, Zap, Cloud } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import { isDesktop, desktopBridge } from "@/lib/desktop";
 import type { MEDUSASystemInfo } from "@/types/desktop";
@@ -11,67 +12,18 @@ import { useDriveAuth } from "@/lib/use-drive-auth";
 // mis-click on the Google account chooser is obvious — it is never sent anywhere.
 const EXPECTED_DRIVE_EMAIL = "bakarysambou84@gmail.com";
 
-const THEMES = [
-  {
-    id: "light" as const,
-    label: "Light",
-    desc: "Clean • Minimal",
-    icon: Sun,
-    preview: { bg: "#fcfcf9", card: "#ffffff", muted: "#f5f5f3", dot: "#0f0f0f", accent: "#f59e0b" },
-  },
-  {
-    id: "dark" as const,
-    label: "Dark",
-    desc: "OLED • Focus",
-    icon: Moon,
-    preview: { bg: "#161616", card: "#202020", muted: "#2a241d", dot: "#ffedd5", accent: "#ff8a3c" },
-  },
-  {
-    id: "glass" as const,
-    label: "Glass",
-    desc: "Frosted • Colorful",
-    icon: Layers,
-    preview: { bg: "#f1e8fb", card: "rgba(255,255,255,0.85)", muted: "rgba(255,255,255,0.5)", dot: "#241a45", accent: "#4f46e5" },
-    glass: true,
-  },
-  {
-    id: "blacklime" as const,
-    label: "Black Lime",
-    desc: "Black • Neon Lime",
-    icon: Stars,
-    preview: { bg: "#000000", card: "#0b0e06", muted: "#131a09", dot: "#eef7d9", accent: "#a3e635" },
-  },
-  {
-    id: "aurora" as const,
-    label: "Aurora",
-    desc: "Indigo • Glass Gradient",
-    icon: Sunrise,
-    preview: { bg: "#4338ca", card: "rgba(255,255,255,0.14)", muted: "rgba(255,255,255,0.12)", dot: "#eef2ff", accent: "#c7d2fe" },
-    glass: true,
-  },
-  {
-    id: "indigoblack" as const,
-    label: "Indigo Black",
-    desc: "Indigo • Black Gradient",
-    icon: Route,
-    preview: { bg: "#05010f", card: "#0e0a1f", muted: "#171233", dot: "#e6e6ff", accent: "#818cf8", gradient: true },
-  },
-] as const;
-
-const ACCENTS = [
-  { id: "amber" as const, color: "#f59e0b" },
-  { id: "violet" as const, color: "#8b5cf6" },
-  { id: "emerald" as const, color: "#10b981" },
-  { id: "blue" as const, color: "#3b82f6" },
-  { id: "rose" as const, color: "#f43f5e" },
-];
-
 export default function SettingsPage() {
   const { profile, setProfile, settings, setSettings, vault, agents, chats, projects } = useMEDUSA() as any;
   const fileRef = useRef<HTMLInputElement>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const [sysInfo, setSysInfo] = useState<MEDUSASystemInfo | null>(null);
   const desktop = isDesktop();
+
+  // Theme gallery rail
+  const railRef = useRef<HTMLDivElement>(null);
+  const activeTheme = THEMES.find((t) => t.id === settings.theme);
+  const scrollThemes = (dir: -1 | 1) =>
+    railRef.current?.scrollBy({ left: dir * 276, behavior: "smooth" });
 
   useEffect(() => {
     const b = desktopBridge();
@@ -90,7 +42,7 @@ export default function SettingsPage() {
       <Sidebar />
       <main className="flex-1 min-w-0">
         <div className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur px-6 h-16 flex items-center">
-          <div><div className="font-semibold">Settings</div><div className="text-xs text-muted-foreground">Make it yours — 6 themes • glass • own the OS</div></div>
+          <div><div className="font-semibold">Settings</div><div className="text-xs text-muted-foreground">Make it yours — {THEMES.length} themes • modern • own the OS</div></div>
         </div>
 
         <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -106,72 +58,87 @@ export default function SettingsPage() {
             <div className="mt-3 text-xs text-muted-foreground">Shows in Workforce, sharing and Windows app title bar.</div>
           </div>
 
-          {/* Themes - 6 modern clean glass style */}
+          {/* Themes — scrollable theme gallery */}
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-medium"><Palette className="h-4 w-4"/> Appearance — 6 themes</div>
-              <span className="text-xs rounded-full bg-muted px-2.5 py-1 flex items-center gap-1"><Sparkles className="h-3 w-3" style={{color:'var(--accent)'}}/>{settings.theme} • {settings.accent}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-medium"><Palette className="h-4 w-4"/> Appearance — pick your look</div>
+              <span className="text-xs rounded-full bg-muted px-2.5 py-1 flex items-center gap-1"><Sparkles className="h-3 w-3" style={{color:'var(--accent)'}}/>{activeTheme?.label ?? settings.theme} • {settings.accent}</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Modern clean • Glass frosted • Pick your OS vibe. Live instantly.</p>
+            <p className="text-xs text-muted-foreground mt-1">Scroll through {THEMES.length} hand-tuned modern themes — click one to apply it instantly everywhere.</p>
 
-            {/* 5 theme cards */}
-            <div className="mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-              {THEMES.map((t) => {
-                const active = settings.theme === t.id;
-                const Icon = t.icon;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setSettings({ theme: t.id })}
-                    className={`group relative text-left rounded-2xl border-2 p-3 transition-all overflow-hidden ${
-                      active ? "border-foreground shadow-md scale-[1.02]" : "border-border hover:border-foreground/20 hover:shadow-sm"
-                    } ${t.id === "glass" || t.id === "aurora" ? "backdrop-blur-xl" : ""}`}
-                    style={{ background: t.preview.bg }}
-                  >
-                    {/* preview mini window */}
-                    <div className="rounded-xl overflow-hidden border shadow-sm" style={{ background: t.preview.card, borderColor: t.id==="glass" || t.id==="aurora" ? "rgba(255,255,255,0.6)" : t.preview.muted }}>
-                      <div className="h-7 flex items-center gap-1 px-2 border-b" style={{ background: t.preview.muted, borderColor: t.id==="glass" || t.id==="aurora" ? "rgba(255,255,255,0.4)" : t.preview.bg }}>
-                        <span className="h-2 w-2 rounded-full bg-red-400" />
-                        <span className="h-2 w-2 rounded-full bg-amber-400" />
-                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                        <span className="ml-auto h-1.5 w-8 rounded-full opacity-40" style={{ background: t.preview.dot }} />
-                      </div>
-                      <div className="p-2 space-y-1.5">
-                        <div className="h-2 rounded-full w-3/4" style={{ background: t.preview.dot, opacity: 0.9 }} />
-                        <div className="h-1.5 rounded-full w-full" style={{ background: t.preview.dot, opacity: 0.15 }} />
-                        <div className="h-1.5 rounded-full w-5/6" style={{ background: t.preview.dot, opacity: 0.1 }} />
-                        <div className="flex gap-1 pt-1">
-                          <span className="h-5 w-5 rounded-full grid place-items-center" style={{ background: t.preview.accent }}><Check className="h-3 w-3 text-white" /></span>
-                          <span className="h-5 flex-1 rounded-full" style={{ background: t.preview.accent, opacity: 0.9 }} />
+            <div className="relative mt-5">
+              <div ref={railRef} className="no-scrollbar flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth px-1 pb-1">
+                {THEMES.map((t) => {
+                  const active = settings.theme === t.id;
+                  const p = t.preview;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setSettings({ theme: t.id })}
+                      className="relative shrink-0 snap-start w-[248px] text-left rounded-2xl p-3 transition duration-150 hover:-translate-y-0.5"
+                      style={{
+                        background: p.bg,
+                        border: active ? "2px solid var(--accent)" : "1px solid rgba(128,128,135,0.28)",
+                        boxShadow: active ? "0 12px 32px rgba(0,0,0,0.22)" : "0 1px 3px rgba(0,0,0,0.07)",
+                      }}
+                    >
+                      {active && (
+                        <span className="absolute -top-2.5 right-3 z-10 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-white" style={{ background: "var(--accent)" }}>
+                          <Check className="h-2.5 w-2.5"/> Active
+                        </span>
+                      )}
+                      {/* mini app window */}
+                      <div className="rounded-xl overflow-hidden" style={{ background: p.surface, border: `1px solid ${p.border}`, color: p.text }}>
+                        <div className="h-7 flex items-center gap-1 px-2.5" style={{ background: p.bar, borderBottom: `1px solid ${p.border}` }}>
+                          <span className="h-2 w-2 rounded-full" style={{ background: "#f87171" }} />
+                          <span className="h-2 w-2 rounded-full" style={{ background: "#fbbf24" }} />
+                          <span className="h-2 w-2 rounded-full" style={{ background: "#34d399" }} />
+                          <span className="ml-auto h-1.5 w-10 rounded-full" style={{ background: p.text, opacity: 0.25 }} />
+                        </div>
+                        <div className="flex h-[92px]">
+                          <div className="w-14 shrink-0 p-1.5 space-y-1.5" style={{ background: p.sidebar, borderRight: `1px solid ${p.border}` }}>
+                            <div className="h-1.5 w-6 rounded-full" style={{ background: p.text, opacity: 0.5 }} />
+                            <div className="h-5 rounded-md" style={{ background: p.accent }} />
+                            <div className="h-1.5 w-8 rounded-full" style={{ background: p.text, opacity: 0.22 }} />
+                            <div className="h-1.5 w-7 rounded-full" style={{ background: p.text, opacity: 0.15 }} />
+                            <div className="h-1.5 w-6 rounded-full" style={{ background: p.text, opacity: 0.1 }} />
+                          </div>
+                          <div className="flex-1 p-2.5 space-y-1.5">
+                            <div className="h-2 w-3/5 rounded-full" style={{ background: p.text, opacity: 0.85 }} />
+                            <div className="h-1.5 w-11/12 rounded-full" style={{ background: p.text, opacity: 0.16 }} />
+                            <div className="h-1.5 w-2/3 rounded-full" style={{ background: p.text, opacity: 0.1 }} />
+                            <div className="flex gap-1.5 pt-1.5">
+                              <span className="h-4 px-2 rounded-md" style={{ background: p.accent }} />
+                              <span className="h-4 flex-1 rounded-md" style={{ background: p.bar, border: `1px solid ${p.border}` }} />
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {t.id === "glass" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/20 via-violet-400/10 to-cyan-400/15" />
-                    )}
-                    {t.id === "blacklime" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-lime-400/25 to-green-500/10" />
-                    )}
-                    {t.id === "aurora" && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-400/25 via-violet-400/15 to-blue-400/20" />
-                    )}
-                    {(t as any).gradient && (
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-600/30 via-violet-500/15 to-blue-500/20" />
-                    )}
-                    <div className="relative mt-3 flex items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: t.id==="dark" || t.id==="blacklime" || t.id==="aurora" || t.id==="indigoblack" ? "#fff" : "#0f0f0f" }}>
-                          <Icon className="h-3.5 w-3.5" /> {t.label}
+                      <div className="mt-2.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate" style={{ color: p.text }}>{t.label}</div>
+                          <div className="text-[11px] truncate" style={{ color: p.sub }}>{t.desc}</div>
                         </div>
-                        <div className="text-xs" style={{ color: t.id==="dark" || t.id==="blacklime" || t.id==="aurora" || t.id==="indigoblack" ? "rgba(255,255,255,0.6)" : "#6b6b6b" }}>{t.desc}</div>
+                        <span
+                          className="h-5 w-5 rounded-full grid place-items-center shrink-0"
+                          style={active ? { background: "var(--accent)", color: "#fff" } : { border: `1.5px solid ${p.sub}`, opacity: 0.8 }}
+                        >
+                          {active && <Check className="h-3 w-3" />}
+                        </span>
                       </div>
-                      <div className={`h-5 w-5 rounded-full border-2 grid place-items-center shrink-0 ${active ? "bg-foreground border-foreground" : "border-black/20 bg-white/50"}`} style={{ borderColor: active ? "var(--foreground)" : undefined }}>
-                        {active && <Check className="h-3 w-3 text-background" />}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+              <button type="button" aria-label="Scroll themes left" onClick={() => scrollThemes(-1)}
+                className="hidden lg:grid place-items-center absolute -left-3 top-[42%] -translate-y-1/2 h-9 w-9 rounded-full border bg-card shadow-md z-10 hover:scale-105 transition">
+                <ChevronLeft className="h-4 w-4"/>
+              </button>
+              <button type="button" aria-label="Scroll themes right" onClick={() => scrollThemes(1)}
+                className="hidden lg:grid place-items-center absolute -right-3 top-[42%] -translate-y-1/2 h-9 w-9 rounded-full border bg-card shadow-md z-10 hover:scale-105 transition">
+                <ChevronRight className="h-4 w-4"/>
+              </button>
             </div>
 
             {/* Accent + Density + Animations */}
@@ -413,12 +380,12 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 font-medium"><Monitor className="h-4 w-4"/> Preview — feels like you own it</div>
             <div className="mt-4 rounded-xl border bg-muted p-4 flex items-center gap-3">
               <div className="h-10 w-10 rounded-xl bg-foreground text-background grid place-items-center"><Sparkles className="h-5 w-5"/></div>
-              <div><div className="font-medium text-sm">{profile.name} • {profile.role}</div><div className="text-xs text-muted-foreground">{settings.agentBehavior} • {settings.accent} accent • {settings.theme} theme • {settings.density}</div></div>
+              <div><div className="font-medium text-sm">{profile.name} • {profile.role}</div><div className="text-xs text-muted-foreground">{settings.agentBehavior} • {settings.accent} accent • {activeTheme?.label ?? settings.theme} theme • {settings.density}</div></div>
             </div>
             {/* glass preview */}
             <div className="mt-3 grid md:grid-cols-3 gap-3">
               <div className="rounded-xl border p-3 bg-card">
-                <div className="text-xs font-medium">Card</div><div className="text-xs text-muted-foreground">Solid card on {settings.theme}</div>
+                <div className="text-xs font-medium">Card</div><div className="text-xs text-muted-foreground">Solid card on {activeTheme?.label ?? settings.theme}</div>
               </div>
               <div className="rounded-xl border p-3 glass">
                 <div className="text-xs font-medium">Glass</div><div className="text-xs text-muted-foreground">Frosted glass effect</div>
@@ -430,7 +397,7 @@ export default function SettingsPage() {
             <div className="mt-3 text-xs text-muted-foreground">Changes persist locally (and will sync to cloud + Windows app). Your OS, your rules.</div>
           </div>
 
-          <div className="text-center text-xs text-muted-foreground">MEDUSA OS by S&P Group — 5 themes • Glass • Midnight • Aurora • Clean modern design</div>
+          <div className="text-center text-xs text-muted-foreground">MEDUSA OS by S&P Group — {THEMES.length} modern themes • Daylight • Paper • Midnight • Horizon — your OS, your style</div>
         </div>
       </main>
     </div>

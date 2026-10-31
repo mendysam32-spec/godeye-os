@@ -3,9 +3,10 @@ import { create } from "zustand";
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 import { partsForStorage, type ContentPart, type FileKind } from "./content";
+import { THEME_IDS, ACCENTS } from "./themes";
 
-export type Theme = "light" | "dark" | "glass" | "blacklime" | "aurora" | "indigoblack";
-export type Accent = "amber" | "violet" | "emerald" | "blue" | "rose";
+export type Theme = (typeof THEME_IDS)[number];
+export type Accent = (typeof ACCENTS)[number]["id"];
 
 // Capability plugins. Each toggles a behavior that hooks into whatever model is
 // selected — generation plugins only fire on capable models, tool plugins feed
@@ -243,7 +244,7 @@ function freshProfile(): UserProfile {
 
 function freshSettings(): ProgramSettings {
   return {
-    theme: "dark",
+    theme: "midnight",
     accent: "violet",
     density: "comfortable",
     animations: true,
@@ -603,8 +604,8 @@ export const useMEDUSA = create<MEDUSAState>()(
           Object.keys(current.vault).length > 0 ||
           current.profile.email !== "" ||
           current.profile.bio !== "" ||
-          current.settings.theme !== "light" ||
-          current.settings.accent !== "amber";
+          current.settings.theme !== "midnight" ||
+          current.settings.accent !== "violet";
         // Priority: saved per-user workspace > current (persist-rehydrated) state > fresh defaults.
         // Never clobber rehydrated data just because the per-user localStorage slot is empty or stale.
         const fallback = hasData ? current : freshScopedState();

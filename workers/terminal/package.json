@@ -1,0 +1,9 @@
+{
+  "name": "godseye-terminal",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev -c wrangler.jsonc",
+    "deploy": "wrangler deploy -c wrangler.jsonc",
+    "types": "wrangler types"
+  }
+}

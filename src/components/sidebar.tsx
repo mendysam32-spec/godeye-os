@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap } from "lucide-react";
+import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Terminal as TerminalIcon, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap } from "lucide-react";
 import { useMEDUSA, type Folder, type Project } from "@/lib/store";
 import { toast } from "@/components/toast";
 import { useState } from "react";
 
 const nav = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/terminal", label: "Terminal", icon: TerminalIcon },
   { href: "/dashboard", label: "Workforce", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/connectors", label: "Connectors", icon: PlugZap },
@@ -205,7 +206,7 @@ function NavColumn({ onNavigate }: { onNavigate?: () => void }) {
         <div className="rounded-2xl bg-muted p-4">
           <div className="flex items-center gap-2 text-xs font-medium"><Sparkles className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} /> Workspace live</div>
           {(() => {
-            const connected = Object.values(vault || {}).filter((v: any) => v?.connected).length;
+            const connected = Object.values(vault || {}).filter((v) => v?.connected).length;
             const active = projects.filter((p) => p.status === "active").length;
             const total = Math.max(agents.length + projects.length + chats.length, 1);
             const pct = Math.min(100, Math.round(((agents.length + connected) / (total + 4)) * 100));

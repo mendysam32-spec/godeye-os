@@ -25,6 +25,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@bubblewrap/cli": "^1.27.0",
     "@opennextjs/cloudflare": "^1.20.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

@@ -7,7 +7,7 @@ import type { MEDUSASystemInfo } from "@/types/desktop";
 import { makeZip, makeDocx, makePdf, bufToBase64, base64ToBuf, MIME_DOCX } from "./file-builder";
 import { isServerTool } from "./tools";
 
-interface MEDUSADesktopBridge {
+export interface MEDUSADesktopBridge {
   isDesktop: boolean;
   platform: string;
   bridgeVersion?: number;
@@ -20,6 +20,12 @@ interface MEDUSADesktopBridge {
   readText(path: string): Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
   pickAndRead(filters?: { name: string; extensions: string[] }[]): Promise<{ canceled?: boolean; path?: string; content?: string; error?: string }>;
   runCommand(payload: { command: string; cwd?: string; timeoutMs?: number }): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string; timedOut: boolean }>;
+  /* ---- terminal — streaming command sessions (bridge v6+) ---- */
+  startCommand?(id: string, payload: { command: string; cwd?: string; envNote?: Record<string, string>; timeoutMs?: number }): Promise<void>;
+  killCommand?(id: string): Promise<void>;
+  cwdResolve?(payload: { cwd?: string; target?: string }): Promise<{ ok: boolean; cwd?: string; error?: string }>;
+  onCommandData?(cb: (ev: { id: string; stream: "stdout" | "stderr" | "exit"; text?: string; code?: number }) => void): void;
+  offCommandData?(): void;
   writeProject?(payload: { name: string; files: { path: string; base64: string }[]; mode?: "into" | "new"; dir?: string }): Promise<{ ok: boolean; canceled?: boolean; path?: string; written?: number; skipped?: string[]; failed?: string[]; error?: string; detail?: string }>;
   openPath(target: string): Promise<{ ok: boolean; error?: string }>;
   listDir?(payload: { path?: string; recursive?: boolean; maxEntries?: number }): Promise<{ ok: boolean; path?: string; count?: number; entries?: DirEntry[]; truncated?: boolean; error?: string }>;

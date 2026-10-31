@@ -1,37 +1,43 @@
 "use client";
 import { useEffect } from "react";
 import { useMEDUSA } from "@/lib/store";
+import { THEMES, DEFAULT_THEME, ACCENTS, type ThemeId } from "@/lib/themes";
 
-const THEMES = ["light", "dark", "glass", "blacklime", "aurora", "indigoblack"] as const;
+/** First-generation theme ids → their closest successor in the new collection. */
+const MIGRATION: Record<string, ThemeId | null> = {
+  light: "daylight",
+  dark: "midnight",
+  glass: "blush",
+  blacklime: "obsidian",
+  aurora: "horizon",
+  indigoblack: "graphite",
+};
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { settings, setSettings } = useMEDUSA();
+  const raw = settings.theme as string;
+  const theme: ThemeId | null = THEMES.find((t) => t.id === raw)?.id ?? null;
+
   useEffect(() => {
-    // migrate legacy "system" -> light
-    if (!(THEMES as readonly string[]).includes(settings.theme as string)) {
-      setSettings({ theme: "light" as any });
+    if (!theme) {
+      // Unrecognized/first-generation theme — map it forward (persist the fix).
+      setSettings({ theme: MIGRATION[raw] ?? DEFAULT_THEME });
       return;
     }
     const root = document.documentElement;
-    // remove all theme classes
-    THEMES.forEach((t) => root.classList.remove(`theme-${t}`));
+    // Strip any previously applied theme class (robust against renamed ids).
+    for (const c of Array.from(root.classList)) {
+      if (c.startsWith("theme-")) root.classList.remove(c);
+    }
     root.classList.remove("dark");
 
-    const theme = settings.theme;
     root.classList.add(`theme-${theme}`);
-    // keep .dark for compatibility on dark-like themes
-    if (theme === "dark" || theme === "blacklime" || theme === "indigoblack") {
-      root.classList.add("dark");
-    }
+    const def = THEMES.find((t) => t.id === theme);
+    if (def?.mode === "dark") root.classList.add("dark");
 
-    const accentMap: Record<string, string> = {
-      amber: "#f59e0b",
-      violet: "#9a99ff",
-      emerald: "#10b981",
-      blue: "#3b82f6",
-      rose: "#f43f5e",
-    };
-    root.style.setProperty("--accent", accentMap[settings.accent] || "#f59e0b");
-  }, [settings.theme, settings.accent]);
+    const hex = ACCENTS.find((a) => a.id === settings.accent)?.color;
+    if (hex) root.style.setProperty("--accent", hex);
+  }, [theme, raw, settings.accent, setSettings]);
+
   return <>{children}</>;
 }

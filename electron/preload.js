@@ -6,7 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('medusa', {
   isDesktop: true,
   platform: process.platform,
-  bridgeVersion: 5,
+  bridgeVersion: 6,
   systemInfo: () => ipcRenderer.invoke('medusa:system-info'),
   baseFolder: () => ipcRenderer.invoke('medusa:base-folder'),
   // Save dialog: hand a file to the user via the OS save dialog.
@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('medusa', {
   pickAndRead: (filters) => ipcRenderer.invoke('medusa:pick-read', filters),
   // Run a shell command; returns { exitCode, stdout, stderr, timedOut }.
   runCommand: (payload) => ipcRenderer.invoke('medusa:run-command', payload),
+  // --- terminal: streaming command sessions (v6) ---
+  // startCommand spawns a shell and streams output chunks via onCommandData
+  // events; killCommand SIGKILLs the whole tree; cwdResolve validates a `cd`
+  // target against the real filesystem so the terminal prompt stays truthful.
+  startCommand: (id, payload) => ipcRenderer.invoke('medusa:terminal-run', { id, ...payload }),
+  killCommand: (id) => ipcRenderer.invoke('medusa:terminal-kill', { id }),
+  cwdResolve: (payload) => ipcRenderer.invoke('medusa:cwd-resolve', payload),
+  onCommandData: (cb) => ipcRenderer.on('medusa:terminal-data', (_e, data) => cb(data)),
+  offCommandData: () => ipcRenderer.removeAllListeners('medusa:terminal-data'),
   // Write a whole project tree (files: [{ path, base64 }]) into a picked folder.
   writeProject: (payload) => ipcRenderer.invoke('medusa:write-project', payload),
   openPath: (target) => ipcRenderer.invoke('medusa:open-path', target),

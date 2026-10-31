@@ -20,5 +20,19 @@
 			"database_name": "medusa-db",
 			"database_id": "0734fda3-b6cb-497c-ac3e-08ba2ce2e277"
 		}
-	]
+	],
+	// Cloud terminal backend: godseye-terminal (workers/terminal). Deploy it
+	// first, then `npm run deploy`. Dev without a deploy: set TERMINAL_URL +
+	// TERMINAL_TOKEN in .env.local and run `wrangler dev` inside workers/terminal.
+	"services": [
+		{
+			"binding": "TERMINAL_BACKEND",
+			"service": "godseye-terminal"
+		}
+	],
+	"vars": {
+		// Must match the terminal worker's TERMINAL_TOKEN. Rotate via secrets in
+		// production (`wrangler secret put TERMINAL_TOKEN` on both workers).
+		"TERMINAL_TOKEN": "dev-shared-token-change-me"
+	}
 }
