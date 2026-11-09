@@ -30,9 +30,8 @@
 			"service": "godseye-terminal"
 		}
 	],
-	"vars": {
-		// Must match the terminal worker's TERMINAL_TOKEN. Rotate via secrets in
-		// production (`wrangler secret put TERMINAL_TOKEN` on both workers).
-		"TERMINAL_TOKEN": "dev-shared-token-change-me"
-	}
+	// TERMINAL_TOKEN is a secret, not a var — set the same value on this worker
+	// and on workers/terminal: `wrangler secret put TERMINAL_TOKEN`. Local dev
+	// reads TERMINAL_URL + TERMINAL_TOKEN from .env.local instead.
+	"vars": {}
 }

@@ -33,10 +33,8 @@
 			"storage": "sqlite"
 		}
 	},
-	// Dev-only secret. For production run whichever of these applies:
+	// TERMINAL_TOKEN is a secret, not a var. Set it here and on the main app
+	// with the same value:
 	//   npx wrangler secret put TERMINAL_TOKEN -c wrangler.jsonc
-	//   (and keep the same value in the main app's TERMINAL_TOKEN secret)
-	"vars": {
-		"TERMINAL_TOKEN": "dev-shared-token-change-me"
-	}
+	"vars": {}
 }

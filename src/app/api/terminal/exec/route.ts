@@ -125,7 +125,10 @@ async function resolveBackend(): Promise<ResolvedBackend | null> {
     /* not on Cloudflare — fall back to process env (dev) */
     env = { TERMINAL_URL: process.env.TERMINAL_URL };
   }
-  const shared = env?.TERMINAL_TOKEN || token || "dev-shared-token-change-me";
+  // Fail closed: no shared secret means the backend is unconfigured rather
+  // than silently using a public default token.
+  const shared = env?.TERMINAL_TOKEN || token || "";
+  if (!shared) return null;
   if (env?.TERMINAL_BACKEND) {
     // Service binding: absolute request URL is ignored; path rides along.
     return { token: shared, send: (path, init) => env!.TERMINAL_BACKEND!.fetch(`https://terminal.local${path}`, init) };
