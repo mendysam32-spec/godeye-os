@@ -307,7 +307,7 @@ export async function runMEDUSATool(name: string, args: Record<string, unknown>,
         const r = await b.runCommand({
           command: String(args?.command ?? ""),
           cwd: args?.cwd as string | undefined,
-          timeoutMs: typeof args?.timeoutMs === "number" ? args.timeoutMs : 60000,
+          timeoutMs: typeof args?.timeoutMs === "number" ? Math.min(Math.max(args.timeoutMs, 1000), 900000) : 180000,
         });
         const out = [r.stdout, r.stderr].filter(Boolean).join("\n").trim().slice(0, 6000);
         return {

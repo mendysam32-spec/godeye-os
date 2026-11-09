@@ -4,6 +4,7 @@ import { persist, createJSONStorage, type StateStorage } from "zustand/middlewar
 import { PROVIDERS, type ProviderId, type ProviderModel } from "./providers";
 import { partsForStorage, type ContentPart, type FileKind } from "./content";
 import { THEME_IDS, ACCENTS } from "./themes";
+import type { InstalledSkill } from "./skill-prompt";
 
 export type Theme = (typeof THEME_IDS)[number];
 export type Accent = (typeof ACCENTS)[number]["id"];
@@ -205,6 +206,12 @@ interface MEDUSAState {
   addFolder: (f: Folder) => void;
   updateFolder: (id: string, patch: Partial<Folder>) => void;
   removeFolder: (id: string) => void;
+  /** Installed skill packs (metadata only — file bodies live in IndexedDB). */
+  skills: InstalledSkill[];
+  addSkill: (skill: InstalledSkill) => void;
+  updateSkill: (id: string, patch: Partial<InstalledSkill>) => void;
+  toggleSkill: (id: string, enabled: boolean) => void;
+  removeSkill: (id: string) => void;
 }
 
 const LEGACY_STORAGE_KEY = "medusa-os-v1";
@@ -244,8 +251,8 @@ function freshProfile(): UserProfile {
 
 function freshSettings(): ProgramSettings {
   return {
-    theme: "midnight",
-    accent: "violet",
+    theme: "eclipse",
+    accent: "cyan",
     density: "comfortable",
     animations: true,
     soundEffects: false,
@@ -292,6 +299,7 @@ function freshScopedState() {
     chats: [] as ChatSession[],
     projects: freshProjects(),
     folders: [] as Folder[],
+    skills: [] as InstalledSkill[],
     lastProvider: "openrouter" as ProviderId,
     lastModelByProvider: {} as Partial<Record<ProviderId, string>>,
   };
@@ -314,6 +322,7 @@ export interface WorkspaceData {
   chats?: ChatSession[];
   projects?: Project[];
   folders?: Folder[];
+  skills?: InstalledSkill[];
   lastProvider?: ProviderId;
   lastModelByProvider?: Partial<Record<ProviderId, string>>;
   activeChatId?: string | null;
@@ -429,7 +438,7 @@ function quotaSafeStorage(): StateStorage<void> {
 /** Exactly the slice that reaches localStorage (see partialize below). */
 type PersistedSlice = Pick<
   MEDUSAState,
-  "profile" | "settings" | "vault" | "agents" | "chats" | "activeChatId" | "projects" | "folders" | "lastProvider" | "lastModelByProvider" | "wsUpdatedAt"
+  "profile" | "settings" | "vault" | "agents" | "chats" | "activeChatId" | "projects" | "folders" | "skills" | "lastProvider" | "lastModelByProvider" | "wsUpdatedAt"
 >;
 
 export const useMEDUSA = create<MEDUSAState>()(
@@ -456,6 +465,7 @@ export const useMEDUSA = create<MEDUSAState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                skills: s.skills,
                 lastProvider: s.lastProvider,
                 lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
@@ -509,6 +519,7 @@ export const useMEDUSA = create<MEDUSAState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                skills: s.skills,
                 lastProvider: s.lastProvider,
                 lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
@@ -544,6 +555,7 @@ export const useMEDUSA = create<MEDUSAState>()(
                 chats: s.chats,
                 projects: s.projects,
                 folders: s.folders,
+                skills: s.skills,
                 lastProvider: s.lastProvider,
                 lastModelByProvider: s.lastModelByProvider,
                 activeChatId: s.activeChatId,
@@ -601,11 +613,12 @@ export const useMEDUSA = create<MEDUSAState>()(
           current.projects.length > 0 ||
           current.agents.length > 0 ||
           current.folders.length > 0 ||
+          current.skills.length > 0 ||
           Object.keys(current.vault).length > 0 ||
           current.profile.email !== "" ||
           current.profile.bio !== "" ||
-          current.settings.theme !== "midnight" ||
-          current.settings.accent !== "violet";
+          current.settings.theme !== "eclipse" ||
+          current.settings.accent !== "cyan";
         // Priority: saved per-user workspace > current (persist-rehydrated) state > fresh defaults.
         // Never clobber rehydrated data just because the per-user localStorage slot is empty or stale.
         const fallback = hasData ? current : freshScopedState();
@@ -633,6 +646,7 @@ export const useMEDUSA = create<MEDUSAState>()(
           chats: data?.chats ?? fallback.chats,
           projects: data?.projects ?? fallback.projects,
           folders: data?.folders ?? fallback.folders,
+          skills: data?.skills ?? fallback.skills,
           lastProvider: data?.lastProvider ?? fallback.lastProvider,
           lastModelByProvider: data?.lastModelByProvider
             ? { ...(fallback.lastModelByProvider as Record<ProviderId, string>), ...(data.lastModelByProvider as Record<ProviderId, string>) }
@@ -684,6 +698,7 @@ export const useMEDUSA = create<MEDUSAState>()(
           chats: s.chats.filter((c) => !c.incognito),
           projects: s.projects,
           folders: s.folders,
+          skills: s.skills,
           lastProvider: s.lastProvider,
           lastModelByProvider: s.lastModelByProvider,
           updatedAt: s.wsUpdatedAt,
@@ -703,6 +718,17 @@ export const useMEDUSA = create<MEDUSAState>()(
             if (!localVault || Object.keys(localVault).length === 0) return remoteVault;
             return { ...localVault, ...remoteVault } as Record<ProviderId, VaultKey>;
           })();
+          // Skills: remote metadata wins per id, but local-only installs survive
+          // (the file bodies are device-local in IndexedDB either way).
+          const mergedSkills = (() => {
+            const local = s.skills ?? [];
+            const remote = data.skills ?? [];
+            if (!remote.length) return local;
+            if (!local.length) return remote;
+            const byId = new Map(local.map((k) => [k.id, k]));
+            for (const r of remote) byId.set(r.id, { ...byId.get(r.id), ...r });
+            return [...byId.values()];
+          })();
           const merged = {
             profile: data.profile ?? base.profile,
             settings: data.settings ?? base.settings,
@@ -714,6 +740,7 @@ export const useMEDUSA = create<MEDUSAState>()(
             chats: s.chats.length ? s.chats : (data.chats ?? base.chats),
             projects: data.projects ?? base.projects,
             folders: data.folders ?? base.folders,
+            skills: mergedSkills,
             lastProvider: data.lastProvider ?? base.lastProvider,
             lastModelByProvider: data.lastModelByProvider
               ? { ...(base.lastModelByProvider as Record<ProviderId, string>), ...(data.lastModelByProvider as Record<ProviderId, string>) }
@@ -862,8 +889,29 @@ export const useMEDUSA = create<MEDUSAState>()(
             projects: s.projects.map((p) => (p.folderId && doomed.has(p.folderId) ? { ...p, folderId: undefined } : p)),
           };
         }),
+
+      skills: [],
+      addSkill: (skill) =>
+        set((s) => ({
+          skills: s.skills.some((k) => k.id === skill.id)
+            ? s.skills.map((k) => (k.id === skill.id ? { ...k, ...skill } : k))
+            : [skill, ...s.skills],
+          wsUpdatedAt: new Date().toISOString(),
+        })),
+      updateSkill: (id, patch) =>
+        set((s) => ({
+          skills: s.skills.map((k) => (k.id === id ? { ...k, ...patch, updatedAt: new Date().toISOString() } : k)),
+          wsUpdatedAt: new Date().toISOString(),
+        })),
+      toggleSkill: (id, enabled) =>
+        set((s) => ({
+          skills: s.skills.map((k) => (k.id === id ? { ...k, enabled, updatedAt: new Date().toISOString() } : k)),
+          wsUpdatedAt: new Date().toISOString(),
+        })),
+      removeSkill: (id) =>
+        set((s) => ({ skills: s.skills.filter((k) => k.id !== id), wsUpdatedAt: new Date().toISOString() })),
     }),
-    { name: "medusa-os-v1", storage: createJSONStorage<PersistedSlice, void>(() => quotaSafeStorage()), partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
+    { name: "medusa-os-v1", storage: createJSONStorage<PersistedSlice, void>(() => quotaSafeStorage()), partialize: (s) => ({ profile: s.profile, settings: s.settings, vault: s.vault, agents: s.agents, chats: (s as any).chats.filter((c: ChatSession) => !c.incognito), activeChatId: (s as any).activeChatId, projects: (s as any).projects, folders: (s as any).folders, skills: (s as any).skills, lastProvider: (s as any).lastProvider, lastModelByProvider: (s as any).lastModelByProvider, wsUpdatedAt: (s as any).wsUpdatedAt }) }
   )
 );
 

@@ -761,6 +761,19 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
       const video = flags.some(f => /video|modality\.video/i.test(f)) || /(sora|veo|kling|pika|luma|runway|video-generation)/i.test(id);
       const reasoning = /(o1|o3|o4|gpt-5|thinking|deepseek-r1|\br1\b|nemotron|reasoning|gemini-2\.5|claude-4|sonar-reasoning)/i.test(id);
       const vision = inputs.includes("image") || inputs.includes("file") || CAPABLE_MODELS_RE.vision.test(id);
+      // OpenRouter (and a few compatible gateways) report per-token pricing.
+      // Zero prompt + zero completion is the only reliable "free" signal for
+      // live lists that do not use the `:free` suffix.
+      const pricing = (m.pricing && typeof m.pricing === "object" ? m.pricing : {}) as Record<string, unknown>;
+      const priceOf = (v: unknown): number | null => {
+        const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+        return Number.isFinite(n) ? n : null;
+      };
+      const promptPrice = priceOf(pricing.prompt);
+      const completionPrice = priceOf(pricing.completion);
+      const pricedFree = promptPrice === 0 && completionPrice === 0;
+      const pricedPaid = (promptPrice !== null && promptPrice > 0) || (completionPrice !== null && completionPrice > 0);
+      const idFree = /:free$/i.test(id);
       out.push({
         id,
         name: id.split("/").pop() ?? id,
@@ -769,6 +782,7 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
         ...(video ? { video: true } : {}),
         ...(reasoning ? { reasoning: true } : {}),
         ...(vision ? { vision: true } : {}),
+        ...(idFree || pricedFree ? { free: true } : pricedPaid ? { free: false } : {}),
       });
     }
     out.sort((a, b) => a.id.localeCompare(b.id));

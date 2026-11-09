@@ -43,6 +43,7 @@ export function CommandPalette() {
       { id: "nav-chat", section: "Go to", label: "Chat", hint: "/chat", run: () => router.push("/chat") },
       { id: "nav-dash", section: "Go to", label: "Workforce dashboard", hint: "/dashboard", run: () => router.push("/dashboard") },
       { id: "nav-agents", section: "Go to", label: "Agents", hint: "/agents", run: () => router.push("/agents") },
+      { id: "nav-skills", section: "Go to", label: "Skills", hint: "/skills", run: () => router.push("/skills") },
       { id: "nav-vault", section: "Go to", label: "Providers vault", hint: "/vault", run: () => router.push("/vault") },
       { id: "nav-settings", section: "Go to", label: "Settings", hint: "/settings", run: () => router.push("/settings") },
       { id: "act-newchat", section: "Actions", label: "New chat", hint: "create", run: () => { createChat({ provider: settings.defaultProvider }); router.push("/chat"); } },

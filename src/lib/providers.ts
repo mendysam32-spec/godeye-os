@@ -205,6 +205,21 @@ export function isFreeModel(m: ProviderModel | { id: string } | string): boolean
   return id.endsWith(":free") || (typeof m === "object" && "free" in m && !!m.free);
 }
 
+/** "free" when the model is zero-cost, otherwise "paid" (the safe default). */
+export function modelCost(m: ProviderModel | { id: string } | string): "free" | "paid" {
+  return isFreeModel(m) ? "free" : "paid";
+}
+
+/** Human label used by badges and native <option> text. */
+export function modelCostLabel(m: ProviderModel | { id: string } | string): "Free" | "Paid" {
+  return isFreeModel(m) ? "Free" : "Paid";
+}
+
+/** "Model Name · Free" / "Model Name · Paid" for native select options. */
+export function modelOptionLabel(m: ProviderModel): string {
+  return `${m.name} · ${modelCostLabel(m)}`;
+}
+
 // Reasoning-capability for ids that may not sit in the static catalog (live
 // vault lists). Catalog flag wins; regex covers the usual reasoning naming.
 export function isReasoningModel(id: string, list?: ProviderModel[]): boolean {

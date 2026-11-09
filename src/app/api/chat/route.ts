@@ -5,6 +5,7 @@ import type { ChatMode } from "@/lib/store";
 import { authedRecord, saveState } from "@/lib/auth";
 import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
 import { asParts, budgetParts, isBinaryPart, type ContentPart } from "@/lib/content";
+import { buildSkillsPrompt, type SkillPromptSkill } from "@/lib/skill-prompt";
 
 // Streaming replies keep the socket open for the whole completion, including
 // tool rounds, so the request needs more wall time than a normal API call.
@@ -53,6 +54,8 @@ interface ChatBody {
   stream?: boolean;
   toolsEnabled?: boolean;
   reasoningEffort?: ReasoningEffort;
+  /** Enabled skill packs — manifest text injected into the system prompt. */
+  skills?: SkillPromptSkill[];
 }
 
 export async function POST(req: NextRequest) {
@@ -71,7 +74,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ChatBody | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort } = body;
+  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills } = body;
 
   if (!messages?.length || !provider || !model) {
     return NextResponse.json({ error: "messages, provider, model required" }, { status: 400 });
@@ -124,7 +127,11 @@ export async function POST(req: NextRequest) {
       `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\n` +
       `You are running inside MEDUSA OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
       `Reasoning effort: ${effort}.\nProvider: ${provider}, Model: ${model}.` +
-      (attachNote ? `\n${attachNote}` : ""),
+      (attachNote ? `\n${attachNote}` : "") +
+      (() => {
+        const block = buildSkillsPrompt(skills);
+        return block ? `\n\n${block}` : "";
+      })(),
   };
 
   const llmMessages: WireMessage[] = [

@@ -5,12 +5,22 @@ import { THEMES, DEFAULT_THEME, ACCENTS, type ThemeId } from "@/lib/themes";
 
 /** First-generation theme ids → their closest successor in the new collection. */
 const MIGRATION: Record<string, ThemeId | null> = {
-  light: "daylight",
-  dark: "midnight",
-  glass: "blush",
-  blacklime: "obsidian",
-  aurora: "horizon",
-  indigoblack: "graphite",
+  // first generation
+  light: "porcelain",
+  dark: "eclipse",
+  glass: "lilac",
+  blacklime: "eclipse",
+  aurora: "vapor",
+  indigoblack: "abyss",
+  // second generation
+  daylight: "porcelain",
+  paper: "sundial",
+  mist: "sage",
+  blush: "lilac",
+  midnight: "eclipse",
+  graphite: "abyss",
+  obsidian: "eclipse",
+  horizon: "vapor",
 };
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

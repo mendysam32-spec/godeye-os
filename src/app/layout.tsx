@@ -30,13 +30,13 @@ const PREPAINT_THEME = `(function(){try{
 var r=document.documentElement;
 var s=null;try{s=JSON.parse(localStorage.getItem("medusa-os-v1")||"null")}catch(e){}
 var st=(s&&s.state&&s.state.settings)||null;
-var t=(st&&st["theme"])||"midnight";
-var mig={"light":"daylight","dark":"midnight","glass":"blush","blacklime":"obsidian","aurora":"horizon","indigoblack":"graphite"};
+var t=(st&&st["theme"])||"eclipse";
+var mig={"light":"porcelain","dark":"eclipse","glass":"lilac","blacklime":"eclipse","aurora":"vapor","indigoblack":"abyss","daylight":"porcelain","paper":"sundial","mist":"sage","blush":"lilac","midnight":"eclipse","graphite":"abyss","obsidian":"eclipse","horizon":"vapor"};
 if(mig[t])t=mig[t];
-var valid={"daylight":1,"paper":1,"mist":1,"blush":1,"midnight":1,"graphite":1,"obsidian":1,"horizon":1};
-if(!valid[t])t="midnight";
+var valid={"porcelain":1,"sage":1,"sundial":1,"lilac":1,"eclipse":1,"abyss":1,"ember":1,"vapor":1};
+if(!valid[t])t="eclipse";
 r.classList.add("theme-"+t);
-if(t==="midnight"||t==="graphite"||t==="obsidian"||t==="horizon")r.classList.add("dark");
+if(t==="eclipse"||t==="abyss"||t==="ember"||t==="vapor")r.classList.add("dark");
 var a=st&&st["accent"];
 var ac={"violet":"#8b5cf6","blue":"#3b82f6","cyan":"#06b6d4","emerald":"#10b981","amber":"#f59e0b","rose":"#f43f5e"};
 if(a&&ac[a])r.style.setProperty("--accent",ac[a]);

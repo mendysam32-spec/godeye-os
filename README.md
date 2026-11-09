@@ -8,10 +8,12 @@ Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, Open
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
 - **Workforce** — Multi-model crews fan out in parallel to any provider
 - **Chat** — 8 modes (coding/image/plan/search/chat/research/terminal/video) with file upload + streaming
+- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
 - **Agent tools** — 18 tools across internet, APIs, database, files and system metrics (see below)
 - **Voice** — Free dictation + read-aloud via the Web Speech API (no API keys)
 - **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
-- **5 Themes** — Light, Dark, Glass (frosted modern), Midnight (navy premium), Aurora (cream warm) + accent + density
+- **8 Themes** - Porcelain, Sage, Sundial, Lilac (glass), Eclipse, Abyss, Ember, Vapor (synth dusk) + accent + density
+- **Free / paid labels** - every model picker marks each model as Free or Paid; live provider lists use pricing metadata and the OpenRouter `:free` suffix
 - **Responsive** — Mobile drawer, adaptive grids, touch-friendly
 
 ### Agent tools
@@ -45,6 +47,20 @@ Safety rails: `safeUrl()` refuses non-http(s) and private/loopback/link-local/me
 Guards: clobbering an existing destination needs `overwrite`; symlinked directories are never traversed; binary files are refused for text edits.
 
 In the browser these report a clear reason instead of failing silently.
+
+## Skills
+
+Skills are instruction packs — a folder with a `SKILL.md` manifest (YAML frontmatter + markdown) plus optional scripts and assets, the same convention Claude and OpenCode use.
+
+- **Install** — `/skills` → *Install skill*, drop a `.zip` with `SKILL.md` at the root (or inside one top-level folder), or a single `SKILL.md`.
+- **Storage** — metadata lives in the workspace store (persisted + synced); file bodies live in IndexedDB (`medusa-skills`), so a 1 MB pack does not touch the 5 MB localStorage quota.
+- **Chat** — every enabled skill's manifest is appended to the system prompt by `POST /api/chat`. Files are listed, and when the desktop app has mirrored the pack to `Documents/MEDUSA/skills/<id>` the model can read and run it with `medusa_readFile` / `medusa_runCommand`.
+- **Desktop mirror** — installing on the desktop app writes the whole pack to `Documents/MEDUSA/skills/<id>`; *Save to disk* re-writes it after an update.
+- **Export / remove** — each skill can be re-exported as a ZIP or removed with its stored files.
+
+### Bundled: Stickman
+
+`public/skills/stickman.zip` is the MIT-licensed Stickman skill (engine, references, Python scripts, sound effects). The Skills page installs it automatically on first visit, or reinstall it from the built-in card. It renders cinematic stickman films from code and also writes voiceover scripts, YouTube titles and thumbnail prompts.
 
 
 ## Run locally

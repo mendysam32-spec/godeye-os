@@ -134,13 +134,13 @@ export const MEDUSA_TOOLS: MEDUSAToolFunction[] = [
     function: {
       name: "medusa_runCommand",
       description:
-        "Run a shell command on the user's computer (desktop app only): e.g. `python main.py`, `node app.js`, `git status`, `npm test`, `dir`. Returns exit code, stdout and stderr. Use to execute, verify, and iterate on code the user asked you to build.",
+        "Run a shell command on the user's computer (desktop app only): e.g. `python main.py`, `node app.js`, `git status`, `npm test`, `dir`. Returns exit code, stdout and stderr. Use to execute, verify, and iterate on code the user asked you to build. Installs, dependency setup and video renders can take several minutes - pass a larger timeoutMs (up to 900000) instead of letting the default cut them off.",
       parameters: {
         type: "object",
         properties: {
           command: { type: "string", description: "The shell command to run" },
-          cwd: { type: "string", description: "Optional working directory (defaults to MEDUSA folder)" },
-          timeoutMs: { type: "number", description: "Optional timeout in ms (default 60000)" },
+          cwd: { type: "string", description: "Optional working directory (defaults to MEDUSA folder). For an installed skill use its diskPath." },
+          timeoutMs: { type: "number", description: "Optional timeout in ms (default 180000, max 900000). Use 600000+ for installs and long renders." },
         },
         required: ["command"],
       },

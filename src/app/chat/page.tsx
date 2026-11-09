@@ -1,9 +1,9 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { useMEDUSA, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
-import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
+import { PROVIDERS, modelsFor, modelCapabilities, isFreeModel, modelOptionLabel, type ProviderId } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
-import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, Mic, MicOff, Volume2, VolumeX, type LucideIcon } from "lucide-react";
+import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, Mic, MicOff, Volume2, VolumeX, Blocks, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
@@ -243,8 +243,9 @@ async function mediaToToolFile(md: ChatMedia): Promise<ToolFile | null> {
 }
 
 export default function ChatPage() {
-  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito } = useMEDUSA();
+  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito, skills } = useMEDUSA();
   const activeChat = chats.find(c => c.id === activeChatId) || null;
+  const enabledSkills = (skills || []).filter(s => s.enabled);
 
   const plugins = settings.plugins || { ...DEFAULT_PLUGINS };
 
@@ -679,6 +680,7 @@ function selectChat(id: string) {
           mode: mode === "search" && !plugins.search ? "chat" : mode === "terminal" && !plugins.terminal ? "chat" : mode,
           vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
           reasoningEffort,
+          skills: enabledSkills.map(s => ({ name: s.name, description: s.description, instructions: s.instructions, diskPath: s.diskPath, files: s.files })),
         }),
         signal: controller.signal,
       });
@@ -1055,9 +1057,12 @@ function selectChat(id: string) {
               </select>
               <span className="text-muted-foreground">/</span>
               <select value={model} onChange={e=>{ const m=e.target.value; setModel(m); setLastSelection(provider, m); }} className="bg-transparent text-xs outline-none max-w-[140px]">
-                {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                {modelList.map(m=><option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
               </select>
             </div>
+            <Link href="/skills" title="Installed skills" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline-flex items-center gap-1.5 hover:bg-muted">
+              <Blocks className="h-3 w-3" /> Skills{enabledSkills.length ? ` · ${enabledSkills.length}` : ""}
+            </Link>
             <Link href="/vault" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline">Vault</Link>
           </div>
         </div>
@@ -1248,6 +1253,7 @@ function selectChat(id: string) {
                               <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
                               <span className="truncate">{m.name}</span>
                               <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                <span className={`rounded px-1 py-0.5 text-[9px] uppercase tracking-wide ${isFreeModel(m) ? "bg-emerald-500/20 text-emerald-600" : "bg-amber-500/15 text-amber-600"}`}>{isFreeModel(m) ? "Free" : "Paid"}</span>
                                 {(m as any).reasoning && <span className="rounded bg-emerald-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-emerald-600">🧠</span>}
                                 {m.image && <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-amber-600">img</span>}
                                 {m.video && <span className="rounded bg-violet-500/15 px-1 py-0.5 text-[9px] uppercase tracking-wide text-violet-600">vid</span>}

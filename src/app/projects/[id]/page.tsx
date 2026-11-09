@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/sidebar";
 import { useMEDUSA, type ChatMode } from "@/lib/store";
-import { PROVIDERS, modelsFor, modelCapabilities, type ProviderId } from "@/lib/providers";
+import { PROVIDERS, modelsFor, modelCapabilities, isFreeModel, modelOptionLabel, type ProviderId } from "@/lib/providers";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
 import { readChatStream } from "@/lib/chat-stream";
 import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
@@ -320,7 +320,7 @@ export default function ProjectPage() {
                   </select>
                   <span className="text-muted-foreground">/</span>
                   <select value={model} onChange={e=>setModel(e.target.value)} className="bg-transparent text-xs outline-none max-w-[110px]">
-                    {modelList.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    {modelList.map(m=><option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
                   </select>
                 </div>
                 <Link href="/vault" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline">Vault</Link>
@@ -339,7 +339,10 @@ export default function ProjectPage() {
                         <button key={m.id} onClick={() => { setModel(m.id); setShowModelMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model === m.id ? "bg-foreground text-background" : ""}`}>
                           <span className="h-2 w-2 rounded-full shrink-0" style={{ background: providerObj?.color }} />
                           <span className="truncate">{m.name}</span>
-                          <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                            <span className={`rounded px-1 py-0.5 text-[9px] uppercase tracking-wide ${isFreeModel(m) ? "bg-emerald-500/20 text-emerald-600" : "bg-amber-500/15 text-amber-600"}`}>{isFreeModel(m) ? "Free" : "Paid"}</span>
+                            <span className="text-[10px] opacity-50">{m.context}</span>
+                          </span>
                         </button>
                       ))}
                       {modelList.length===0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}
@@ -426,7 +429,10 @@ export default function ProjectPage() {
                               <button key={m.id} onClick={()=>{ setModel(m.id); setShowComposerMenu(false); }} className={`w-full flex items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm hover:bg-muted ${model===m.id ? "bg-foreground text-background" : ""}`}>
                                 <span className="h-2 w-2 rounded-full shrink-0" style={{background: providerObj?.color}}/>
                                 <span className="truncate">{m.name}</span>
-                                <span className="ml-auto text-[10px] opacity-50">{m.context}</span>
+                                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                  <span className={`rounded px-1 py-0.5 text-[9px] uppercase tracking-wide ${isFreeModel(m) ? "bg-emerald-500/20 text-emerald-600" : "bg-amber-500/15 text-amber-600"}`}>{isFreeModel(m) ? "Free" : "Paid"}</span>
+                                  <span className="text-[10px] opacity-50">{m.context}</span>
+                                </span>
                               </button>
                             ))}
                             {modelList.length === 0 && <div className="px-2.5 py-2 text-xs text-muted-foreground">No models — connect a {providerObj?.name} key in the Vault.</div>}

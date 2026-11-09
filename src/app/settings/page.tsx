@@ -397,7 +397,7 @@ export default function SettingsPage() {
             <div className="mt-3 text-xs text-muted-foreground">Changes persist locally (and will sync to cloud + Windows app). Your OS, your rules.</div>
           </div>
 
-          <div className="text-center text-xs text-muted-foreground">MEDUSA OS by S&P Group — {THEMES.length} modern themes • Daylight • Paper • Midnight • Horizon — your OS, your style</div>
+          <div className="text-center text-xs text-muted-foreground">MEDUSA OS by S&P Group — {THEMES.length} hand-tuned themes • Porcelain • Sage • Eclipse • Vapor — your OS, your style</div>
         </div>
       </main>
     </div>

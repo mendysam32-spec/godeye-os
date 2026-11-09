@@ -1,7 +1,7 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
 import { useMEDUSA } from "@/lib/store";
-import { PROVIDERS, modelsFor, type ProviderId } from "@/lib/providers";
+import { PROVIDERS, modelsFor, modelOptionLabel, type ProviderId } from "@/lib/providers";
 import { useState } from "react";
 import { Plus, Trash2, Bot } from "lucide-react";
 
@@ -46,7 +46,7 @@ export default function AgentsPage() {
                     </label>
                     <label className="block"><span className="text-xs">Model</span>
                       <select value={a.model} onChange={e=>updateAgent(a.id, {model: e.target.value})} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2 text-sm">
-                        {modelsFor(PROVIDERS.find(x=>x.id===a.provider), vault[a.provider]?.models).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                        {modelsFor(PROVIDERS.find(x=>x.id===a.provider), vault[a.provider]?.models).map(m=><option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
                       </select>
                     </label>
                     {!connected && <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Connect {p?.name} key in Providers to run this agent</div>}
@@ -68,7 +68,7 @@ export default function AgentsPage() {
                     {PROVIDERS.map(pr=><option key={pr.id} value={pr.id}>{pr.name}</option>)}
                   </select>
                   <select value={form.model} onChange={e=>setForm({...form, model:e.target.value})} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm">
-                    {modelsFor(PROVIDERS.find(x=>x.id===form.provider), vault[form.provider]?.models).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    {modelsFor(PROVIDERS.find(x=>x.id===form.provider), vault[form.provider]?.models).map(m=><option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
                   </select>
                   <textarea placeholder="System prompt" value={form.prompt} onChange={e=>setForm({...form, prompt:e.target.value})} rows={3} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm"/>
                   <button onClick={()=>{ if(!form.name) return; addAgent({id: Date.now().toString(), name: form.name, role: form.role || "Agent", provider: form.provider, model: form.model || modelsFor(PROVIDERS.find(x=>x.id===form.provider), vault[form.provider]?.models)[0]?.id, systemPrompt: form.prompt, temperature: 0.5, color: PROVIDERS.find(x=>x.id===form.provider)!.color}); setShow(false);}} className="w-full rounded-full bg-foreground text-background py-2.5 text-sm">Create agent</button>

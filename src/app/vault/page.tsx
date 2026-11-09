@@ -1,6 +1,6 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { PROVIDERS, isValidApiKey, type ProviderId, type ProviderModel } from "@/lib/providers";
+import { PROVIDERS, isValidApiKey, isFreeModel, type ProviderId, type ProviderModel } from "@/lib/providers";
 import { useMEDUSA, type VaultKey } from "@/lib/store";
 import { useState, useEffect, useRef } from "react";
 import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, RefreshCw } from "lucide-react";
@@ -221,7 +221,7 @@ export default function VaultPage() {
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {dynModels.slice(0, 12).map(mm=>(
-                      <span key={mm.id} title={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1">{mm.name} {mm.context && <span className="text-muted-foreground">• {mm.context}</span>}</span>
+                      <span key={mm.id} title={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1">{mm.name} <span className={isFreeModel(mm) ? "text-emerald-600" : "text-amber-600"}>• {isFreeModel(mm) ? "Free" : "Paid"}</span> {mm.context && <span className="text-muted-foreground">• {mm.context}</span>}</span>
                     ))}
                     {dynModels.length > 12 && <span className="text-[11px] rounded-full bg-muted px-2 py-1 text-muted-foreground">+{dynModels.length - 12} more</span>}
                   </div>

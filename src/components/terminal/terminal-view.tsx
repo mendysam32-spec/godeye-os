@@ -732,7 +732,7 @@ export function TerminalView() {
           }
           case "models":
             push(
-              modelList.map((m) => `${m.id}${isFreeModel(m) ? "  · free" : ""}${m.id === model ? "  ←" : ""}`).join("\n") ||
+              modelList.map((m) => `${m.id}${isFreeModel(m) ? "  · free" : "  · paid"}${m.id === model ? "  ←" : ""}`).join("\n") ||
                 "(no models)",
               "out",
             );
@@ -1065,7 +1065,7 @@ export function TerminalView() {
           {modelOptions.map((m) => (
             <option key={m.id} value={m.id}>
               {m.id}
-              {isFreeModel(m) ? " · free" : ""}
+              {isFreeModel(m) ? " · free" : " · paid"}
               {m.context && m.context !== "-" ? ` · ${m.context}` : ""}
             </option>
           ))}
