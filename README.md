@@ -8,7 +8,7 @@ Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, Open
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
 - **Workforce** — Multi-model crews fan out in parallel to any provider
 - **Chat** — 8 modes (coding/image/plan/search/chat/research/terminal/video) with file upload + streaming
-- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
+- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films) and **Report Studio** (polished PDF + Word reports with charts); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
 - **Agent tools** — 18 tools across internet, APIs, database, files and system metrics (see below)
 - **Voice** — Free dictation + read-aloud via the Web Speech API (no API keys)
 - **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
@@ -61,6 +61,17 @@ Skills are instruction packs — a folder with a `SKILL.md` manifest (YAML front
 ### Bundled: Stickman
 
 `public/skills/stickman.zip` is the MIT-licensed Stickman skill (engine, references, Python scripts, sound effects). The Skills page installs it automatically on first visit, or reinstall it from the built-in card. It renders cinematic stickman films from code and also writes voiceover scripts, YouTube titles and thumbnail prompts.
+
+### Bundled: Report Studio
+
+`public/skills/report-studio.zip` turns a brief, dataset or research question into a finished **PDF + DOCX** with a cover page, contents, styled headings, matplotlib charts, captioned tables and page numbers.
+
+- **Source** — `skill-src/report-studio/` (manifest, Python renderers, runnable example).
+- **Pack** — `npm run skills:pack` zips every folder in `skill-src/` into `public/skills/<id>.zip`.
+- **Run** — the model writes a `report.json` spec, then runs `python scripts/build_report.py report.json --out report --preview` from the skill folder. `scripts/doctor.py` installs `python-docx`, `matplotlib` and Playwright Chromium if they are missing.
+- **Fallback** — browser-only sessions (no desktop bridge) use the built-in `medusa_createPdf` / `medusa_createDocx` tools without charts.
+
+Both built-in skills are seeded per-skill on first `/skills` visit; deleting one does not resurrect it on the next visit.
 
 
 ## Run locally

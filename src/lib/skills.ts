@@ -6,7 +6,7 @@
 // instructions) plus optional scripts/assets — the same convention used by
 // Claude and OpenCode. This module accepts a ZIP upload, validates the manifest,
 // keeps the files in IndexedDB (localStorage is far too small for the bundled
-// Stickman pack) and mirrors them onto disk when the desktop bridge is present.
+// skill packs) and mirrors them onto disk when the desktop bridge is present.
 import { extractZip, packZip, base64ToUint8, uint8ToBase64 } from "./zip";
 import { desktopBridge } from "./desktop";
 import type { InstalledSkill, SkillSource } from "./skill-prompt";
@@ -45,6 +45,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description:
       "Turn a topic into a finished stickman film rendered entirely from code: flat 2D characters, a dusk palette, film-style camera work and real sound. Also writes voiceover scripts, YouTube titles and thumbnail prompts.",
     url: "/skills/stickman.zip",
+    version: "1.0.0",
+  },
+  {
+    id: "report-studio",
+    name: "Report Studio",
+    description:
+      "Turn a brief, dataset or research question into a polished, branded PDF and Word report with cover page, table of contents, charts, tables and page numbers. Use for reports, proposals, analyses, whitepapers and client deliverables.",
+    url: "/skills/report-studio.zip",
     version: "1.0.0",
   },
 ];

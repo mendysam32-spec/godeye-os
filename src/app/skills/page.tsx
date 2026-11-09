@@ -25,7 +25,7 @@ import {
   HardDrive, Loader2, Package, RefreshCw, Save, Sparkles, Trash2, Upload,
 } from "lucide-react";
 
-const SEED_KEY = "medusa:skills:stickman-seeded";
+const seedKey = (id: string) => `medusa:skills:${id}-seeded`;
 
 export default function SkillsPage() {
   const { skills, addSkill, updateSkill, toggleSkill, removeSkill } = useMEDUSA();
@@ -44,19 +44,22 @@ export default function SkillsPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  // First run: make the bundled Stickman skill available without a click. The
+  // First run: make the bundled skills available without a click. Each per-skill
   // flag keeps a deliberate delete from resurrecting it on every visit.
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
-    try {
-      if (localStorage.getItem(SEED_KEY)) return;
-      localStorage.setItem(SEED_KEY, "1");
-    } catch {
-      /* storage disabled — still offer the install card */
+    for (const builtin of BUILTIN_SKILLS) {
+      const key = seedKey(builtin.id);
+      try {
+        if (localStorage.getItem(key)) continue;
+        localStorage.setItem(key, "1");
+      } catch {
+        /* storage disabled — still offer the install card */
+      }
+      if (useMEDUSA.getState().skills.some((s) => s.id === builtin.id)) continue;
+      void installBuiltin(builtin.id, true);
     }
-    if (useMEDUSA.getState().skills.some((s) => s.id === "stickman")) return;
-    void installBuiltin("stickman", true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -276,7 +279,7 @@ export default function SkillsPage() {
 
             {skills.length === 0 && (
               <div className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground">
-                No skills installed yet. Install the Stickman skill above, or drop your own package.
+                No skills installed yet. Install a built-in skill above, or drop your own package.
               </div>
             )}
 

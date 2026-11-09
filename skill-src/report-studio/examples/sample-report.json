@@ -1,0 +1,76 @@
+{
+  "title": "Q3 Performance Review",
+  "subtitle": "Northwind Retail — Strategy & Operations",
+  "client": "Northwind Retail",
+  "author": "MEDUSA OS",
+  "date": "2026-11-09",
+  "filename": "northwind-q3-review",
+  "page_size": "A4",
+  "page_numbers": true,
+  "theme": {
+    "primary": "#0f766e",
+    "accent": "#f59e0b",
+    "text": "#111827",
+    "muted": "#6b7280",
+    "rule": "#e5e7eb"
+  },
+  "sections": [
+    {
+      "heading": "Executive summary",
+      "level": 1,
+      "body": "Q3 closed above plan on both revenue and margin. Revenue reached **$31.7m**, up 14.6% quarter over quarter, while gross margin improved 3 points to 44%.\n\n- North remains the largest region and the main growth engine.\n- Cost discipline held: cost of sales grew slower than revenue.\n- September was the strongest month, adding $2.3m over August.\n\n**Bottom line:** protect the North account base, and fund the East expansion before Q4 planning locks.",
+      "chart": {
+        "type": "bar",
+        "title": "Q3 revenue by region",
+        "labels": ["North", "South", "East", "West"],
+        "series": [{ "name": "Q3", "values": [10.7, 8.1, 6.9, 5.9] }],
+        "y_label": "USD m"
+      }
+    },
+    {
+      "heading": "Market context",
+      "level": 1,
+      "body": "Category demand grew modestly, but promotional intensity increased in the South and West. Northwind held price in the North and gained share; the East underperformed on conversion rather than traffic.\n\nCompetitors continued to bundle services into core offers. Our differentiation should stay on reliability and delivery speed rather than discounting."
+    },
+    {
+      "heading": "Financial performance",
+      "level": 1,
+      "body": "Revenue and cost tracked together through July and August, then separated in September as mix shifted toward higher-margin North accounts.",
+      "chart": {
+        "type": "line",
+        "title": "Monthly revenue vs cost",
+        "csv": "quarterly-sales.csv",
+        "x": "Month",
+        "y": ["Revenue", "Cost"],
+        "y_label": "USD m"
+      },
+      "table": {
+        "title": "Monthly detail",
+        "csv": "quarterly-sales.csv"
+      }
+    },
+    {
+      "heading": "Regional mix",
+      "level": 1,
+      "body": "North contributed the largest share of revenue in every month, and its share is rising. East is the smallest region but has the most room to scale.",
+      "chart": {
+        "type": "stacked_bar",
+        "title": "Revenue mix by region",
+        "csv": "quarterly-sales.csv",
+        "x": "Month",
+        "y": ["North", "South", "East", "West"],
+        "y_label": "USD m"
+      }
+    },
+    {
+      "heading": "Recommendations",
+      "level": 1,
+      "body": "1. Lock in the North account base with multi-quarter renewals before Q4.\n2. Run a focused conversion test in the East; hold price.\n3. Keep cost growth below revenue growth as promotional pressure rises.\n4. Revisit the West bundle in January rather than discounting in Q4."
+    },
+    {
+      "heading": "Sources & assumptions",
+      "level": 1,
+      "body": "Figures reflect the internal Q3 sales extract supplied for this review. Regional revenue is allocated by billing region. Percentages are rounded to one decimal. No external market data was used in this draft."
+    }
+  ]
+}
