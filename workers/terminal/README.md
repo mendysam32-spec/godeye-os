@@ -59,3 +59,29 @@ The main worker already declares the `TERMINAL_BACKEND` service binding to
 `godseye-terminal` (see the root `wrangler.jsonc`). After both deploys the
 browser terminal works on any device — each user keeps their own sandbox for
 10 minutes between commands.
+
+### Known issue: "container application settings" error on the free plan
+
+`wrangler deploy` uploads the Worker fine, then fails with:
+
+> The Worker version was deployed, but Wrangler could not finish applying its
+> Durable Object-managed Container application settings.
+
+The API response body is the real reason:
+
+> Unauthorized: You do not have access to Cloudflare Containers. Deploying
+> containers requires the Workers Paid plan.
+
+- **Cause** — the account is on the Workers **Free** plan. The Containers API
+  (`/containers/applications/*`) is plan-gated and refuses *all* calls, even
+  reads (`wrangler containers list` fails the same way). OAuth scopes
+  (`containers (write)`) don't help; newer wrangler versions behave the same.
+- **Impact** — cosmetic at deploy time. The Worker code deploys and the existing
+  container application (created before the gate) keeps running; `POST /ping`
+  verifies `running: true` through the service binding.
+- **Risk** — container *settings* can never be changed (scheduling policy,
+  image updates, instance limits) and if Cloudflare ever tears the application
+  down it may not be recreatable until the plan allows it.
+- **Proper fix** — upgrade to the Workers Paid plan
+  (`https://dash.cloudflare.com/?to=/:account/workers/plans`), then re-run the
+  deploy. Verified empirically on wrangler 4.133.0 and 4.160.0 (2026-11-11).
