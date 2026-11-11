@@ -1,0 +1,95 @@
+{
+  "title": "Q3 Business Review",
+  "subtitle": "Northwind Retail — Strategy & Operations",
+  "client": "Northwind Retail",
+  "author": "MEDUSA OS",
+  "date": "2026-11-09",
+  "filename": "northwind-q3-review",
+  "theme": { "mode": "dark" },
+  "slides": [
+    { "kind": "cover", "notes": "Welcome. 20 minutes: results, what drove them, and the Q4 plan." },
+    {
+      "kind": "bullets",
+      "heading": "Agenda",
+      "bullets": [
+        "Where Q3 landed — revenue and margin",
+        "**What** drove the beat",
+        "Where we are exposed",
+        "Q4 plan and asks"
+      ],
+      "notes": "Set expectations: numbers first, story second, asks at the end."
+    },
+    { "kind": "section", "title": "Results", "notes": "Transition into the numbers." },
+    {
+      "kind": "kpi",
+      "heading": "Q3 at a glance",
+      "items": [
+        { "value": "$34.6m", "label": "Revenue", "delta": "+14.6% QoQ" },
+        { "value": "44%", "label": "Gross margin", "delta": "+3 pts" },
+        { "value": "10.7", "label": "North share, USD m", "delta": "largest region" },
+        { "value": "2.3", "label": "Sep over Aug, USD m", "delta": "best month" }
+      ],
+      "notes": "Revenue beat plan on mix, not price. Margin gain is structural — hold it."
+    },
+    {
+      "kind": "chart",
+      "heading": "Revenue outgrew cost in September",
+      "chart": {
+        "type": "line",
+        "labels": ["Jul", "Aug", "Sep"],
+        "series": [
+          { "name": "Revenue", "values": [9.2, 10.1, 12.4] },
+          { "name": "Cost", "values": [5.8, 6.1, 7.0] }
+        ],
+        "y_label": "USD m"
+      },
+      "footnote": "Internal Q3 sales extract; regional allocation by billing region.",
+      "notes": "The gap opens in September as mix shifts to North accounts. Cost grew 20.7% vs revenue 34.8%."
+    },
+    {
+      "kind": "chart",
+      "heading": "North is the growth engine",
+      "chart": {
+        "type": "stacked_bar",
+        "labels": ["Jul", "Aug", "Sep"],
+        "series": [
+          { "name": "North", "values": [3.1, 3.4, 4.2] },
+          { "name": "South", "values": [2.4, 2.6, 3.1] },
+          { "name": "East", "values": [2.0, 2.2, 2.7] },
+          { "name": "West", "values": [1.7, 1.9, 2.4] }
+        ],
+        "y_label": "USD m"
+      },
+      "footnote": "Regional revenue by month.",
+      "notes": "North share rising every month. East underperforms on conversion, not traffic."
+    },
+    { "kind": "section", "title": "Q4 plan", "kicker": "Three moves, one ask", "notes": "Keep this section short and concrete." },
+    {
+      "kind": "bullets",
+      "heading": "Q4 plan and asks",
+      "bullets": [
+        "Lock the **North** base with multi-quarter renewals",
+        "Run a focused *conversion test* in the East; hold price",
+        "Keep cost growth below revenue growth",
+        "Ask: approve the East test budget (`$180k`)"
+      ],
+      "notes": "The only decision needed today is the East test budget. Everything else is execution."
+    },
+    {
+      "kind": "table",
+      "heading": "Initiative owners and status",
+      "table": {
+        "columns": ["Initiative", "Owner", "Status", "Exit criteria"],
+        "rows": [
+          ["North renewals", "A. Lee", "On track", "80% of top accounts signed"],
+          ["East conversion test", "M. Ortiz", "Scoping", "CPA within 110% of North"],
+          ["Cost discipline", "J. Park", "On track", "Cost growth < revenue growth"]
+        ],
+        "align": ["left", "left", "center", "left"]
+      },
+      "footnote": "Status as of 2026-11-09.",
+      "notes": "Owners have weekly checkpoints; escalate slips to the ops review."
+    },
+    { "kind": "end", "message": "Questions?", "contact": "strategy@northwind.example", "notes": "Offer the full written report as a follow-up." }
+  ]
+}

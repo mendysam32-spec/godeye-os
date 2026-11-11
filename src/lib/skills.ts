@@ -55,6 +55,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     url: "/skills/report-studio.zip",
     version: "1.0.0",
   },
+  {
+    id: "deck-builder",
+    name: "Deck Builder",
+    description:
+      "Turn a topic, outline, report or data into a polished PowerPoint .pptx deck — cover, section dividers, KPI slides, charts, tables and speaker notes on every slide, in a consistent light or dark theme. Use for pitch decks, board updates, product launches, training decks and quarterly reviews.",
+    url: "/skills/deck-builder.zip",
+    version: "1.0.0",
+  },
 ];
 
 const DB_NAME = "medusa-skills";
