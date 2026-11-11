@@ -71,6 +71,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     url: "/skills/data-analyst.zip",
     version: "1.0.0",
   },
+  {
+    id: "diagram-studio",
+    name: "Diagram Studio",
+    description:
+      "Render professional diagrams from text with Mermaid — flowcharts, sequence diagrams, state machines, ER diagrams, gantt charts, pie charts, mindmaps and timelines — as crisp SVG plus high-resolution PNG, ready to embed in Report Studio PDFs or Deck Builder slides. Use for architecture diagrams, process flows, data models and timelines.",
+    url: "/skills/diagram-studio.zip",
+    version: "1.0.0",
+  },
 ];
 
 const DB_NAME = "medusa-skills";

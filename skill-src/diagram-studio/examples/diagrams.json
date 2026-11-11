@@ -1,0 +1,26 @@
+{
+  "theme": "default",
+  "scale": 2,
+  "diagrams": [
+    {
+      "name": "order-flow",
+      "code": "flowchart TD\n    A[Order received] --> B{Stock available?}\n    B -- yes --> C[Reserve stock]\n    B -- no --> D[Backorder]\n    C --> E[Ship]\n    D --> E\n    E --> F[Invoice sent]"
+    },
+    {
+      "name": "checkout-sequence",
+      "code": "sequenceDiagram\n    autonumber\n    actor U as Customer\n    participant W as Web app\n    participant P as Payments\n    U->>W: Click \"Pay\"\n    W->>P: Create session\n    P-->>W: Session URL\n    W-->>U: Redirect\n    U->>P: Confirm payment\n    P-->>W: Webhook: paid\n    W-->>U: Receipt page"
+    },
+    {
+      "name": "revenue-share",
+      "code": "pie title Revenue by region, Q3\n    \"North\" : 10.7\n    \"South\" : 8.1\n    \"East\" : 6.9\n    \"West\" : 5.9"
+    },
+    {
+      "name": "booking-state",
+      "code": "stateDiagram-v2\n    [*] --> Draft\n    Draft --> Review: submit\n    Review --> Approved: accept\n    Review --> Draft: request changes\n    Approved --> Published: release\n    Published --> [*]"
+    },
+    {
+      "name": "data-model",
+      "code": "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE_ITEM : contains\n    PRODUCT ||--o{ LINE_ITEM : \"listed in\"\n    CUSTOMER {\n        string id PK\n        string name\n    }\n    ORDER {\n        string id PK\n        date placed_at\n    }"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, Open
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
 - **Workforce** — Multi-model crews fan out in parallel to any provider
 - **Chat** — 8 modes (coding/image/plan/search/chat/research/terminal/video) with file upload + streaming
-- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films), **Report Studio** (polished PDF + Word reports with charts), **Deck Builder** (themed .pptx decks) and **Data Analyst** (CSV/JSON profiling with charts); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
+- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films), **Report Studio** (polished PDF + Word reports with charts), **Deck Builder** (themed .pptx decks), **Data Analyst** (CSV/JSON profiling with charts) and **Diagram Studio** (Mermaid → SVG/PNG diagrams); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
 - **Agent tools** — 18 tools across internet, APIs, database, files and system metrics (see below)
 - **Voice** — Free dictation + read-aloud via the Web Speech API (no API keys)
 - **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
@@ -88,6 +88,15 @@ Skills are instruction packs — a folder with a `SKILL.md` manifest (YAML front
 - **Pack** — same `npm run skills:pack` flow.
 - **Run** — `python scripts/analyze.py <data.csv|data.json> --out analysis --charts`. Writes `profile.json` (types, stats, missing, uniques, IQR outliers, Pearson correlations), `findings.md` and up to 6 charts (histograms, top-category bars, trend, scatter, box).
 - **Pipeline** — its numbers and PNGs feed straight into Report Studio (PDF/DOCX) and Deck Builder (.pptx). Supports CSV, semicolon/tab-delimited files (sniffed with fallback) and JSON arrays.
+
+### Bundled: Diagram Studio
+
+`public/skills/diagram-studio.zip` renders Mermaid diagram text into **SVG (vector) + high-res PNG** via headless Chromium, with `mermaid.min.js` bundled so it works offline.
+
+- **Source** — `skill-src/diagram-studio/` (manifest, Playwright renderer, bundled Mermaid 11.17.2, runnable examples).
+- **Pack** — same `npm run skills:pack` flow (~1 MB, mostly the Mermaid bundle).
+- **Run** — `python scripts/render.py diagram.mmd --out diagrams` or a batch `diagrams.json`. Supports `flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `erDiagram`, `gantt`, `pie`, `mindmap`, `timeline`; `--theme default|dark|neutral|forest`, `--scale 2+`.
+- **Pipeline** — PNGs embed directly into Deck Builder image slides and Report Studio `image` sections; parse errors come back with the Mermaid line number so the model can self-correct.
 
 All built-in skills are seeded per-skill on first `/skills` visit; deleting one does not resurrect it on the next visit.
 

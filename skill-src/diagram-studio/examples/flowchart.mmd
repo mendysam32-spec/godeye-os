@@ -1,0 +1,7 @@
+flowchart TD
+    A[Order received] --> B{Stock available?}
+    B -- yes --> C[Reserve stock]
+    B -- no --> D[Backorder]
+    C --> E[Ship]
+    D --> E
+    E --> F[Invoice sent]
