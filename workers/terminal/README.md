@@ -40,14 +40,18 @@ cd workers/terminal && npx wrangler dev
 # 2) point the main app at it for next dev:
 #    C:\Users\kumen\GodEye\.env.local
 #    TERMINAL_URL=http://127.0.0.1:8787
-#    TERMINAL_TOKEN=dev-shared-token-change-me
+#    TERMINAL_TOKEN=<a local dev token; also set it for `wrangler dev`>
 ```
 
 ## Deploy
 
+`TERMINAL_TOKEN` is a secret, never a `vars` entry. Set the same value on both
+workers:
+
 ```sh
 cd workers/terminal && npx wrangler deploy   # deploys godseye-terminal
-# then set the SAME token as a secret in the main app:
+npx wrangler secret put TERMINAL_TOKEN -c wrangler.jsonc
+# then, from the repo root, the SAME token for the main app:
 npx wrangler secret put TERMINAL_TOKEN
 ```
 
