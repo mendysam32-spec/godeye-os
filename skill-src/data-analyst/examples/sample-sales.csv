@@ -1,0 +1,49 @@
+date,region,product,units,revenue,discount_pct
+2026-08-01,North,Pro Plan,5,245.0,0
+2026-08-02,South,Pro Plan,6,294.0,0
+2026-08-03,East,Pro Plan,5,245.0,0
+2026-08-04,West,Pro Plan,7,308.7,10
+2026-08-05,North,Team Plan,5,470.25,5
+2026-08-06,South,Team Plan,5,495.0,0
+2026-08-07,East,Team Plan,6,534.6,10
+2026-08-08,West,Team Plan,7,623.7,10
+2026-08-09,North,Enterprise,6,1614.6,10
+2026-08-10,South,Enterprise,7,1988.35,5
+2026-08-11,East,Enterprise,7,2093.0,0
+2026-08-12,West,Enterprise,7,2093.0,0
+2026-08-13,North,Add-on,7,133.0,0
+2026-08-14,South,Add-on,5,95.0,0
+2026-08-15,East,Add-on,7,133.0,0
+2026-08-16,West,Add-on,4,72.2,5
+2026-08-17,North,Pro Plan,4,196.0,0
+2026-08-18,South,Pro Plan,5,245.0,0
+2026-08-19,East,Pro Plan,5,220.5,10
+2026-08-20,West,Pro Plan,3,139.65,5
+2026-08-21,North,Team Plan,2,198.0,0
+2026-08-22,South,Team Plan,4,356.4,10
+2026-08-23,East,Team Plan,4,396.0,0
+2026-08-24,West,Team Plan,3,297.0,0
+2026-08-25,North,Enterprise,2,598.0,0
+2026-08-26,South,Enterprise,4,1196.0,0
+2026-08-27,East,Enterprise,4,1196.0,0
+2026-08-28,West,Enterprise,3,852.15,5
+2026-08-29,North,Add-on,4,76.0,0
+2026-08-30,South,Add-on,3,57.0,0
+2026-08-31,East,Add-on,4,76.0,0
+2026-09-01,West,Add-on,5,95.0,0
+2026-09-02,North,Pro Plan,6,294.0,0
+2026-09-03,South,Pro Plan,6,294.0,0
+2026-09-04,East,Pro Plan,5,232.75,5
+2026-09-05,West,Pro Plan,6,264.6,10
+2026-09-06,North,Team Plan,6,594.0,0
+2026-09-07,South,Team Plan,8,792.0,0
+2026-09-08,East,Team Plan,6,594.0,0
+2026-09-09,West,Team Plan,8,752.4,5
+2026-09-10,North,Enterprise,6,1794.0,0
+2026-09-11,South,Enterprise,8,2152.8,10
+2026-09-12,East,Enterprise,8,2392.0,0
+2026-09-13,West,Enterprise,6,1704.3,5
+2026-09-14,North,Add-on,6,108.3,5
+2026-09-15,South,Add-on,5,95.0,0
+2026-09-16,East,Add-on,5,85.5,10
+2026-09-17,West,Add-on,5,85.5,10

@@ -63,6 +63,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     url: "/skills/deck-builder.zip",
     version: "1.0.0",
   },
+  {
+    id: "data-analyst",
+    name: "Data Analyst",
+    description:
+      "Profile and analyze a CSV or JSON dataset — column types, ranges, missing values, outliers, correlations, top categories and trends — then produce a findings pack (profile.json, findings.md, chart PNGs) that feeds directly into Report Studio or Deck Builder. Use for 'analyze this data', data exploration and pre-report sanity checks.",
+    url: "/skills/data-analyst.zip",
+    version: "1.0.0",
+  },
 ];
 
 const DB_NAME = "medusa-skills";

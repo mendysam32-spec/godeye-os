@@ -8,7 +8,7 @@ Workforce OS that sees everything. Cloud + Windows App • Any LLM (Nvidia, Open
 - **Projects** — Create, view, filter, archive. Stored locally + cloud. Dashboard is fully responsive (mobile/tablet/desktop)
 - **Workforce** — Multi-model crews fan out in parallel to any provider
 - **Chat** — 8 modes (coding/image/plan/search/chat/research/terminal/video) with file upload + streaming
-- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films), **Report Studio** (polished PDF + Word reports with charts) and **Deck Builder** (themed .pptx decks with KPI slides, charts and speaker notes); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
+- **Skills** — Upload a `SKILL.md` pack (ZIP) and MEDUSA briefs the model with it. Ships with **Stickman** (code-rendered stickman films), **Report Studio** (polished PDF + Word reports with charts), **Deck Builder** (themed .pptx decks) and **Data Analyst** (CSV/JSON profiling with charts); enabled skills are injected into every chat's system prompt and mirrored to `Documents/MEDUSA/skills` on desktop
 - **Agent tools** — 18 tools across internet, APIs, database, files and system metrics (see below)
 - **Voice** — Free dictation + read-aloud via the Web Speech API (no API keys)
 - **Providers Vault** — 11 providers, live verified via `POST /api/providers/test`
@@ -80,7 +80,16 @@ Skills are instruction packs — a folder with a `SKILL.md` manifest (YAML front
 - **Run** — the model writes a `deck.json` spec, then runs `python scripts/build_deck.py deck.json --out deck --preview` from the skill folder. `scripts/doctor.py` installs `python-pptx` and `matplotlib` if they are missing.
 - **Theme** — `dark` (default) or `light`, brand-color overridable; an HTML mirror renders the same layout for verification without PowerPoint.
 
-Both built-in skills are seeded per-skill on first `/skills` visit; deleting one does not resurrect it on the next visit.
+### Bundled: Data Analyst
+
+`public/skills/data-analyst.zip` profiles and analyzes a CSV or JSON dataset with stdlib `csv`/`statistics` (no pandas needed) and matplotlib charts.
+
+- **Source** — `skill-src/data-analyst/` (manifest, profiler, chart set, narrative writer, runnable example).
+- **Pack** — same `npm run skills:pack` flow.
+- **Run** — `python scripts/analyze.py <data.csv|data.json> --out analysis --charts`. Writes `profile.json` (types, stats, missing, uniques, IQR outliers, Pearson correlations), `findings.md` and up to 6 charts (histograms, top-category bars, trend, scatter, box).
+- **Pipeline** — its numbers and PNGs feed straight into Report Studio (PDF/DOCX) and Deck Builder (.pptx). Supports CSV, semicolon/tab-delimited files (sniffed with fallback) and JSON arrays.
+
+All built-in skills are seeded per-skill on first `/skills` visit; deleting one does not resurrect it on the next visit.
 
 
 ## Run locally
