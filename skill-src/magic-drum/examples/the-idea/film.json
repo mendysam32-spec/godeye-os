@@ -1,0 +1,22 @@
+{
+  "style": { "mode": "pbr", "grade": "dream", "fps": 24, "size": [960, 540], "bloom": 0.6 },
+  "cast": [
+    { "name": "narr", "archetype": "critter", "palette": "cat", "voice": "en-GB-SoniaNeural", "pitch": "-2Hz" }
+  ],
+  "scenes": [
+    { "type": "void", "from": 0, "to": 14, "cast": { "narr": [-0.4, 0.3, 30] } }
+  ],
+  "shots": [
+    { "at": [0, 4], "cam": "wide", "who": "narr", "move": { "type": "dolly", "from": 1.15, "to": 0.9 } },
+    { "at": [4, 7.5], "cam": "close", "who": "narr", "angle": 18 },
+    { "at": [7.5, 10.5], "cam": "low", "who": "narr", "handheld": 0.35 },
+    { "at": [10.5, 14], "cam": "insert", "who": "insert_orb", "fov": 34 }
+  ],
+  "music": { "mood": "mystery" },
+  "sfx": [ { "t": 10.5, "kind": "bell" } ],
+  "lines": [
+    { "who": "narr", "at": 0.6, "text": "Every idea starts as a small light in the dark.", "emotion": "neutral" },
+    { "who": "narr", "at": 4.4, "text": "Most people never look at it twice. Maybe they are afraid it will change everything.", "emotion": "surprised" },
+    { "who": "narr", "at": 9.0, "text": "But you are not most people. Take the light. Build the thing.", "emotion": "happy" }
+  ]
+}

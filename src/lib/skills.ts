@@ -48,6 +48,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     version: "1.1.0",
   },
   {
+    id: "magic-drum",
+    name: "Magic Drum",
+    description:
+      "Turn a story into a finished animated film from one film.json: stylized 3D characters with lip-synced free neural voices, gestures, emotions, film cameras, color grades, music and sound effects. Use for /magicdrum, animated films, cartoons, 3D shorts, animated stories or voice-over animations. Renders locally in minutes, no API keys.",
+    url: "/skills/magic-drum.zip",
+    version: "1.0.0",
+  },
+  {
     id: "report-studio",
     name: "Report Studio",
     description:

@@ -1,0 +1,33 @@
+{
+  "style": { "mode": "pbr", "grade": "warm", "fps": 24, "size": [960, 540], "bloom": 0.45 },
+  "cast": [
+    { "name": "ren", "archetype": "critter", "palette": "fox", "voice": "en-US-GuyNeural" },
+    { "name": "kai", "archetype": "human", "palette": "skater", "voice": "en-US-AriaNeural" }
+  ],
+  "scenes": [
+    { "type": "street", "from": 0, "to": 8, "cast": { "ren": [-0.6, 0.5, 20], "kai": [2.2, 1.4, -140] } },
+    { "type": "cafe", "from": 8, "to": 16, "cast": { "ren": [0.3, 1.1, 160], "kai": [1.5, -0.7, -20] } }
+  ],
+  "shots": [
+    { "at": [0, 3], "cam": "wide", "who": "ren" },
+    { "at": [3, 5.5], "cam": "two", "who": ["ren", "kai"] },
+    { "at": [5.5, 8], "cam": "medium", "who": "kai", "move": { "type": "dolly", "from": 1.05, "to": 0.85 } },
+    { "at": [8, 10.5], "cam": "close", "who": "ren" },
+    { "at": [10.5, 13], "cam": "ots", "who": "kai" },
+    { "at": [13, 16], "cam": "medium", "who": ["ren", "kai"], "handheld": 0.25 }
+  ],
+  "moves": [ { "who": "kai", "from": [2.2, 1.4], "to": [0.9, 0.6], "at": [4.5, 7], "style": "walk" } ],
+  "sits": [
+    { "who": "ren", "seat": "chair1", "at": [8, 16] },
+    { "who": "kai", "seat": "chair2", "at": [8, 16] }
+  ],
+  "sfx": [ { "t": 7.6, "kind": "door" }, { "t": 9.8, "kind": "chime" } ],
+  "music": { "mood": "warm" },
+  "lines": [
+    { "who": "ren", "at": 0.8, "text": "Hey Kai! The market closes early tonight.", "emotion": "happy" },
+    { "who": "kai", "at": 3.6, "text": "Then we hurry. Look, the lamps are already lit.", "emotion": "neutral" },
+    { "who": "ren", "at": 6.2, "text": "Race you to the corner!", "emotion": "happy" },
+    { "who": "ren", "at": 9.0, "text": "Two coffees, extra honey, please.", "emotion": "neutral" },
+    { "who": "kai", "at": 12.5, "text": "To a perfect evening with an old friend.", "emotion": "happy" }
+  ]
+}

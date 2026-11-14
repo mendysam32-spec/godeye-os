@@ -105,8 +105,20 @@ export async function POST(req: NextRequest) {
   const stickmanSkillOn = (skills ?? []).some(
     (s) => /stickman/i.test(s.name) || /stickman/i.test(s.instructions.slice(0, 400))
   );
-  const stickmanActive =
-    requestedSkillSlug(lastUserText) === "stickman" || (stickmanSkillOn && /stickman/i.test(lastUserText));
+  const magicDrumSkillOn = (skills ?? []).some(
+    (s) => /magic[\s-]?drum/i.test(s.name) || /magic[\s-]?drum/i.test(s.instructions.slice(0, 400))
+  );
+  const slash = requestedSkillSlug(lastUserText);
+  // Films are one long JSON spec (Stickman script / Magic Drum film.json): a tight
+  // output cap truncates them mid-JSON and thinking eats the same envelope, so any
+  // active film skill gets the big budget and effort clamped to off (unless the
+  // user explicitly picked a deep effort).
+  const filmSkillActive =
+    slash === "stickman" ||
+    slash === "magicdrum" ||
+    slash === "magic-drum" ||
+    (stickmanSkillOn && /stickman/i.test(lastUserText)) ||
+    (magicDrumSkillOn && /magic[\s-]?drum|magicdrum|animated (film|short|movie|story|cartoon)|\bcartoon\b/i.test(lastUserText));
 
   // ---- system prompt -------------------------------------------------------
   const effort = isReasoningEffort(reasoningEffort)
@@ -116,7 +128,7 @@ export async function POST(req: NextRequest) {
       : "off";
   // Films never benefit from chain-of-thought; clamp medium/low to off (deep
   // explicit choices are respected).
-  const filmEffort = stickmanActive && (effort === "medium" || effort === "low") ? "off" : effort;
+  const filmEffort = filmSkillActive && (effort === "medium" || effort === "low") ? "off" : effort;
   const modePrompt = MODE_PROMPTS[(mode as ChatMode) || "chat"] || MODE_PROMPTS.chat;
   const behavior = settings?.agentBehavior ? `Behavior: ${settings.agentBehavior}.` : "";
   const codeStyle = settings?.codeStyle ? `Code style: ${settings.codeStyle}.` : "";
@@ -172,7 +184,7 @@ export async function POST(req: NextRequest) {
   const llmOpts = {
     temperature: mode === "coding" && (filmEffort === "high" || filmEffort === "extra-high") ? 0.3 : 0.6,
     // Films are one long script — 8k output tokens instead of the default cap.
-    maxTokens: stickmanActive ? 8000 : baseMax + effortBonus,
+    maxTokens: filmSkillActive ? 8000 : baseMax + effortBonus,
     tools: toolsEnabledActually ? MEDUSA_TOOLS : undefined,
     reasoningEffort: filmEffort,
   };
