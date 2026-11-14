@@ -5,7 +5,7 @@ description: >
   lip-synced neural voices, gestures, camera work, color grades, music and SFX.
   Trigger with /magicdrum or when the user asks for an animated film, cartoon, 3D short,
   animated story, or voice-over animation. Renders locally in minutes — no API keys.
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Magic Drum
@@ -98,6 +98,8 @@ Cut rhythm: 2–4 s per shot reads best. Scene changes are hard cuts.
 `mode`: `pbr` (3D Pixar-lite) or `toon` (flat 2D cel look, same rig).
 `grade`: `warm dusk cool neutral noir dream`. `size`: `[1280,720]` default,
 `[960,540]` for speed. `bloom` 0..1. `fps` 24.
+Subtitles: burned in automatically whenever there is dialogue (`"subtitles": false`
+in `style` disables); a `subtitles.srt` sidecar is also written next to the film.
 
 ### music + sfx
 `music.mood`: `warm cozy hopeful happy | tense dark mystery | playful quirky light |

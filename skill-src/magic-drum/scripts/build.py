@@ -82,6 +82,36 @@ def normalize(spec):
     return spec, eng, dur, fps
 
 
+def write_srt(folder, speech_data):
+    """SubRip sidecar from the same word cues the engine uses for burn-in."""
+    def ts(sec):
+        ms = int(round(sec * 1000))
+        return f"{ms // 3600000:02d}:{(ms // 60000) % 60:02d}:{(ms // 1000) % 60:02d},{ms % 1000:03d}"
+
+    caps = []
+    for l in speech_data.get("lines", []):
+        cur = None
+        for cue in l.get("cues", []):
+            t, d, w = float(cue[0]), float(cue[1]), str(cue[2])
+            if cur and (t - cur[1] > 0.45 or len(cur[2] + " " + w) > 42 or t - cur[0] > 3.5):
+                caps.append(cur)
+                cur = None
+            if not cur:
+                cur = [t, t + d, w]
+            else:
+                cur[1] = max(cur[1], t + d)
+                cur[2] += " " + w
+        if cur:
+            caps.append(cur)
+    caps.sort(key=lambda c: c[0])
+    body = []
+    for i, (t0, t1, text) in enumerate(caps, 1):
+        body.append(f"{i}\n{ts(t0)} --> {ts(t1)}\n{text}\n")
+    out = Path(folder) / "subtitles.srt"
+    out.write_text("\n".join(body), encoding="utf-8-sig")
+    print(f"subtitles: {len(caps)} captions -> subtitles.srt")
+
+
 def stage(folder):
     """Fresh engine copy + data.js so films never touch the skill's own files."""
     stage_dir = Path(folder) / "stage"
@@ -177,6 +207,8 @@ def main():
     (folder / "film.normalized.json").write_text(json.dumps(spec, ensure_ascii=False, indent=1), encoding="utf-8")
 
     sp = speech_mod.synthesize_lines(folder, spec, fps)
+    if spec.get("style", {}).get("subtitles", True):
+        write_srt(folder, sp)
     stage_dir = stage(folder)
     write_data_js(stage_dir, eng, sp)
 

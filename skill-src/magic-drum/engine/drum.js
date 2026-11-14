@@ -86,6 +86,73 @@ function lineAt(t, name) {
   return null;
 }
 
+/* ------------------------------- captions -------------------------------- */
+
+// Group word cues into readable captions: break on long gaps, ~42 chars, ~3.5 s.
+function buildCaptions(lines) {
+  const caps = [];
+  for (const l of lines) {
+    const cues = l.cues || [];
+    if (!cues.length) continue;
+    let cur = null;
+    for (const [t, d, w] of cues) {
+      const word = String(w);
+      if (cur && (t - cur.t1 > 0.45 || (cur.text + " " + word).length > 42 || t - cur.t0 > 3.5)) {
+        caps.push(cur);
+        cur = null;
+      }
+      if (!cur) cur = { t0: t, t1: t + d, text: word };
+      else {
+        cur.t1 = Math.max(cur.t1, t + d);
+        cur.text += " " + word;
+      }
+    }
+    if (cur) caps.push(cur);
+  }
+  caps.sort((a, b) => a.t0 - b.t0);
+  return caps;
+}
+const SUBS_ON = speech.length > 0 && style.subtitles !== false;
+const CAPTIONS = SUBS_ON ? buildCaptions(speech) : [];
+function captionAt(t) {
+  for (const c of CAPTIONS) if (t >= c.t0 - 0.05 && t <= c.t1 + 0.12) return c;
+  return null;
+}
+
+// 2D composite canvas: 3D frame + subtitle text -> this is what gets captured.
+const out2d = document.createElement("canvas");
+out2d.width = W; out2d.height = H;
+const octx = out2d.getContext("2d");
+
+function drawCaption(c) {
+  const pad = Math.round(H * 0.014);
+  const fs = Math.round(H * 0.052);
+  octx.font = `600 ${fs}px "Segoe UI", Arial, sans-serif`;
+  octx.textAlign = "center";
+  octx.textBaseline = "bottom";
+  const text = c.text;
+  const tw = octx.measureText(text).width;
+  const x = W / 2, y = H - Math.round(H * 0.045);
+  octx.fillStyle = "rgba(8, 10, 16, 0.55)";
+  const bx = x - tw / 2 - pad, by = y - fs - pad * 0.7, bw = tw + pad * 2, bh = fs + pad * 1.5;
+  const r = Math.min(bh / 2, Math.round(H * 0.012));
+  octx.beginPath();
+  octx.moveTo(bx + r, by);
+  octx.arcTo(bx + bw, by, bx + bw, by + bh, r);
+  octx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+  octx.arcTo(bx, by + bh, bx, by, r);
+  octx.arcTo(bx, by, bx + bw, by, r);
+  octx.closePath();
+  octx.fill();
+  octx.fillStyle = "#f5f2ea";
+  octx.shadowColor = "rgba(0,0,0,0.8)";
+  octx.shadowBlur = fs * 0.12;
+  octx.shadowOffsetY = 1;
+  octx.fillText(text, x, y);
+  octx.shadowBlur = 0;
+  octx.shadowOffsetY = 0;
+}
+
 /* --------------------------------- build --------------------------------- */
 
 const SCENES = (SPEC.scenes && SPEC.scenes.length ? SPEC.scenes : [{ type: 'street', from: 0, to: 1e9, cast: {} }])
@@ -265,6 +332,15 @@ function renderAt(i) {
   const t = i / FPS + 1e-6;
   frame(t, i);
   post.renderFrame(i);
+  if (SUBS_ON) {
+    const c = captionAt(t);
+    if (c) {
+      octx.clearRect(0, 0, W, H);
+      octx.drawImage(canvas, 0, 0);
+      drawCaption(c);
+      return out2d.toDataURL('image/jpeg', 0.9);
+    }
+  }
   return canvas.toDataURL('image/jpeg', 0.9);
 }
 window.renderAt = renderAt;
