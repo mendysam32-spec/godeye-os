@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, type ChatMessage as WireMessage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
+import { getProvider, isFreeModel } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
 import { authedRecord, saveState } from "@/lib/auth";
 import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
@@ -56,6 +57,8 @@ interface ChatBody {
   reasoningEffort?: ReasoningEffort;
   /** Enabled skill packs — manifest text injected into the system prompt. */
   skills?: SkillPromptSkill[];
+  /** Client's current model list (free-first) — powers auto-fallback on limits. */
+  freeModels?: string[];
 }
 
 export async function POST(req: NextRequest) {
@@ -74,7 +77,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ChatBody | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills } = body;
+  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills, freeModels } = body;
 
   if (!messages?.length || !provider || !model) {
     return NextResponse.json({ error: "messages, provider, model required" }, { status: 400 });
@@ -197,6 +200,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ---- free-model auto-fallback -------------------------------------------
+  // When the selected model stops working for quota reasons (429 / daily cap /
+  // free-tier limit / no credits), retry on the next free model of the same
+  // provider so work is not interrupted. The client sends its current free model
+  // ids (free-first sorted); the static catalog is the backup. A model that
+  // already streamed content is never swapped — that would duplicate text.
+  const LIMIT_RE = /\b429\b|rate[ _-]?limit|ratelimit|quota|daily|monthly|exhaust|exceeded|too many requests|free[- ]tier|insufficient|credits?|balance|capacity|overloaded/i;
+  const clientFree = Array.isArray(freeModels) ? freeModels.filter((id): id is string => typeof id === "string" && !!id) : [];
+  const staticFree = (getProvider(provider)?.models || []).filter((m) => isFreeModel(m)).map((m) => m.id);
+  const fallbackModels = [...new Set(clientFree.length ? clientFree : staticFree)].filter((id) => id !== model).slice(0, 3);
+  const tryCandidates = [model, ...fallbackModels];
+
   // ---- streaming -----------------------------------------------------------
   // The response is created before the provider call so the client can render
   // progress (and, later, document parsing / OCR) during the wait instead of
@@ -215,12 +230,37 @@ export async function POST(req: NextRequest) {
           }
         };
         try {
-          emit({ type: "stage", stage: "thinking", label: `Thinking — ${model}` });
-          const r = await callLLM(
-            { provider, model, messages: llmMessages, ...llmOpts, stream: true, signal: req.signal, onDelta: (t) => emit({ delta: t }) },
-            apiKey,
-            endpointOverride,
-          );
+          let r: Awaited<ReturnType<typeof callLLM>> | null = null;
+          let usedModel = model;
+          let deltas = false;
+          let lastErr: unknown = null;
+          for (let attempt = 0; attempt < tryCandidates.length; attempt++) {
+            const m = tryCandidates[attempt];
+            try {
+              emit({ type: "stage", stage: "thinking", label: attempt === 0 ? `Thinking — ${m}` : `${model} hit its limit — switching to ${m}` });
+              r = await callLLM(
+                { provider, model: m, messages: llmMessages, ...llmOpts, stream: true, signal: req.signal, onDelta: (t) => { deltas = true; emit({ delta: t }); } },
+                apiKey,
+                endpointOverride,
+              );
+              usedModel = m;
+              lastErr = null;
+              break;
+            } catch (err: unknown) {
+              if ((err as Error)?.name === "AbortError") throw err;
+              lastErr = err;
+              const msg = String((err as Error)?.message || err || "");
+              // Only quota/limit-looking failures fall through to the next free
+              // model, and only while nothing has streamed yet.
+              if (deltas || attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) break;
+              if (attempt === 0) {
+                emit({ type: "notice", message: `${model} is rate-limited — auto-switching to another free model` });
+              }
+            }
+          }
+          if (!r) {
+            throw (lastErr ?? new Error("LLM failed"));
+          }
           recordUsage(r.usage);
           await saveState(state);
           if (r.degraded) {
@@ -229,7 +269,7 @@ export async function POST(req: NextRequest) {
           if (r.toolCalls?.length) {
             emit({ type: "toolCalls", toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs });
           }
-          emit({ type: "done", content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
+          emit({ type: "done", content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
         } catch (e: unknown) {
           if ((e as Error)?.name === "AbortError") {
             emit({ type: "aborted" });
@@ -260,13 +300,30 @@ export async function POST(req: NextRequest) {
 
   // ---- one-shot JSON -------------------------------------------------------
   try {
-    const r = await callLLM({ provider, model, messages: llmMessages, ...llmOpts, signal: req.signal }, apiKey, endpointOverride);
+    let r: Awaited<ReturnType<typeof callLLM>> | null = null;
+    let usedModel = model;
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < tryCandidates.length; attempt++) {
+      const m = tryCandidates[attempt];
+      try {
+        r = await callLLM({ provider, model: m, messages: llmMessages, ...llmOpts, signal: req.signal }, apiKey, endpointOverride);
+        usedModel = m;
+        lastErr = null;
+        break;
+      } catch (err: unknown) {
+        if ((err as Error)?.name === "AbortError") throw err;
+        lastErr = err;
+        const msg = String((err as Error)?.message || err || "");
+        if (attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) break;
+      }
+    }
+    if (!r) throw (lastErr ?? new Error("LLM failed"));
     recordUsage(r.usage);
     await saveState(state);
     if (r.toolCalls?.length) {
-      return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
+      return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
     }
-    return NextResponse.json({ content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model, mode });
+    return NextResponse.json({ content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
   } catch (e: unknown) {
     return NextResponse.json({ error: (e as Error)?.message || "LLM failed" }, { status: 500 });
   }

@@ -1,11 +1,11 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { useMEDUSA, DEFAULT_PLUGINS, type ChatMode, type ChatMessage, type ChatMedia, type PluginId } from "@/lib/store";
-import { PROVIDERS, modelsFor, modelCapabilities, isFreeModel, modelOptionLabel, type ProviderId } from "@/lib/providers";
+import { PROVIDERS, modelsFor, modelCapabilities, isFreeModel, modelOptionLabel, isValidApiKey, type ProviderId, type ProviderModel } from "@/lib/providers";
 import { Sidebar } from "@/components/sidebar";
 import { Send, Square, Plus, Paperclip, X, Copy, Check, Terminal, Code2, Image as ImageIcon, Search, ListTree, MessageSquare, Lightbulb, Trash2, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Download, Zap, Play, FileText, Clapperboard, EyeOff, Menu, FolderOpen, Package, Cloud, Mic, MicOff, Volume2, VolumeX, Blocks, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
+import { getDecryptedVaultForApi, decryptKey } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
 import { toast } from "@/components/toast";
 import { isDesktop, runMEDUSATool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
@@ -243,7 +243,7 @@ async function mediaToToolFile(md: ChatMedia): Promise<ToolFile | null> {
 }
 
 export default function ChatPage() {
-  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, incognito, setIncognito, markChatIncognito, purgeIncognito, skills } = useMEDUSA();
+  const { chats, activeChatId, createChat, setActiveChat, addMessage, updateLastMessage, deleteChat, vault, settings, setSettings, setLastSelection, setVaultKey, incognito, setIncognito, markChatIncognito, purgeIncognito, skills } = useMEDUSA();
   const activeChat = chats.find(c => c.id === activeChatId) || null;
   const enabledSkills = (skills || []).filter(s => s.enabled);
 
@@ -372,6 +372,34 @@ export default function ChatPage() {
     setProvider(pid);
     setModel(m);
     setLastSelection(pid, m);
+    void refreshModels(pid);
+  }
+
+  // Live model-list refresh — runs whenever the picker opens or the connector
+  // changes (throttled to 30 s) so the list matches what the provider serves
+  // right now: new free models appear, removed ones drop out, pricing-derived
+  // free flags stay current. Results write back to the vault with the existing
+  // (still encrypted) key. Silent on failure — the current list just stays.
+  const lastModelRefreshRef = useRef(0);
+  async function refreshModels(pid: ProviderId) {
+    if (Date.now() - lastModelRefreshRef.current < 30_000) return;
+    lastModelRefreshRef.current = Date.now();
+    const entry = vault[pid];
+    if (!entry?.key) return;
+    try {
+      const apiKey = (await decryptKey(entry.key)).trim();
+      if (!isValidApiKey(apiKey)) return;
+      const res = await fetch("/api/providers/models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: pid, apiKey, ...(entry.endpoint?.trim() ? { endpoint: entry.endpoint.trim() } : {}) }),
+      });
+      const j = await res.json().catch(() => null);
+      const models = (Array.isArray(j?.models) ? j.models : []) as ProviderModel[];
+      if (models.length) setVaultKey(pid, entry.key, !!entry.connected, entry.endpoint, models);
+    } catch {
+      /* keep the current list */
+    }
   }
 
   useEffect(() => {
@@ -681,6 +709,9 @@ function selectChat(id: string) {
           vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
           reasoningEffort,
           skills: enabledSkills.map(s => ({ name: s.name, description: s.description, instructions: s.instructions, diskPath: s.diskPath, files: s.files })),
+          // free-first list of this provider's zero-cost models — lets the server
+          // auto-switch to a working one if the selected model hits its limit
+          freeModels: modelList.filter(m => isFreeModel(m)).map(m => m.id),
         }),
         signal: controller.signal,
       });
@@ -1059,6 +1090,9 @@ function selectChat(id: string) {
               <select value={model} onChange={e=>{ const m=e.target.value; setModel(m); setLastSelection(provider, m); }} className="bg-transparent text-xs outline-none max-w-[140px]">
                 {modelList.map(m=><option key={m.id} value={m.id}>{modelOptionLabel(m)}</option>)}
               </select>
+              {isFreeModel(modelList.find(m => m.id === model) || model) && (
+                <span className="hidden md:inline-flex rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wide bg-emerald-500/20 text-emerald-600" title="Zero-cost model — auto-fallback keeps you running if it hits its limit">Free</span>
+              )}
             </div>
             <Link href="/skills" title="Installed skills" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline-flex items-center gap-1.5 hover:bg-muted">
               <Blocks className="h-3 w-3" /> Skills{enabledSkills.length ? ` · ${enabledSkills.length}` : ""}
@@ -1228,7 +1262,7 @@ function selectChat(id: string) {
                 <input ref={folderRef} type="file" {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} multiple className="hidden" onChange={handleFiles}/>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{ if (shouldSendOnEnter(e)){ e.preventDefault(); if(!running) send(); }}} placeholder={`Message • ${mode} mode${projectFiles.length ? ` • project: ${projectName} (${projectFiles.length} files)` : ""} • ${enterHint()}`} rows={1} className="flex-1 min-w-0 bg-transparent outline-none text-[16px] sm:text-sm resize-none py-2 max-h-32"/>
                 <div className="flex items-center gap-1.5 shrink-0 relative" ref={modelMenuRef}>
-                  <button onClick={()=>setShowModelMenu(!showModelMenu)} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Model, connectors & plugins • ${providerObj?.name}/${model}`}><Plus className="h-4 w-4"/></button>
+                  <button onClick={()=>{ const opening = !showModelMenu; setShowModelMenu(opening); if (opening) void refreshModels(provider); }} className="p-2 rounded-xl hover:bg-muted shrink-0" title={`Model, connectors & plugins • ${providerObj?.name}/${model}`}><Plus className="h-4 w-4"/></button>
                   {showModelMenu && (
                     <div className="absolute bottom-full right-0 mb-2 w-80 rounded-2xl border bg-card shadow-xl p-2 z-50">
                       <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1 mb-1.5">

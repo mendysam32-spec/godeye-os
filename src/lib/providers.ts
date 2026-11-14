@@ -229,11 +229,19 @@ export function isReasoningModel(id: string, list?: ProviderModel[]): boolean {
 }
 const CONTENT_REASON_RE = /(\bo[134]\b|deepseek[-_ ]?r1|deepseek-reasoner|-thinking|thinking|reasoning|\bqwq\b|qwen3|nemotron)/i;
 
+// Free models first (stable order — paid keep their relative order, free keep
+// theirs). Used as the single arrangement chokepoint so every surface that
+// lists models — pickers, header select, terminal — shows free ones on top.
+export function sortModelsFreeFirst(list: ProviderModel[]): ProviderModel[] {
+  return [...list].sort((a, b) => Number(isFreeModel(b)) - Number(isFreeModel(a)));
+}
+
 // effective model list: models fetched live from the provider via the API key take
 // precedence over the static curated list. `dynamic` comes from the vault entry.
+// Returned free-first so the picker arrangement always leads with free models.
 export function modelsFor(p: Provider | undefined, dynamic?: ProviderModel[]): ProviderModel[] {
-  if (dynamic && dynamic.length) return dynamic;
-  return p?.models || [];
+  if (dynamic && dynamic.length) return sortModelsFreeFirst(dynamic);
+  return sortModelsFreeFirst(p?.models || []);
 }
 
 // API keys must be printable ASCII with no whitespace. Anything else (notably
