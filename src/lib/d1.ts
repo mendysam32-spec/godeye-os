@@ -78,12 +78,33 @@ export const CHAT_SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_chat_messages_uid ON chat_messages(uid, ts)`,
 ];
 
+/**
+ * Video-generation jobs: the provider job handle is persisted so a run
+ * survives tab closes, reloads and poll-budget timeouts — the status route
+ * can reattach by row id at any time. Mirrors
+ * `migrations/0004_generation_jobs.sql`; keep the two in sync.
+ */
+export const GENERATION_SCHEMA: string[] = [
+  `CREATE TABLE IF NOT EXISTS generation_jobs (
+     id         TEXT PRIMARY KEY,
+     uid        TEXT NOT NULL,
+     provider   TEXT NOT NULL,
+     model      TEXT NOT NULL,
+     prompt     TEXT,
+     job        TEXT NOT NULL,
+     status     TEXT NOT NULL DEFAULT 'pending',
+     error      TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_generation_jobs_uid ON generation_jobs(uid, created_at)`,
+];
+
 /* -------------------------------------------------------------------------- */
 /* accessor                                                                    */
 /* -------------------------------------------------------------------------- */
 
 let dbPromise: Promise<D1Like | null> | null = null;
-
 /** Resolve the D1 binding, or `null` when this runtime has none. */
 export function getDb(): Promise<D1Like | null> {
   if (dbPromise) return dbPromise;
@@ -121,6 +142,23 @@ export function ensureChatSchema(db: D1Like): Promise<void> {
     });
   }
   return schemaPromise;
+}
+
+let genSchemaPromise: Promise<void> | null = null;
+
+/** Run the generation-jobs DDL once per isolate. Safe to call on every request. */
+export function ensureGenerationSchema(db: D1Like): Promise<void> {
+  if (!genSchemaPromise) {
+    genSchemaPromise = (async () => {
+      for (const stmt of GENERATION_SCHEMA) {
+        await db.prepare(stmt).run();
+      }
+    })().catch((e) => {
+      genSchemaPromise = null;
+      throw e;
+    });
+  }
+  return genSchemaPromise;
 }
 
 /* -------------------------------------------------------------------------- */

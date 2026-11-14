@@ -227,19 +227,72 @@ async function downloadMedia(md: ChatMedia) {
   a.remove();
 }
 
-// Turn generated media (data: URLs) into downloadable ToolFiles registered under
-// the assistant message's "Created files" panel — lets image/video-capable models
+// Turn generated media into downloadable ToolFiles registered under the
+// assistant message's "Created files" panel — lets image/video-capable models
 // produce files you can save to disk (desktop) or download (browser).
-async function mediaToToolFile(md: ChatMedia): Promise<ToolFile | null> {
-  if (!md.src.startsWith("data:")) return null; // remote signed URLs keep the inline download button
+// For remote video URLs (expiring signed links) the bytes are pulled through
+// /api/generate/video/download so the file survives the link's expiry.
+async function mediaToToolFile(md: ChatMedia, opts?: { provider?: string; vault?: Record<string, unknown> }): Promise<ToolFile | null> {
+  const name = md.filename || (md.kind === "image" ? "medusa-image.png" : "medusa-video.mp4");
+  if (!md.src.startsWith("data:")) {
+    if (md.kind !== "video" || !opts?.provider || !opts.vault) return null;
+    try {
+      const res = await fetch("/api/generate/video/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: opts.provider, url: md.url || md.src, filename: name, vault: opts.vault }),
+      });
+      if (!res.ok) return null; // fall back to the inline download button
+      const blob = await res.blob();
+      if (blob.size > 100_000_000) return null;
+      const base64 = await blobToBase64(blob);
+      const mime = blob.type || md.mime || "video/mp4";
+      const r = await runMEDUSATool("medusa_saveFile", { name, base64, type: mime });
+      if (r.files?.length) return r.files[0];
+      return { name, base64, type: mime };
+    } catch {
+      return null;
+    }
+  }
   const comma = md.src.indexOf(",");
   if (comma < 0) return null;
   const mime = /^data:([^;]+)/.exec(md.src)?.[1] || md.mime || (md.kind === "image" ? "image/png" : "video/mp4");
   const base64 = md.src.slice(comma + 1);
-  const name = md.filename || (md.kind === "image" ? "medusa-image.png" : "medusa-video.mp4");
   const r = await runMEDUSATool("medusa_saveFile", { name, base64, type: mime });
   if (r.files?.length) return r.files[0];
   return { name, base64, type: mime };
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) {
+    bin += String.fromCharCode(...buf.subarray(i, Math.min(i + 0x8000, buf.length)));
+  }
+  return btoa(bin);
+}
+
+// A video job that outlived its poll budget (or the tab) — recoverable from
+// the banner via its persisted D1 row id. Tracked in localStorage so a reload
+// doesn't orphan it.
+interface PendingVideoJob {
+  jobId: string;
+  provider: string;
+  model: string;
+  chatId: string;
+}
+
+const PENDING_JOB_KEY = "medusa:videoJob";
+
+function loadPendingJob(): PendingVideoJob | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(PENDING_JOB_KEY);
+    const j = raw ? (JSON.parse(raw) as PendingVideoJob) : null;
+    return j && j.jobId ? j : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function ChatPage() {
@@ -283,6 +336,19 @@ export default function ChatPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [createdFiles, setCreatedFiles] = useState<Record<string, ToolFile[]>>({});
+  // A video job still running on the provider after its poll budget ran out —
+  // reattachable from the banner (persisted in localStorage across reloads).
+  const [pendingJob, setPendingJob] = useState<PendingVideoJob | null>(() => loadPendingJob());
+  const [reattaching, setReattaching] = useState(false);
+  const reattachRef = useRef<AbortController | null>(null);
+
+  function setPendingJobSlot(job: PendingVideoJob | null) {
+    setPendingJob(job);
+    try {
+      if (job) localStorage.setItem(PENDING_JOB_KEY, JSON.stringify(job));
+      else localStorage.removeItem(PENDING_JOB_KEY);
+    } catch { /* storage full or unavailable — banner just won't persist */ }
+  }
   const [focused, setFocused] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(() => (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches ? false : true));
   const [menuOpen, setMenuOpen] = useState(false);
@@ -800,19 +866,115 @@ function selectChat(id: string) {
     }
   }
 
+  async function registerMediaFilesFor(asstId: string, media: ChatMedia[], providerId: string, decryptedVault: Record<string, unknown>) {
+    const files: ToolFile[] = [];
+    for (const md of media) {
+      const tf = await mediaToToolFile(md, { provider: providerId, vault: decryptedVault });
+      if (tf) files.push(tf);
+    }
+    if (files.length) {
+      setCreatedFiles(prev => ({ ...prev, [asstId]: [...(prev[asstId] || []), ...files] }));
+      setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] 💾 ${files.length} media file(s) ready${files[0]?.savedPath ? ` → ${files[0].savedPath}` : " — downloads available"}`]);
+    }
+  }
+
+  /** Poll a submitted video job until it completes, fails, or the poll budget
+   * runs out. Budget exhaustion is NOT an error — the provider keeps rendering
+   * and the persisted jobId stays reattachable from the banner. Transient
+   * status-poll failures (network blips, provider 5xx) retry instead of
+   * abandoning the job. */
+  async function pollVideoUntilDone(opts: {
+    chatId: string; asstId: string; genMode: ChatMode;
+    jobId: string; provider: string; model: string;
+    controller: AbortController; decryptedVault: Record<string, unknown>;
+  }): Promise<"done" | "still-running"> {
+    const { chatId, asstId, genMode, jobId, provider: p, model: m, controller, decryptedVault } = opts;
+    // total budget: ~5 minutes of polling (8s cadence) — covers most Sora/Veo jobs
+    const MAX_POLLS = 38;
+    let attempts = 0;
+    let blips = 0;
+    while (true) {
+      if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      if (attempts >= MAX_POLLS) return "still-running";
+      attempts++;
+      updateLastMessage(chatId, `_Generating video… (job ${attempts})_`);
+      let sj: { status?: string; ok?: boolean; transient?: boolean; error?: string; videos?: { src: string; url?: string; mime?: string; filename?: string }[] };
+      try {
+        const st = await fetch("/api/generate/video/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: p, model: m, jobId, vault: decryptedVault }),
+          signal: controller.signal,
+        });
+        sj = await st.json();
+      } catch {
+        if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        // the request itself failed — a blip, not a provider verdict
+        sj = { transient: true, error: "Status poll failed" };
+      }
+      if (sj.status === "done") {
+        const media: ChatMedia[] = (sj.videos || []).map((v) => ({
+          kind: "video",
+          src: v.src,
+          url: v.url,
+          mime: v.mime,
+          filename: v.filename,
+        }));
+        if (!media.length) {
+          setPendingJobSlot(null);
+          throw new Error("No video returned");
+        }
+        setPendingJobSlot(null);
+        updateLastMessage(chatId, "**Video generated**", { media, provider: p as ProviderId, model: m, mode: genMode });
+        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F3AC} ${media.length} video(s) via ${m}`]);
+        await registerMediaFilesFor(asstId, media, p, decryptedVault);
+        return "done";
+      }
+      if (sj.transient && blips < 4) {
+        blips++;
+        await new Promise(r => setTimeout(r, 3000 * blips));
+        continue;
+      }
+      blips = 0;
+      if (sj.status === "error" || sj.error) {
+        setPendingJobSlot(null);
+        throw new Error(sj.error || "Video generation failed");
+      }
+      await new Promise(r => setTimeout(r, 8000));
+    }
+  }
+
+  /** Resume a tracked video job after a timeout, tab close or reload. The
+   * video lands in the tracked chat as a fresh assistant message. */
+  async function reattachVideoJob() {
+    const slot = pendingJob;
+    if (!slot || running || reattaching) return;
+    const chatId = chats.some(c => c.id === slot.chatId) ? slot.chatId : activeChatId;
+    if (!chatId) return;
+    setReattaching(true);
+    const asstId = `reattach-${slot.jobId}`;
+    addMessage(chatId, { id: asstId, role: "assistant", content: `_Reattaching video job (${slot.model})…_`, timestamp: new Date().toISOString(), provider: slot.provider as ProviderId, model: slot.model, mode: "video" });
+    const controller = new AbortController();
+    reattachRef.current = controller;
+    try {
+      const decryptedVault = await getDecryptedVaultForApi(vault);
+      await pollVideoUntilDone({
+        chatId, asstId, genMode: "video", jobId: slot.jobId,
+        provider: slot.provider, model: slot.model,
+        controller, decryptedVault,
+      });
+    } catch (e) {
+      const err = e as Error;
+      if (err.name === "AbortError") updateLastMessage(chatId, "_— reattach stopped_");
+      else updateLastMessage(chatId, `**Error:** ${err.message}`);
+    } finally {
+      reattachRef.current = null;
+      setReattaching(false);
+    }
+  }
+
   async function generateMedia(chatId: string, prompt: string, isImage: boolean, controller: AbortController, genMode: ChatMode, asstId: string) {
     const decryptedVault = await getDecryptedVaultForApi(vault);
-    async function registerMediaFiles(media: ChatMedia[]) {
-      const files: ToolFile[] = [];
-      for (const md of media) {
-        const tf = await mediaToToolFile(md);
-        if (tf) files.push(tf);
-      }
-      if (files.length) {
-        setCreatedFiles(prev => ({ ...prev, [asstId]: [...(prev[asstId] || []), ...files] }));
-        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] 💾 ${files.length} media file(s) ready${files[0]?.savedPath ? ` → ${files[0].savedPath}` : " — downloads available"}`]);
-      }
-    }
     if (isImage) {
       updateLastMessage(chatId, `_Generating image with ${model}…_`);
       const res = await fetch("/api/generate/image", {
@@ -836,11 +998,13 @@ function selectChat(id: string) {
       if (!media.length) throw new Error("No image returned");
       updateLastMessage(chatId, "**Image generated**", { media, provider, model, mode: genMode });
       setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F5BC} ${media.length} image(s) via ${model}`]);
-      await registerMediaFiles(media);
+      await registerMediaFilesFor(asstId, media, provider, decryptedVault);
       return;
     }
 
-    // video: submit a job, then poll status until the provider finishes.
+    // video: submit a job (persisted server-side), then poll status until the
+    // provider finishes. If the poll budget runs out the job keeps rendering
+    // and stays reattachable from the banner.
     updateLastMessage(chatId, `_Starting video generation with ${model}…_`);
     const sub = await fetch("/api/generate/video", {
       method: "POST",
@@ -852,38 +1016,19 @@ function selectChat(id: string) {
       const j = await sub.json().catch(() => ({ error: sub.statusText }));
       throw new Error(j.error || "Video generation failed");
     }
-    const { job } = await sub.json();
-    let attempts = 0;
-    // total budget: ~5 minutes of polling (8s cadence) — covers most Sora/Veo jobs
-    const MAX_POLLS = 38;
-    while (true) {
-      if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
-      if (attempts >= MAX_POLLS) throw new Error("Video generation timed out — check the providers job dashboard");
-      attempts++;
-      updateLastMessage(chatId, `_Generating video… (job ${attempts})_`);
-      const st = await fetch("/api/generate/video/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, model, job, vault: decryptedVault }),
-        signal: controller.signal,
-      });
-      const sj = await st.json().catch(() => ({ status: "error", error: "Status poll failed" }));
-      if (sj.status === "done") {
-        const media: ChatMedia[] = (sj.videos || []).map((v: { src: string; url?: string; mime?: string; filename?: string }) => ({
-          kind: "video",
-          src: v.src,
-          url: v.url,
-          mime: v.mime,
-          filename: v.filename,
-        }));
-        if (!media.length) throw new Error("No video returned");
-        updateLastMessage(chatId, "**Video generated**", { media, provider, model, mode: genMode });
-        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] \u{1F3AC} ${media.length} video(s) via ${model}`]);
-        await registerMediaFiles(media);
-        return;
+    const { job, jobId } = await sub.json();
+    if (jobId) setPendingJobSlot({ jobId, provider, model, chatId });
+    const outcome = await pollVideoUntilDone({
+      chatId, asstId, genMode, jobId: jobId || job,
+      provider, model, controller, decryptedVault,
+    });
+    if (outcome === "still-running") {
+      if (jobId) {
+        updateLastMessage(chatId, "**Video still generating** — the job continues on the provider. Use **Reattach** in the banner above once it finishes.");
+        setLogs(l => [...l, `[${new Date().toLocaleTimeString()}] ⏳ video job still running — reattachable`]);
+      } else {
+        updateLastMessage(chatId, "**Video generation timed out** — the job continues on the provider, but this session could not track it. Check the provider's dashboard.");
       }
-      if (sj.status === "error" || sj.error) throw new Error(sj.error || "Video generation failed");
-      await new Promise(r => setTimeout(r, 8000));
     }
   }
 
@@ -962,6 +1107,7 @@ function selectChat(id: string) {
 
   function stop() {
     abortRef.current?.abort();
+    reattachRef.current?.abort();
   }
 
   async function saveMessage(m: ChatMessage) {
@@ -1123,6 +1269,18 @@ function selectChat(id: string) {
             <Link href="/vault" className="text-xs rounded-full border px-3 py-1.5 hidden md:inline">Vault</Link>
           </div>
         </div>
+
+        {/* reattachable video job banner — the handle survives reloads via D1 */}
+        {pendingJob && !running && (
+          <div className="mx-4 md:mx-6 mt-2 flex items-center gap-2 rounded-xl border bg-muted/60 px-3 py-2 text-xs">
+            <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+            <span className="flex-1 truncate">Video job still running on {pendingJob.provider} — {pendingJob.model}</span>
+            <button onClick={reattachVideoJob} disabled={reattaching} className="rounded-lg border px-2.5 py-1 font-medium hover:bg-background disabled:opacity-50 shrink-0">
+              {reattaching ? "Reattaching…" : "Reattach"}
+            </button>
+            <button onClick={() => setPendingJobSlot(null)} className="rounded-lg px-2 py-1 text-muted-foreground hover:bg-background shrink-0" title="Stop tracking this job">✕</button>
+          </div>
+        )}
 
         {/* messages */}
         <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 space-y-4 overscroll-contain">

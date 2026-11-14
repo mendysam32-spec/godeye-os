@@ -45,11 +45,18 @@ function toB64(bytes: Uint8Array): string {
 }
 
 // Fetch a remote media URL (often an expiring signed URL the user can't reuse
-// later) and inline it as a data URL when it is small enough.
+// later) and inline it as a data URL when it is small enough. Google file URIs
+// need the API key as a Google header rather than a Bearer token.
 async function inlineIfSmall(url: string, apiKey?: string, limit = MAX_INLINE_BYTES): Promise<{ src: string; mime?: string } | null> {
   try {
     const headers: Record<string, string> = {};
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    if (apiKey) {
+      if (/(^|\.)googleapis\.com$/i.test(new URL(url).hostname)) {
+        headers["x-goog-api-key"] = apiKey;
+      } else {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+    }
     const r = await fetch(url, { headers });
     if (!r.ok) return null;
     const ctype = r.headers.get("content-type") || "video/mp4";
@@ -252,9 +259,24 @@ export interface VideoPollResult {
   jobState?: string;
   error?: string;
   videos?: GeneratedMedia[];
+  /** Poll failure looks transient (network blip / provider 5xx) — the client
+   * should retry rather than abandon the job. */
+  transient?: boolean;
 }
 
 const ERROR_STATES = ["failed", "error", "canceled", "cancelled"];
+
+// Submit gate: only send jobs to endpoints that actually implement one. Google
+// always gets the Veo operations API; anything else must at least look like a
+// known video-model family — a live-list model that merely contains "video"
+// (e.g. a video-*understanding* LLM) would otherwise be POSTed to a /videos
+// endpoint that does not exist and surface a raw 404 to the user.
+const VIDEO_MODEL_RE = /(sora|veo|kling|seedance|hailuo|minimax[-_ ]?(h3|video)|wan[\d.]|ltx[-_ ]?\d|pixverse|pika|runway|gen-[34]|happy[-_ ]?horse|grok[-_ ]?imagine)/i;
+
+export function canSubmitVideo(provider: ProviderId, model: string): boolean {
+  if (provider === "google") return true; // Veo operations endpoint
+  return VIDEO_MODEL_RE.test(model);
+}
 
 interface VeoGenVideo {
   video?: { uri?: string };
@@ -275,6 +297,9 @@ export async function pollVideo(call: GenerationCall, job: string): Promise<Vide
     const res = await fetch(`${GOOGLE_BASE}/${opPath}?key=${encodeURIComponent(call.apiKey)}`);
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
+      // 5xx from Google is usually transient — let the client retry instead of
+      // abandoning a job that is still rendering server-side.
+      if (res.status >= 500) return { status: "pending", jobState: `poll_http_${res.status}`, transient: true };
       return { status: "error", error: `veo poll ${res.status}: ${txt.slice(0, 400)}` };
     }
     const j = (await res.json()) as VeoOperation;
@@ -286,7 +311,7 @@ export async function pollVideo(call: GenerationCall, job: string): Promise<Vide
     for (let i = 0; i < vids.length; i++) {
       const uri = String(vids[i]?.video?.uri || "").trim();
       if (!uri) continue;
-      const inline = await inlineIfSmall(uri);
+      const inline = await inlineIfSmall(uri, call.apiKey);
       videos.push(
         inline
           ? { ...inline, filename: `medusa-video-${stamp}-${i}.mp4` }
@@ -303,6 +328,7 @@ export async function pollVideo(call: GenerationCall, job: string): Promise<Vide
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
+    if (res.status >= 500) return { status: "pending", jobState: `poll_http_${res.status}`, transient: true };
     return { status: "error", error: `sora poll ${res.status}: ${txt.slice(0, 400)}` };
   }
   const j = (await res.json()) as SoraJob;
