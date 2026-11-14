@@ -186,10 +186,10 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground mt-1">Fast = quick answers. Think = step-by-step. Deep = multi-approach verification for code & research. Max 🧠 = extra-high depth for complex projects, big docs, question banks and data work (slower, more tokens).</p>
             <div className="mt-4 grid md:grid-cols-2 gap-4">
               <label className="block"><span className="text-xs font-medium">Reasoning effort (default)</span>
-                <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({reasoningEffort:e.target.value as any})} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10">
-                  <option value="off">Off — fast, no extra thinking</option>
+                <select value={settings.reasoningEffort || "off"} onChange={e=>setSettings({reasoningEffort:e.target.value as any})} className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10">
+                  <option value="off">Off — fast, no extra thinking (default)</option>
                   <option value="low">Low — quick deliberation</option>
-                  <option value="medium">Medium — step-by-step (recommended)</option>
+                  <option value="medium">Medium — step-by-step (slower)</option>
                   <option value="high">High — deep reasoning for hard tasks</option>
                   <option value="extra-high">Extra-high 🧠 — max depth for complex projects</option>
                 </select>

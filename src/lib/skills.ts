@@ -45,7 +45,7 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description:
       "Turn a topic into a finished stickman film rendered entirely from code: flat 2D characters, a dusk palette, film-style camera work and real sound. Also writes voiceover scripts, YouTube titles and thumbnail prompts.",
     url: "/skills/stickman.zip",
-    version: "1.0.0",
+    version: "1.1.0",
   },
   {
     id: "report-studio",

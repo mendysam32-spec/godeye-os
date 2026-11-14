@@ -22,9 +22,9 @@ const PLUGIN_DEFS: { id: PluginId; label: string; desc: string; icon: any; iconC
 ];
 
 const REASONING_OPTIONS = [
-  { id: "off", label: "Off", desc: "Fastest, no extra thinking" },
+  { id: "off", label: "Off", desc: "Fastest — default" },
   { id: "low", label: "Low", desc: "Quick deliberation" },
-  { id: "medium", label: "Medium", desc: "Step-by-step (recommended)" },
+  { id: "medium", label: "Medium", desc: "Step-by-step (slower)" },
   { id: "high", label: "High", desc: "Deep reasoning for hard tasks" },
   { id: "extra-high", label: "Extra-high 🧠", desc: "Max depth — complex projects & big docs" },
 ];
@@ -32,7 +32,7 @@ const REASONING_OPTIONS = [
 export default function ConnectorsPage() {
   const { vault, setVaultKey, setSettings } = useMEDUSA() as any;
   const pPlugins = ((useMEDUSA((s) => (s as any).settings.plugins) as any) || { ...DEFAULT_PLUGINS }) as Record<PluginId, boolean>;
-  const reasoning = useMEDUSA((s) => (s as any).settings.reasoningEffort || "medium");
+  const reasoning = useMEDUSA((s) => (s as any).settings.reasoningEffort || "off");
 
   const [visible, setVisible] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});

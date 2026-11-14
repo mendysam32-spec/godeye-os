@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
         messages,
         temperature: 0.2,
         maxTokens: agent ? 400 : 600,
-        reasoningEffort: body.reasoningEffort === undefined ? "medium" : body.reasoningEffort,
+        reasoningEffort: body.reasoningEffort === undefined ? "off" : body.reasoningEffort,
       },
       apiKey,
       endpointOverride

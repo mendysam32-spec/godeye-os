@@ -60,7 +60,13 @@ Skills are instruction packs — a folder with a `SKILL.md` manifest (YAML front
 
 ### Bundled: Stickman
 
-`public/skills/stickman.zip` is the MIT-licensed Stickman skill (engine, references, Python scripts, sound effects). The Skills page installs it automatically on first visit, or reinstall it from the built-in card. It renders cinematic stickman films from code and also writes voiceover scripts, YouTube titles and thumbnail prompts.
+`public/skills/stickman.zip` is the MIT-licensed Stickman skill (engine, references, Python scripts, sound effects). The Skills page installs it automatically on first visit, or reinstall it from the built-in card. It renders cinematic stickman films from code and also writes voiceover scripts, YouTube titles and thumbnail prompts. Version 1.1.0 adds **economy mode**: an inlined engine/style quick reference, references read only on trigger, one stills round by default and a ≤ 6 tool-call budget per film, so films complete in far fewer LLM rounds on rate-limited free models. Installed packs silently refresh to a newer shipped version on the next `/skills` visit (deleting a skill still keeps it deleted). Film requests (`/stickman …` or "stickman" with the skill enabled) automatically get an 8k-token output budget with thinking off — film scripts no longer truncate mid-JSON.
+
+### Chat limits and speed
+
+- **Rate-limit resilience** — free-tier providers 429 constantly. OpenAI-compatible calls retry on `429` (honoring `Retry-After`, up to two waits ≤ 60 s), on provider `5xx`, and once on dropped connections; daily caps fail fast with a plain-language message ("free-tier daily limit reached … switch model or add credits"). Models that reject large `max_tokens` are retried smaller automatically.
+- **Faster responses** — the default reasoning effort is now **Off** (was Medium): no forced 4k thinking budget on reasoning models, so the first token arrives much sooner. Raise it per-chat or in Settings when depth matters.
+- **Token accounting** — per-user `tokenLimit` (0 = unlimited, admins exempt) still gates non-admin accounts; usage is recorded per request.
 
 ### Bundled: Report Studio
 

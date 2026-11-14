@@ -663,7 +663,7 @@ function selectChat(id: string) {
   async function runAgentLoop(chatId: string, asstId: string, userTurn: ContentPart[], controller: AbortController) {
     const decryptedVault = await getDecryptedVaultForApi(vault);
     const useTools = plugins.tools && toolsOn && isToolProvider(provider);
-    const reasoningEffort = settings.reasoningEffort || "medium";
+    const reasoningEffort = settings.reasoningEffort || "off";
     const history: WireMsg[] = [...(activeChat?.messages || [])].map(normalizeMsg);
     history.push({ role: "user", content: userTurn });
 
@@ -1042,7 +1042,7 @@ function selectChat(id: string) {
           <div className="flex items-center gap-1.5 shrink-0">
             <div className="hidden md:flex items-center gap-1.5 rounded-full border bg-card px-2 py-1" title="Reasoning depth — how hard MEDUSA thinks">
               <span className="text-xs">🧠</span>
-              <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-xs outline-none">
+              <select value={settings.reasoningEffort || "off"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-xs outline-none">
                 <option value="off">Fast</option>
                 <option value="low">Low</option>
                 <option value="medium">Think</option>
@@ -1159,7 +1159,7 @@ function selectChat(id: string) {
               </div>
             </div>
           ))}
-          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"/> {stage || `MEDUSA is thinking (${settings.reasoningEffort || "medium"}) — ${provider}/${model} • ${mode}`}</div>}
+          {running && <div className="max-w-3xl mx-auto text-xs text-muted-foreground flex gap-2"><span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0"/> {stage || `MEDUSA is thinking (${settings.reasoningEffort || "off"}) — ${provider}/${model} • ${mode}`}</div>}
         </div>
 
         {/* composer - Codex style */}
@@ -1329,7 +1329,7 @@ function selectChat(id: string) {
               <span className="sm:hidden">{footerHint("")}</span>
               <span className="flex items-center gap-2">
                 <label className="inline-flex items-center gap-1 md:hidden">🧠
-                  <select value={settings.reasoningEffort || "medium"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-[11px] outline-none border rounded-full px-1 py-0.5">
+                  <select value={settings.reasoningEffort || "off"} onChange={e=>setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent text-[11px] outline-none border rounded-full px-1 py-0.5">
                     <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max</option>
                   </select>
                 </label>

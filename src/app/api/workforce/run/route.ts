@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     : settings?.codeStyle === "verbose" ? "Code style: verbose, explain tradeoffs."
     : "Code style: documented, with JSDoc and README snippet.";
 
-  const effort = (reasoningEffort || (settings as any)?.reasoningEffort || "medium") as "off" | "low" | "medium" | "high" | "extra-high";
+  const effort = (reasoningEffort || (settings as any)?.reasoningEffort || "off") as "off" | "low" | "medium" | "high" | "extra-high";
   const depthHint =
     effort === "extra-high"
       ? "Use maximum reasoning depth: decompose into sub-problems, solve each with verification, cross-check consistency, then deliver."

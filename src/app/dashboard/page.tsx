@@ -68,7 +68,7 @@ function DashboardInner() {
       const res = await fetch("/api/workforce/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, agents, vault: decryptedVault, settings, reasoningEffort: settings.reasoningEffort || "medium" }),
+        body: JSON.stringify({ prompt, agents, vault: decryptedVault, settings, reasoningEffort: settings.reasoningEffort || "off" }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Workforce failed");
@@ -260,7 +260,7 @@ function DashboardInner() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4" style={{ color: 'var(--accent)' }} /> New workforce task — multi-model execution</div>
               <label className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs">🧠
-                <select value={settings.reasoningEffort || "medium"} onChange={e => useMEDUSA.getState().setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent outline-none">
+                <select value={settings.reasoningEffort || "off"} onChange={e => useMEDUSA.getState().setSettings({ reasoningEffort: e.target.value as any })} className="bg-transparent outline-none">
                   <option value="off">Fast</option><option value="low">Low</option><option value="medium">Think</option><option value="high">Deep</option><option value="extra-high">Max 🧠</option>
                 </select>
               </label>

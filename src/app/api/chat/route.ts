@@ -4,8 +4,8 @@ import type { ProviderId } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
 import { authedRecord, saveState } from "@/lib/auth";
 import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
-import { asParts, budgetParts, isBinaryPart, type ContentPart } from "@/lib/content";
-import { buildSkillsPrompt, type SkillPromptSkill } from "@/lib/skill-prompt";
+import { asParts, budgetParts, flattenText, isBinaryPart, type ContentPart } from "@/lib/content";
+import { buildSkillsPrompt, requestedSkillSlug, type SkillPromptSkill } from "@/lib/skill-prompt";
 
 // Streaming replies keep the socket open for the whole completion, including
 // tool rounds, so the request needs more wall time than a normal API call.
@@ -91,16 +91,36 @@ export async function POST(req: NextRequest) {
       ? { baseUrl: entry.endpoint.trim() }
       : undefined;
 
+  // Stickman films are written as one long JSON script. A tight output cap
+  // truncates it mid-JSON on every model (the classic "it always hits a limit"),
+  // and step-by-step thinking would eat into the same envelope while adding a
+  // long silent wait — so film requests get a big budget and no thinking,
+  // unless the user explicitly picked a deep effort.
+  const lastUserText = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return flattenText(messages[i].content);
+    }
+    return "";
+  })();
+  const stickmanSkillOn = (skills ?? []).some(
+    (s) => /stickman/i.test(s.name) || /stickman/i.test(s.instructions.slice(0, 400))
+  );
+  const stickmanActive =
+    requestedSkillSlug(lastUserText) === "stickman" || (stickmanSkillOn && /stickman/i.test(lastUserText));
+
   // ---- system prompt -------------------------------------------------------
   const effort = isReasoningEffort(reasoningEffort)
     ? reasoningEffort
     : isReasoningEffort(settings?.reasoningEffort)
       ? settings.reasoningEffort
-      : "medium";
+      : "off";
+  // Films never benefit from chain-of-thought; clamp medium/low to off (deep
+  // explicit choices are respected).
+  const filmEffort = stickmanActive && (effort === "medium" || effort === "low") ? "off" : effort;
   const modePrompt = MODE_PROMPTS[(mode as ChatMode) || "chat"] || MODE_PROMPTS.chat;
   const behavior = settings?.agentBehavior ? `Behavior: ${settings.agentBehavior}.` : "";
   const codeStyle = settings?.codeStyle ? `Code style: ${settings.codeStyle}.` : "";
-  const reasoningBooster = effort !== "off" ? REASONING_BOOSTERS[effort] || REASONING_BOOSTERS.medium : "";
+  const reasoningBooster = filmEffort !== "off" ? REASONING_BOOSTERS[filmEffort] || REASONING_BOOSTERS.medium : "";
 
   // Tell the model what it was actually given — a bare "see attached" is worse
   // than naming the files, and a stripped attachment must never look like a
@@ -126,7 +146,7 @@ export async function POST(req: NextRequest) {
     content:
       `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\n` +
       `You are running inside MEDUSA OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
-      `Reasoning effort: ${effort}.\nProvider: ${provider}, Model: ${model}.` +
+      `Reasoning effort: ${filmEffort}.\nProvider: ${provider}, Model: ${model}.` +
       (attachNote ? `\n${attachNote}` : "") +
       (() => {
         const block = buildSkillsPrompt(skills);
@@ -148,12 +168,13 @@ export async function POST(req: NextRequest) {
 
   const toolsEnabledActually = !!toolsEnabled && isToolProvider(provider);
   const baseMax = mode === "coding" ? 4000 : mode === "research" ? 3500 : 2500;
-  const effortBonus = effort === "extra-high" ? 4000 : effort === "high" ? 2000 : 0;
+  const effortBonus = filmEffort === "extra-high" ? 4000 : filmEffort === "high" ? 2000 : 0;
   const llmOpts = {
-    temperature: mode === "coding" && (effort === "high" || effort === "extra-high") ? 0.3 : 0.6,
-    maxTokens: baseMax + effortBonus,
+    temperature: mode === "coding" && (filmEffort === "high" || filmEffort === "extra-high") ? 0.3 : 0.6,
+    // Films are one long script — 8k output tokens instead of the default cap.
+    maxTokens: stickmanActive ? 8000 : baseMax + effortBonus,
     tools: toolsEnabledActually ? MEDUSA_TOOLS : undefined,
-    reasoningEffort: effort,
+    reasoningEffort: filmEffort,
   };
 
   function recordUsage(usage?: { total_tokens?: number }) {

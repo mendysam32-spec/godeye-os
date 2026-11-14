@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 const seedKey = (id: string) => `medusa:skills:${id}-seeded`;
+const seedVersionKey = (id: string) => `medusa:skills:${id}-ver`;
 
 export default function SkillsPage() {
   const { skills, addSkill, updateSkill, toggleSkill, removeSkill } = useMEDUSA();
@@ -46,19 +47,49 @@ export default function SkillsPage() {
 
   // First run: make the bundled skills available without a click. Each per-skill
   // flag keeps a deliberate delete from resurrecting it on every visit.
+  // Installed packs silently refresh when the shipped version changes.
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
     for (const builtin of BUILTIN_SKILLS) {
       const key = seedKey(builtin.id);
+      const verKey = seedVersionKey(builtin.id);
+      let seen = "";
       try {
-        if (localStorage.getItem(key)) continue;
-        localStorage.setItem(key, "1");
+        seen = localStorage.getItem(key) ?? "";
+        if (!seen) localStorage.setItem(key, "1");
       } catch {
         /* storage disabled — still offer the install card */
       }
-      if (useMEDUSA.getState().skills.some((s) => s.id === builtin.id)) continue;
-      void installBuiltin(builtin.id, true);
+      const installed = useMEDUSA.getState().skills.find((s) => s.id === builtin.id);
+      if (!installed) {
+        // Seeded before and then deleted (or the one-time install failed):
+        // stay deleted, the per-skill flag must not resurrect it.
+        if (seen) continue;
+        try {
+          localStorage.setItem(verKey, builtin.version);
+        } catch {
+          /* ignore */
+        }
+        void installBuiltin(builtin.id, true);
+        continue;
+      }
+      // Installed: track the seen version and silently refresh stale packs.
+      let lastSeen = "";
+      try {
+        lastSeen = localStorage.getItem(verKey) ?? "";
+      } catch {
+        /* ignore */
+      }
+      const installedVersion = installed.version ?? "";
+      if (installedVersion && installedVersion !== builtin.version && (lastSeen === "" || lastSeen !== builtin.version)) {
+        void installBuiltin(builtin.id, true, true);
+      }
+      try {
+        if (lastSeen !== builtin.version) localStorage.setItem(verKey, builtin.version);
+      } catch {
+        /* ignore */
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -66,13 +97,14 @@ export default function SkillsPage() {
   const enabledCount = skills.filter((s) => s.enabled).length;
   const totalBytes = skills.reduce((n, s) => n + (s.bytes || 0), 0);
 
-  async function installBuiltin(id: string, silent = false) {
+  async function installBuiltin(id: string, silent = false, updated = false) {
     setBusy(id);
     setError(null);
     try {
       const pkg = await installBuiltinSkill(id, useMEDUSA.getState().skills);
       addSkill(pkg.skill);
-      toast(silent ? `${pkg.skill.name} skill is ready` : `${pkg.skill.name} installed — ${pkg.skill.fileCount} files`);
+      if (updated) toast(`${pkg.skill.name} skill updated to ${pkg.skill.version}`);
+      else toast(silent ? `${pkg.skill.name} skill is ready` : `${pkg.skill.name} installed — ${pkg.skill.fileCount} files`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);

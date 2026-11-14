@@ -262,7 +262,7 @@ function freshSettings(): ProgramSettings {
     plugins: { ...DEFAULT_PLUGINS },
     agentBehavior: "balanced",
     codeStyle: "documented",
-    reasoningEffort: "medium",
+    reasoningEffort: "off",
     language: "en",
     telemetry: false,
     appLockEnabled: false,

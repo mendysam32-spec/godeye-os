@@ -322,7 +322,7 @@ export function TerminalView() {
   const modelEntry = modelList.find((m) => m.id === model);
   const freeModel = isFreeModel(modelEntry ?? { id: model });
   const reasoningCapable = isReasoningModel(model, modelList);
-  const effort: ReasoningEffort = settings.reasoningEffort ?? "medium";
+  const effort: ReasoningEffort = settings.reasoningEffort ?? "off";
   const setEffort = useCallback(
     (e: ReasoningEffort) => store.setSettings({ reasoningEffort: e }),
     [store],

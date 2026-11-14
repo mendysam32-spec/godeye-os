@@ -139,6 +139,37 @@ function normalizeUsage(u: Record<string, unknown> | null | undefined): LLMUsage
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total };
 }
 
+/** `Retry-After` header → milliseconds (seconds form or HTTP-date form). */
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const at = Date.parse(header);
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+
+/** Quotas that cannot recover inside one request (daily/monthly free caps). */
+function isDailyCap(reason: string, waitMs: number | null): boolean {
+  if (waitMs !== null && waitMs > 65_000) return true;
+  return /(per[- ]day|daily limit|per[- ]month|monthly limit|usage limit for the day)/.test(reason);
+}
+
+/** Turn raw rate-limit payloads into a message that tells the user what to do. */
+function friendlyRateLimit(provider: string, body: string): string {
+  let detail = body.slice(0, 300);
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } | string; message?: string };
+    const message = typeof parsed.error === "object" && parsed.error !== null ? parsed.error.message : typeof parsed.error === "string" ? parsed.error : parsed.message;
+    if (message) detail = message;
+  } catch {
+    /* keep the raw slice */
+  }
+  if (isDailyCap(detail.toLowerCase(), null)) {
+    return `${provider}: free-tier daily limit reached for this model — try another model, wait for the reset, or add a small credit balance to the provider account. (${detail.slice(0, 240)})`;
+  }
+  return `${provider}: rate limited — free tiers only allow a few requests per minute. Wait a moment and retry, or switch model. (${detail.slice(0, 240)})`;
+}
+
 function hasBinaryContent(messages: ChatMessage[]): boolean {
   return messages.some((m) => asParts(m.content).some(isBinaryPart));
 }
@@ -221,12 +252,13 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
     return out;
   };
 
-  const baseBody = (stream: boolean, textOnly: boolean): Record<string, unknown> => ({
+  const wantedMax = maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort);
+  const baseBody = (stream: boolean, textOnly: boolean, maxTokens: number): Record<string, unknown> => ({
     model: call.model,
     messages: call.messages.map((m) => toMessage(m, textOnly)),
     // o-series / reasoning models only accept temperature 1 — omit otherwise
     ...(!isReasoningModel ? { temperature: call.temperature ?? 0.5 } : {}),
-    max_tokens: maxTokensForEffort(call.maxTokens ?? 2048, call.reasoningEffort),
+    max_tokens: maxTokens,
     ...(call.tools && call.tools.length ? { tools: call.tools, tool_choice: "auto" } : {}),
     // OpenAI o-series + gpt-5 thinking
     ...(effortWire && isReasoningModel ? { reasoning_effort: effortWire === "xhigh" ? "high" : effortWire } : {}),
@@ -241,35 +273,98 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
 
   // Many OpenAI-compatible gateways accept neither `stream: true` nor multimodal
   // content arrays. Rather than surfacing a raw 400, degrade one dimension at a
-  // time and retry (at most twice) so the answer still lands.
+  // time and retry so the answer still lands. Transient failures also get a
+  // short retry: free-tier models (OpenRouter free pool) rate-limit aggressively
+  // and a single 429 should never kill the whole reply.
   const binary = hasBinaryContent(call.messages);
   let dropStream = false;
   let dropParts = false;
+  let tokenShrink: 0 | 1 | 2 = 0; // model rejected max_tokens → retry smaller
   let res: Response | null = null;
   let errText = "";
   let errStatus = 0;
+  let rateRetries = 0;
+  let serverRetries = 0;
+  let networkRetries = 0;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const streaming = !!call.stream && !dropStream;
-    res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(baseBody(streaming, dropParts)),
-      signal: call.signal,
+  // Abort-aware backoff sleep, so a cancelled chat never waits out a timer.
+  const sleepMs = (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      if (call.signal?.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+      const timer = setTimeout(() => {
+        call.signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      call.signal?.addEventListener("abort", onAbort, { once: true });
     });
+
+  for (let attempt = 0; attempt < 9; attempt++) {
+    const streaming = !!call.stream && !dropStream;
+    const maxTokens = tokenShrink === 0 ? wantedMax : tokenShrink === 1 ? Math.min(wantedMax, 4096) : Math.min(wantedMax, 2048);
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(baseBody(streaming, dropParts, maxTokens)),
+        signal: call.signal,
+      });
+    } catch (error) {
+      if (call.signal?.aborted) throw error;
+      errStatus = 0;
+      errText = (error as Error)?.message || "network error";
+      if (networkRetries < 1) {
+        networkRetries++;
+        await sleepMs(1500);
+        continue;
+      }
+      throw new Error(`${call.provider}: connection failed — ${errText.slice(0, 200)}`);
+    }
     if (res.ok) break;
     errText = await res.text().catch(() => "");
     errStatus = res.status;
     const reason = errText.toLowerCase();
-    // Only shape-level rejections are worth a retry: a bad key or quota error
-    // will fail identically, so degrading would just double the latency.
+
+    // Free tiers rate-limit hard (per-minute and daily caps). A short wait and
+    // retry rescues per-minute bumps; a daily cap never recovers inside one
+    // request, so fail fast with a clear message instead of stalling.
+    if (errStatus === 429) {
+      const waitMs = retryAfterMs(res.headers.get("retry-after"));
+      if (isDailyCap(reason, waitMs)) break;
+      if (rateRetries < 2) {
+        rateRetries++;
+        await sleepMs(Math.min(waitMs ?? rateRetries * 12_000, 60_000));
+        continue;
+      }
+      break;
+    }
+    // Provider hiccup or capacity error — quick exponential backoff.
+    if (errStatus >= 500 && serverRetries < 2) {
+      serverRetries++;
+      await sleepMs(1200 * serverRetries);
+      continue;
+    }
+    // Only shape-level rejections are worth degrading: a bad key or an
+    // exhausted paid quota fails identically every time.
     const shapeError = errStatus === 400 || errStatus === 404 || errStatus === 415 || errStatus === 422;
     if (shapeError && streaming && /stream/.test(reason)) { dropStream = true; continue; }
     if (shapeError && !dropParts && binary && /(content|image|file|multimodal|vision|unsupported|not support|invalid)/.test(reason)) { dropParts = true; continue; }
+    // Some models reject large max_tokens outright; retry smaller, twice max.
+    if (shapeError && tokenShrink < 2 && /(max_tokens|max tokens|too large|context length)/.test(reason)) {
+      tokenShrink = (tokenShrink + 1) as 1 | 2;
+      continue;
+    }
     break;
   }
 
   if (!res || !res.ok) {
+    if (errStatus === 429) throw new Error(friendlyRateLimit(call.provider, errText));
     throw new Error(`${call.provider} ${errStatus}: ${errText.slice(0, 800)}`);
   }
   const degradedReason: "stream" | "parts" | undefined = dropStream ? "stream" : dropParts ? "parts" : undefined;
