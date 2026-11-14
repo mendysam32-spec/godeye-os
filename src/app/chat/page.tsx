@@ -695,10 +695,15 @@ function selectChat(id: string) {
     const history: WireMsg[] = [...(activeChat?.messages || [])].map(normalizeMsg);
     history.push({ role: "user", content: userTurn });
 
-    const MAX_TOOL_ITER = reasoningEffort === "extra-high" ? 8 : 6;
+    // Tool-round budget: a plain chat needs few rounds, but skill pipelines
+    // (stickman / Magic Drum build whole films through tool rounds — write
+    // script → render → voiceover → mux) need far more, so an enabled skill
+    // raises the budget and reasoning effort still adds headroom on top.
+    const MAX_TOOL_ITER = (reasoningEffort === "extra-high" ? 8 : 6) + (enabledSkills.length ? 10 : 4);
     let iterations = 0;
+    let wrapUp = false;
 
-    while (iterations <= MAX_TOOL_ITER) {
+    while (iterations <= MAX_TOOL_ITER || wrapUp) {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -706,7 +711,7 @@ function selectChat(id: string) {
           messages: history,
           provider, model,
           mode: mode === "search" && !plugins.search ? "chat" : mode === "terminal" && !plugins.terminal ? "chat" : mode,
-          vault: decryptedVault, settings, stream: true, toolsEnabled: useTools,
+          vault: decryptedVault, settings, stream: true, toolsEnabled: useTools && !wrapUp,
           reasoningEffort,
           skills: enabledSkills.map(s => ({ name: s.name, description: s.description, instructions: s.instructions, diskPath: s.diskPath, files: s.files })),
           // free-first list of this provider's zero-cost models — lets the server
@@ -743,6 +748,11 @@ function selectChat(id: string) {
       if (controller.signal.aborted) return;
       if (failed) throw new Error(failed);
 
+      if (wrapUp) {
+        updateLastMessage(chatId, result.text || `**Stopped:** tool round limit reached (${MAX_TOOL_ITER}). Say "continue" to pick up where this left off.`);
+        return;
+      }
+
       if (!calls?.length) {
         if (result.text) updateLastMessage(chatId, result.text);
         return;
@@ -750,8 +760,21 @@ function selectChat(id: string) {
 
       iterations++;
       if (iterations > MAX_TOOL_ITER) {
-        updateLastMessage(chatId, `**Stopped:** tool iteration limit reached (${MAX_TOOL_ITER}).`);
-        return;
+        // Budget exhausted — don't die mid-pipeline: record the unexecuted tool
+        // calls (every tool_call needs a tool response for the API) and give
+        // the model one tools-free round to summarize progress and next steps.
+        wrapUp = true;
+        history.push({
+          role: "assistant", content: "",
+          tool_calls: calls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) } })),
+        });
+        for (const tc of calls) {
+          history.push({ role: "tool", tool_call_id: tc.id, content: "Not executed — tool round limit reached." });
+        }
+        history.push({ role: "user", content: `Tool round limit (${MAX_TOOL_ITER}) reached. Stop starting new tool work. Finish your reply now: summarize what you completed, note anything unfinished, and give the user short next steps to resume.` });
+        setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u23f9 tool round limit (${MAX_TOOL_ITER}) \u2014 asking the model to wrap up`]);
+        updateLastMessage(chatId, `_Tool round limit reached (${MAX_TOOL_ITER}) \u2014 finishing up\u2026_`);
+        continue;
       }
       setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u21c4 tool round ${iterations} \u2192 ${calls!.map((t) => t.name).join(", ")}`]);
       updateLastMessage(chatId, `_Using tools: ${calls.map((t) => t.name).join(", ")}\u2026_`);
