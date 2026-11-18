@@ -56,6 +56,14 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     version: "1.1.0",
   },
   {
+    id: "faceless-reels",
+    name: "Faceless Reels",
+    description:
+      "Turn a topic or a reference reel into a finished faceless vertical Short or TikTok: script, cloned ElevenLabs voice, word-by-word captions, one-shot Remotion animation, a click-worthy cover as the first frame and a three-move ending. Use for faceless reels, Shorts, TikToks and reworking an existing reel. Runs on the desktop app (Node, ffmpeg, Python).",
+    url: "/skills/faceless-reels.zip",
+    version: "1.0.0",
+  },
+  {
     id: "report-studio",
     name: "Report Studio",
     description:

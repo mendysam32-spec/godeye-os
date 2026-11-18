@@ -111,17 +111,24 @@ export async function POST(req: NextRequest) {
   const magicDrumSkillOn = (skills ?? []).some(
     (s) => /magic[\s-]?drum/i.test(s.name) || /magic[\s-]?drum/i.test(s.instructions.slice(0, 400))
   );
+  const facelessSkillOn = (skills ?? []).some(
+    (s) => /faceless[\s-]?reels?/i.test(s.name) || /faceless[\s-]?reels?/i.test(s.instructions.slice(0, 400))
+  );
   const slash = requestedSkillSlug(lastUserText);
-  // Films are one long JSON spec (Stickman script / Magic Drum film.json): a tight
-  // output cap truncates them mid-JSON and thinking eats the same envelope, so any
-  // active film skill gets the big budget and effort clamped to off (unless the
-  // user explicitly picked a deep effort).
+  // Film/reel skills are one long JSON spec (Stickman script / Magic Drum
+  // film.json / Faceless Reels scenes): a tight output cap truncates them
+  // mid-JSON and thinking eats the same envelope, so any active film skill gets
+  // the big budget and effort clamped to off (unless the user explicitly picked
+  // a deep effort).
   const filmSkillActive =
     slash === "stickman" ||
     slash === "magicdrum" ||
     slash === "magic-drum" ||
+    slash === "faceless-reels" ||
+    slash === "facelessreels" ||
     (stickmanSkillOn && /stickman/i.test(lastUserText)) ||
-    (magicDrumSkillOn && /magic[\s-]?drum|magicdrum|animated (film|short|movie|story|cartoon)|\bcartoon\b/i.test(lastUserText));
+    (magicDrumSkillOn && /magic[\s-]?drum|magicdrum|animated (film|short|movie|story|cartoon)|\bcartoon\b/i.test(lastUserText)) ||
+    (facelessSkillOn && /faceless[\s-]?reels?|\breels?\b|\btiktok\b/i.test(lastUserText));
 
   // ---- system prompt -------------------------------------------------------
   const effort = isReasoningEffort(reasoningEffort)

@@ -1,0 +1,54 @@
+{
+  "id": "Reel-Demo",
+  "language": "en",
+  "hook": {"video": false},
+  "sections": {
+    "hook": "I didn't edit this video. Claude did all of it.",
+    "stakes": "And yet, your Claude is the same as mine. The difference? It only takes three settings.",
+    "elements": [
+      "First setting: the app on your computer. On the website, Claude answers. On your computer, it acts. It creates your files on its own.",
+      "Second setting: connectors. In a few clicks, Claude plugs into your tools. Your email, your calendar, Notion.",
+      "And the third, this is where it gets crazy: skills. Your method, written once. It applies it every single time."
+    ],
+    "recap": "It acts. It plugs in. It learns. It's not a chatbot anymore. It's your team.",
+    "cta": "Subscribe to get the guide, then click the link in bio, and type the keyword settings.",
+    "outro": "And next time you see a video like this one, remember…"
+  },
+  "display": {"three": "3"},
+  "stakes": {
+    "titles": [
+      {"word": "yet", "text": "The same Claude"},
+      {"word": "difference", "text": "The difference", "accent": "difference"}
+    ],
+    "boxes_word": "three",
+    "boxes_title": "3 settings"
+  },
+  "headers": [
+    {"kicker": "IT ACTS", "before": "The app on your", "word": "computer", "window": "Claude · on my Mac", "icon": "claude", "size": 58},
+    {"kicker": "IT PLUGS IN", "before": "The", "word": "connectors", "window": "Settings · Connectors", "icon": "plug"},
+    {"kicker": "IT LEARNS", "before": "The", "word": "skills", "window": "SKILL.md", "icon": "file"}
+  ],
+  "overview": {"kicker": "RECAP", "before": "The 3", "word": "settings", "window": "Your Claude", "icon": "claude"},
+  "recap": {
+    "lines": [
+      {"text": "It acts", "tag": "The app", "word": "acts"},
+      {"text": "It plugs in", "tag": "Connectors", "word": "plugs"},
+      {"text": "It learns", "tag": "Skills", "word": "learns"}
+    ],
+    "strike": {"word": "chatbot", "text": "Chatbot"},
+    "peak": {"word": "team", "before": "YOUR", "accent": "TEAM"}
+  },
+  "guide": {
+    "title": "The 3 settings guide",
+    "keyword": "SETTINGS",
+    "card": "GUIDE",
+    "items": ["Setting 1", "Setting 2", "Setting 3"],
+    "link": "LINK IN BIO",
+    "words": {"subscribe": "Subscribe", "link": "click", "click": "bio", "keyword": "type"}
+  },
+  "cover": {
+    "lines": ["3 SETTINGS", "AND CLAUDE", "WORKS"],
+    "block": "FOR YOU",
+    "logos": []
+  }
+}

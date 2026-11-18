@@ -1,0 +1,169 @@
+{
+  "id": "Reel-6-tools",
+  "language": "en",
+  "hook": {
+    "video": true
+  },
+  "sections": {
+    "hook": "I didn't edit this video. I dropped a file in a folder. Claude did the rest.",
+    "stakes": "And it didn't use just one AI. Every task has its tool. Here are my six, from the reflex to avoid to my pick.",
+    "elements": [
+      "To write the script. A blank page, you lose your evening. A regular chat, it gets you by. Me, I use Claude with a skill. It follows my method.",
+      "For the voice. On the mic, every mistake means another take. A standard voice, it's fine. Me, I use Eleven Labs. My cloned voice, the one you're hearing.",
+      "For the images. Stock photos, everyone has the same ones. A free generator, it gets you by. Me, I use Atlas Cloud. Images and video in the same place.",
+      "For the editing. By hand, you spend hours on it. A ready-made template, it's quick. Me, I use Remotion. The animation is written in code, timed to every word.",
+      "To publish. Network by network, it takes forever. Scheduling by hand, it's okay. Me, I use Blotato. Four networks, one single action.",
+      "And the sixth one is the one that changes everything: the conductor. Launching it all yourself wears you out. An n-eight-n workflow is very good. Me, I use Claude Code. Every night, it checks my folder."
+    ],
+    "recap": "It writes. It speaks. It draws. It edits. It publishes. It directs. Nothing by hand anymore. Just a folder.",
+    "cta": "Save this video, you're going to need it. Subscribe to get the guide, then click the link in bio, and type the keyword TOOLS.",
+    "outro": "And the next time you see a video like this, remember..."
+  },
+  "display": {
+    "six": "6",
+    "sixth": "6th",
+    "eleven labs": "ElevenLabs",
+    "n-eight-n": "n8n",
+    "four": "4"
+  },
+  "stakes": {
+    "titles": [
+      {
+        "word": "one",
+        "text": "Not just one AI",
+        "accent": "one"
+      },
+      {
+        "word": "task",
+        "text": "Every task, its tool",
+        "accent": "tool"
+      }
+    ],
+    "boxes_word": "six",
+    "boxes_title": "6 tools"
+  },
+  "headers": [
+    {
+      "kicker": "IT WRITES",
+      "before": "For the",
+      "word": "script?",
+      "window": "My 6 tools · Script",
+      "icon": "file"
+    },
+    {
+      "kicker": "IT SPEAKS",
+      "before": "For the",
+      "word": "voice?",
+      "window": "My 6 tools · Voice",
+      "icon": "message"
+    },
+    {
+      "kicker": "IT DRAWS",
+      "before": "For the",
+      "word": "images?",
+      "window": "My 6 tools · Images",
+      "icon": "sparkles"
+    },
+    {
+      "kicker": "IT EDITS",
+      "before": "For the",
+      "word": "editing?",
+      "window": "My 6 tools · Editing",
+      "icon": "laptop"
+    },
+    {
+      "kicker": "IT PUBLISHES",
+      "before": "To",
+      "word": "publish?",
+      "window": "My 6 tools · Publishing",
+      "icon": "send"
+    },
+    {
+      "kicker": "IT DIRECTS",
+      "before": "The",
+      "word": "conductor",
+      "window": "My 6 tools · Conductor",
+      "icon": "claude",
+      "size": 60
+    }
+  ],
+  "overview": {
+    "kicker": "RECAP",
+    "before": "My 6",
+    "word": "tools",
+    "window": "My folder",
+    "icon": "claude"
+  },
+  "recap": {
+    "lines": [
+      {
+        "text": "It writes",
+        "tag": "Claude",
+        "word": "writes"
+      },
+      {
+        "text": "It speaks",
+        "tag": "ElevenLabs",
+        "word": "speaks"
+      },
+      {
+        "text": "It draws",
+        "tag": "Atlas Cloud",
+        "word": "draws"
+      },
+      {
+        "text": "It edits",
+        "tag": "Remotion",
+        "word": "edits"
+      },
+      {
+        "text": "It publishes",
+        "tag": "Blotato",
+        "word": "publishes"
+      },
+      {
+        "text": "It directs",
+        "tag": "Claude Code",
+        "word": "directs"
+      }
+    ],
+    "strike": {
+      "word": "hand",
+      "text": "By hand"
+    },
+    "peak": {
+      "word": "folder",
+      "before": "JUST A",
+      "accent": "FOLDER"
+    }
+  },
+  "guide": {
+    "title": "The 6 tools guide",
+    "keyword": "TOOLS",
+    "card": "GUIDE",
+    "items": [
+      "The 6 tools",
+      "The links",
+      "Step by step"
+    ],
+    "link": "LINK IN BIO",
+    "words": {
+      "subscribe": "Subscribe",
+      "link": "click",
+      "click": "bio",
+      "keyword": "type"
+    }
+  },
+  "cover": {
+    "lines": [
+      "6 TOOLS",
+      "MAKE MY",
+      "REELS"
+    ],
+    "block": "WITHOUT ME",
+    "logos": [
+      "claude",
+      "elevenlabs"
+    ]
+  }
+}

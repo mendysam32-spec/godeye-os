@@ -1,0 +1,23 @@
+{
+  "name": "faceless-reel",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {"node": "^20.19.0 || ^22.13.0 || >=24"},
+  "dependencies": {
+    "@remotion/cli": "4.0.536",
+    "@remotion/google-fonts": "4.0.536",
+    "@remotion/media": "4.0.536",
+    "@remotion/media-utils": "4.0.536",
+    "@remotion/noise": "4.0.536",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.536"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "typescript": "5.9.3"
+  },
+  "scripts": {"dev": "remotion studio", "build": "remotion bundle"}
+}

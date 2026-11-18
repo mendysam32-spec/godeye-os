@@ -1,0 +1,18 @@
+{
+  "creator_name": "Your Name",
+  "language": "en",
+  "elevenlabs_voice_id": "YOUR_VOICE_ID",
+  "elevenlabs_model": "eleven_v4",
+  "whisper_model": "~/.cache/whisper-cpp/ggml-large-v3-turbo-q8_0.bin",
+  "projects_root": "~/Videos/reels",
+  "cta": {
+    "subscribe": "Subscribe to get the guide",
+    "link": "then click the link in bio",
+    "keyword": "and type the keyword"
+  },
+  "guides_page": "https://your-site.example/guides",
+  "timezone": "America/New_York",
+  "publish_hour": 8,
+  "caps": {"elevenlabs_credits": 10000, "atlas_usd": 5},
+  "telegram_env": "~/.config/faceless-reels/telegram.env"
+}
