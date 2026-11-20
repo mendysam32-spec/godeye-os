@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callLLM, type ChatMessage as WireMessage } from "@/lib/llm-router";
+import { callLLM, type ChatMessage as WireMessage, type LLMUsage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import { getProvider, isFreeModel } from "@/lib/providers";
 import type { ChatMode } from "@/lib/store";
@@ -7,6 +7,13 @@ import { authedRecord, saveState } from "@/lib/auth";
 import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
 import { asParts, budgetParts, flattenText, isBinaryPart, type ContentPart } from "@/lib/content";
 import { buildSkillsPrompt, requestedSkillSlug, type SkillPromptSkill } from "@/lib/skill-prompt";
+import {
+  MAX_MEMORY_ITEMS, buildMemoryPrompt, isMemoryKind, newId, sanitizeMemoryText,
+  type MemoryContext,
+} from "@/lib/foundation";
+import { searchMemories } from "@/lib/memory";
+import { appendEvent, startRun } from "@/lib/traces";
+import { recordUsageEvent } from "@/lib/usage";
 
 // Streaming replies keep the socket open for the whole completion, including
 // tool rounds, so the request needs more wall time than a normal API call.
@@ -59,6 +66,43 @@ interface ChatBody {
   skills?: SkillPromptSkill[];
   /** Client's current model list (free-first) — powers auto-fallback on limits. */
   freeModels?: string[];
+  /** Stable across tool rounds so one user turn is one replayable run. */
+  runId?: string;
+  chatId?: string;
+  /** Locally cached memories (client fallback when D1 is unavailable). */
+  memories?: MemoryContext[];
+  /** Divergence replay overrides. */
+  temperature?: number;
+  parentRunId?: string;
+  replayOf?: string;
+  divergence?: Record<string, unknown>;
+}
+
+function cleanMemories(value: unknown): MemoryContext[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): MemoryContext[] => {
+    if (!item || typeof item !== "object") return [];
+    const m = item as Record<string, unknown>;
+    if (typeof m.id !== "string" || typeof m.content !== "string") return [];
+    const content = sanitizeMemoryText(m.content);
+    if (!content) return [];
+    return [{
+      id: m.id.slice(0, 120),
+      kind: isMemoryKind(m.kind) ? m.kind : "fact",
+      content,
+      score: typeof m.score === "number" ? m.score : 0,
+    }];
+  });
+}
+
+function dedupeMemories(items: MemoryContext[]): MemoryContext[] {
+  const seen = new Set<string>();
+  return items.filter((m) => {
+    const key = m.id || m.content.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -77,7 +121,12 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ChatBody | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills, freeModels } = body;
+  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills, freeModels, runId: incomingRunId, chatId, memories: clientMemories, temperature, parentRunId, replayOf, divergence } = body;
+
+  const temperatureOverride =
+    typeof temperature === "number" && Number.isFinite(temperature)
+      ? Math.min(2, Math.max(0, Math.round(temperature * 100) / 100))
+      : undefined;
 
   if (!messages?.length || !provider || !model) {
     return NextResponse.json({ error: "messages, provider, model required" }, { status: 400 });
@@ -105,6 +154,67 @@ export async function POST(req: NextRequest) {
     }
     return "";
   })();
+
+  // ---- foundation slice: memory recall + stable replay run ----------------
+  // The client sends its local cache too, so recall still works when D1 is not
+  // bound. Everything is bounded and labelled as reference data in the prompt.
+  const runId = typeof incomingRunId === "string" && incomingRunId.trim() ? incomingRunId.trim() : newId("run");
+  const serverMemories = await searchMemories(user.id, lastUserText, { limit: MAX_MEMORY_ITEMS }).catch(() => []);
+  const recalledMemories = dedupeMemories([
+    ...cleanMemories(clientMemories).slice(0, MAX_MEMORY_ITEMS),
+    ...serverMemories,
+  ]).slice(0, MAX_MEMORY_ITEMS);
+  const replaySnapshot = {
+    messages: messages.slice(-12).map((m) => ({
+      role: m.role,
+      content: flattenText(m.content).slice(0, 1_200),
+    })),
+    provider,
+    model,
+    mode: mode || "chat",
+    toolsEnabled: !!toolsEnabled,
+    reasoningEffort: reasoningEffort ?? null,
+    temperature: temperatureOverride ?? 0.6,
+    chatId: chatId ?? null,
+    memories: recalledMemories.map((m) => m.id),
+    parentRunId: parentRunId ?? null,
+    replayOf: replayOf ?? parentRunId ?? null,
+    divergence: divergence ?? null,
+  };
+  await startRun({
+    id: runId,
+    uid: user.id,
+    kind: "chat",
+    prompt: lastUserText.slice(0, 8_000),
+    inputSnapshot: replaySnapshot,
+    provider,
+    model,
+    mode: mode || "chat",
+    chatId: chatId ?? null,
+    parentRunId: parentRunId ?? null,
+    replayOf: replayOf ?? parentRunId ?? null,
+    divergence: divergence ?? null,
+  }).catch(() => null);
+  await appendEvent({
+    uid: user.id,
+    runId,
+    type: "run.started",
+    payload: {
+      provider, model, mode: mode || "chat", toolRounds: !!toolsEnabled,
+      temperature: temperatureOverride ?? null,
+      divergence: divergence ?? null,
+      promptPreview: lastUserText.slice(0, 500),
+    },
+  }).catch(() => null);
+  if (recalledMemories.length) {
+    await appendEvent({
+      uid: user.id,
+      runId,
+      type: "memory.recalled",
+      payload: { count: recalledMemories.length, ids: recalledMemories.map((m) => m.id) },
+    }).catch(() => null);
+  }
+
   const stickmanSkillOn = (skills ?? []).some(
     (s) => /stickman/i.test(s.name) || /stickman/i.test(s.instructions.slice(0, 400))
   );
@@ -171,6 +281,10 @@ export async function POST(req: NextRequest) {
       `Reasoning effort: ${filmEffort}.\nProvider: ${provider}, Model: ${model}.` +
       (attachNote ? `\n${attachNote}` : "") +
       (() => {
+        const block = buildMemoryPrompt(recalledMemories);
+        return block ? `\n\n${block}` : "";
+      })() +
+      (() => {
         const block = buildSkillsPrompt(skills);
         return block ? `\n\n${block}` : "";
       })(),
@@ -192,19 +306,29 @@ export async function POST(req: NextRequest) {
   const baseMax = mode === "coding" ? 4000 : mode === "research" ? 3500 : 2500;
   const effortBonus = filmEffort === "extra-high" ? 4000 : filmEffort === "high" ? 2000 : 0;
   const llmOpts = {
-    temperature: mode === "coding" && (filmEffort === "high" || filmEffort === "extra-high") ? 0.3 : 0.6,
+    temperature: temperatureOverride ?? (mode === "coding" && (filmEffort === "high" || filmEffort === "extra-high") ? 0.3 : 0.6),
     // Films are one long script — 8k output tokens instead of the default cap.
     maxTokens: filmSkillActive ? 8000 : baseMax + effortBonus,
     tools: toolsEnabledActually ? MEDUSA_TOOLS : undefined,
     reasoningEffort: filmEffort,
   };
 
-  function recordUsage(usage?: { total_tokens?: number }) {
-    const total = usage?.total_tokens;
+  async function recordUsage(usage: LLMUsage | undefined, usedModel: string, latencyMs: number, degraded?: boolean) {
+    const total = usage?.total_tokens ?? 0;
     if (!isAdmin && total) {
       user.tokensUsed = (user.tokensUsed ?? 0) + total;
       user.updatedAt = new Date().toISOString();
     }
+    return recordUsageEvent({
+      uid: user.id,
+      runId,
+      kind: "chat",
+      provider,
+      model: usedModel,
+      usage,
+      latencyMs,
+      metadata: { mode: mode || "chat", degraded: !!degraded, toolsEnabled: !!toolsEnabled },
+    }).catch(() => null);
   }
 
   // ---- free-model auto-fallback -------------------------------------------
@@ -245,6 +369,18 @@ export async function POST(req: NextRequest) {
             const m = tryCandidates[attempt];
             try {
               emit({ type: "stage", stage: "thinking", label: attempt === 0 ? `Thinking — ${m}` : `${model} hit its limit — switching to ${m}` });
+              await appendEvent({
+                uid: user.id,
+                runId,
+                type: "llm.request",
+                payload: {
+                  model: m, attempt, streaming: true, memories: recalledMemories.length,
+                  temperature: llmOpts.temperature,
+                  promptPreview: lastUserText.slice(0, 500),
+                  systemPreview: systemMsg.content.slice(0, 300),
+                  divergence: divergence ?? null,
+                },
+              }).catch(() => null);
               r = await callLLM(
                 { provider, model: m, messages: llmMessages, ...llmOpts, stream: true, signal: req.signal, onDelta: (t) => { deltas = true; emit({ delta: t }); } },
                 apiKey,
@@ -259,29 +395,67 @@ export async function POST(req: NextRequest) {
               const msg = String((err as Error)?.message || err || "");
               // Only quota/limit-looking failures fall through to the next free
               // model, and only while nothing has streamed yet.
-              if (deltas || attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) break;
+              if (deltas || attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) {
+                await appendEvent({
+                  uid: user.id,
+                  runId,
+                  type: "llm.failed",
+                  payload: { model: m, attempt, error: msg.slice(0, 500) },
+                }).catch(() => null);
+                break;
+              }
               if (attempt === 0) {
                 emit({ type: "notice", message: `${model} is rate-limited — auto-switching to another free model` });
               }
+              await appendEvent({
+                uid: user.id,
+                runId,
+                type: "llm.fallback",
+                payload: { from: m, to: tryCandidates[attempt + 1] ?? null, reason: msg.slice(0, 500) },
+              }).catch(() => null);
             }
           }
           if (!r) {
             throw (lastErr ?? new Error("LLM failed"));
           }
-          recordUsage(r.usage);
+          const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded);
           await saveState(state);
+          await appendEvent({
+            uid: user.id,
+            runId,
+            type: "llm.completed",
+            payload: {
+              model: usedModel,
+              usage: r.usage ?? null,
+              latencyMs: r.latencyMs,
+              degraded: !!r.degraded,
+              costUsd: usageEvent?.costUsd ?? 0,
+              responsePreview: r.content.slice(0, 800),
+            },
+          }).catch(() => null);
           if (r.degraded) {
             emit({ type: "notice", message: r.degradedReason === "stream" ? "Provider rejected streaming — continuing without it" : "Provider rejected one or more attachments — continuing with text only" });
           }
+          const usageWire = { ...(r.usage || {}), ...(usageEvent ? { cost_usd: usageEvent.costUsd } : {}) };
           if (r.toolCalls?.length) {
-            emit({ type: "toolCalls", toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs });
+            emit({ type: "toolCalls", toolCalls: r.toolCalls, usage: usageWire, latencyMs: r.latencyMs, runId });
           }
-          emit({ type: "done", content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
+          emit({
+            type: "done", content: r.content, usage: usageWire, latencyMs: r.latencyMs,
+            provider, model: usedModel, mode, runId, memoriesUsed: recalledMemories,
+          });
         } catch (e: unknown) {
-          if ((e as Error)?.name === "AbortError") {
-            emit({ type: "aborted" });
+          const aborted = (e as Error)?.name === "AbortError";
+          await appendEvent({
+            uid: user.id,
+            runId,
+            type: aborted ? "run.aborted" : "run.failed",
+            payload: { error: (e as Error)?.message || "LLM failed" },
+          }).catch(() => null);
+          if (aborted) {
+            emit({ type: "aborted", runId });
           } else {
-            emit({ type: "error", error: (e as Error)?.message || "LLM failed" });
+            emit({ type: "error", error: (e as Error)?.message || "LLM failed", runId });
           }
         } finally {
           try {
@@ -313,6 +487,18 @@ export async function POST(req: NextRequest) {
     for (let attempt = 0; attempt < tryCandidates.length; attempt++) {
       const m = tryCandidates[attempt];
       try {
+        await appendEvent({
+          uid: user.id,
+          runId,
+          type: "llm.request",
+          payload: {
+            model: m, attempt, streaming: false, memories: recalledMemories.length,
+            temperature: llmOpts.temperature,
+            promptPreview: lastUserText.slice(0, 500),
+            systemPreview: systemMsg.content.slice(0, 300),
+            divergence: divergence ?? null,
+          },
+        }).catch(() => null);
         r = await callLLM({ provider, model: m, messages: llmMessages, ...llmOpts, signal: req.signal }, apiKey, endpointOverride);
         usedModel = m;
         lastErr = null;
@@ -321,18 +507,47 @@ export async function POST(req: NextRequest) {
         if ((err as Error)?.name === "AbortError") throw err;
         lastErr = err;
         const msg = String((err as Error)?.message || err || "");
+        await appendEvent({
+          uid: user.id,
+          runId,
+          type: "llm.failed",
+          payload: { model: m, attempt, error: msg.slice(0, 500) },
+        }).catch(() => null);
         if (attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) break;
+        await appendEvent({
+          uid: user.id,
+          runId,
+          type: "llm.fallback",
+          payload: { from: m, to: tryCandidates[attempt + 1] ?? null, reason: msg.slice(0, 500) },
+        }).catch(() => null);
       }
     }
     if (!r) throw (lastErr ?? new Error("LLM failed"));
-    recordUsage(r.usage);
+    const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded);
     await saveState(state);
+    await appendEvent({
+      uid: user.id,
+      runId,
+      type: "llm.completed",
+      payload: {
+        model: usedModel,
+        usage: r.usage ?? null,
+        latencyMs: r.latencyMs,
+        degraded: !!r.degraded,
+        costUsd: usageEvent?.costUsd ?? 0,
+        responsePreview: r.content.slice(0, 800),
+      },
+    }).catch(() => null);
+    const usageWire = { ...(r.usage || {}), ...(usageEvent ? { cost_usd: usageEvent.costUsd } : {}) };
+    const common = { usage: usageWire, latencyMs: r.latencyMs, provider, model: usedModel, mode, runId, memoriesUsed: recalledMemories };
     if (r.toolCalls?.length) {
-      return NextResponse.json({ toolCalls: r.toolCalls, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
+      return NextResponse.json({ toolCalls: r.toolCalls, ...common });
     }
-    return NextResponse.json({ content: r.content, usage: r.usage, latencyMs: r.latencyMs, provider, model: usedModel, mode });
+    return NextResponse.json({ content: r.content, ...common });
   } catch (e: unknown) {
-    return NextResponse.json({ error: (e as Error)?.message || "LLM failed" }, { status: 500 });
+    const message = (e as Error)?.message || "LLM failed";
+    await appendEvent({ uid: user.id, runId, type: "run.failed", payload: { error: message } }).catch(() => null);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

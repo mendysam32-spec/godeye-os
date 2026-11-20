@@ -1,11 +1,32 @@
 // Client half of the chat transport. One reader for all three chat surfaces so
 // event semantics (delta / stage / toolCalls / done / error) stay identical.
+import type { MemoryContext } from "./foundation";
+
+export interface ChatUsageWire {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  /** Best-effort USD estimate calculated by the server usage ledger. */
+  cost_usd?: number;
+}
+
+export interface ChatDoneInfo {
+  content?: string;
+  usage?: ChatUsageWire;
+  latencyMs?: number;
+  runId?: string;
+  memoriesUsed?: MemoryContext[];
+  provider?: string;
+  model?: string;
+  mode?: string;
+}
+
 export interface ChatStreamHandlers {
   onDelta?: (text: string) => void;
   onStage?: (stage: string, label: string) => void;
   onNotice?: (message: string) => void;
   onToolCalls?: (calls: ToolCallWire[]) => void;
-  onDone?: (info: { content?: string; usage?: { total_tokens?: number }; latencyMs?: number }) => void;
+  onDone?: (info: ChatDoneInfo) => void;
   onError?: (message: string) => void;
   onAborted?: () => void;
 }
@@ -25,17 +46,19 @@ interface StreamEvent {
   delta?: string;
   content?: string;
   toolCalls?: ToolCallWire[];
-  usage?: { total_tokens?: number };
+  usage?: ChatUsageWire;
   latencyMs?: number;
+  runId?: string;
+  memoriesUsed?: MemoryContext[];
+  provider?: string;
+  model?: string;
+  mode?: string;
   error?: string;
 }
 
-export interface ChatStreamResult {
-  /** text assembled from every delta, for callers that need the final value */
+export interface ChatStreamResult extends ChatDoneInfo {
   text: string;
   toolCalls?: ToolCallWire[];
-  usage?: { total_tokens?: number };
-  latencyMs?: number;
   error?: string;
   aborted?: boolean;
 }
@@ -67,7 +90,15 @@ export async function readChatStream(res: Response, h: ChatStreamHandlers = {}):
     }
     out.usage = j?.usage;
     out.latencyMs = j?.latencyMs;
-    h.onDone?.({ content: out.text, usage: out.usage, latencyMs: out.latencyMs });
+    out.runId = j?.runId;
+    out.memoriesUsed = j?.memoriesUsed;
+    out.provider = j?.provider;
+    out.model = j?.model;
+    out.mode = j?.mode;
+    h.onDone?.({
+      content: out.text, usage: out.usage, latencyMs: out.latencyMs, runId: out.runId,
+      memoriesUsed: out.memoriesUsed, provider: out.provider, model: out.model, mode: out.mode,
+    });
     return out;
   }
 
@@ -108,15 +139,24 @@ export async function readChatStream(res: Response, h: ChatStreamHandlers = {}):
             h.onNotice?.(data.message || "");
           } else if (data.type === "toolCalls" && data.toolCalls?.length) {
             out.toolCalls = data.toolCalls;
+            if (data.runId) out.runId = data.runId;
             h.onToolCalls?.(data.toolCalls);
           } else if (data.type === "done") {
             out.usage = data.usage;
             out.latencyMs = data.latencyMs;
+            out.runId = data.runId || out.runId;
+            out.memoriesUsed = data.memoriesUsed;
+            out.provider = data.provider;
+            out.model = data.model;
+            out.mode = data.mode;
             if (!out.text && typeof data.content === "string") {
               out.text = data.content;
               h.onDelta?.(data.content);
             }
-            h.onDone?.({ content: out.text, usage: data.usage, latencyMs: data.latencyMs });
+            h.onDone?.({
+              content: out.text, usage: data.usage, latencyMs: data.latencyMs, runId: out.runId,
+              memoriesUsed: data.memoriesUsed, provider: data.provider, model: data.model, mode: data.mode,
+            });
           } else if (data.type === "aborted") {
             out.aborted = true;
             h.onAborted?.();

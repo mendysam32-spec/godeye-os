@@ -8,10 +8,12 @@ import Link from "next/link";
 import { getDecryptedVaultForApi, decryptKey } from "@/lib/vault-crypto";
 import { Markdown } from "@/components/markdown";
 import { toast } from "@/components/toast";
-import { isDesktop, runMEDUSATool, saveTextToDisk, downloadToolFile, type ToolFile } from "@/lib/desktop";
+import { isDesktop, runMEDUSATool, saveTextToDisk, downloadToolFile, type ToolFile, type ToolResult } from "@/lib/desktop";
 import { isToolProvider } from "@/lib/tools";
 import { makeDocx, makePdf, makeZip, bufToBase64, MIME_DOCX } from "@/lib/file-builder";
 import { readChatStream, type ToolCallWire } from "@/lib/chat-stream";
+import { newId } from "@/lib/foundation";
+import { extractMemoryCandidates, finishRun, getCachedMemories, recordRunEvent, saveMemories } from "@/lib/foundation-client";
 import { shouldSendOnEnter, enterHint, footerHint } from "@/lib/composer-keys";
 import { SyncBadge, SyncDot } from "@/components/sync-badge";
 import { noteChatDeleted } from "@/lib/chat-sync-client";
@@ -325,6 +327,8 @@ export default function ChatPage() {
   // accumulates streamed deltas so each event can render incrementally without
   // re-deriving the full text from the store on every token
   const streamTextRef = useRef("");
+  // One id per user turn, reused across tool rounds so a run replays end-to-end.
+  const runIdRef = useRef<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -402,6 +406,20 @@ export default function ChatPage() {
     if (!text.trim() || text.startsWith("_") || text.startsWith("**Stopped:**")) return;
     speakMessage(text);
   }, [activeChat?.messages, running, speakReplies, speakMessage]);
+
+  // Replay from the Runs page: restore the original prompt into the composer.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const replay = localStorage.getItem("medusa:replay-prompt");
+        if (replay) {
+          setInput(replay);
+          localStorage.removeItem("medusa:replay-prompt");
+        }
+      } catch { /* storage disabled */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // Last-selected model memory — new chats and provider switches default to the
   // model you used last, falling back to the provider's first model.
@@ -760,6 +778,10 @@ function selectChat(id: string) {
     const reasoningEffort = settings.reasoningEffort || "off";
     const history: WireMsg[] = [...(activeChat?.messages || [])].map(normalizeMsg);
     history.push({ role: "user", content: userTurn });
+    const memoryQuery = userTurn
+      .map((p) => (p.type === "text" && "text" in p ? p.text : ""))
+      .join(" ")
+      .slice(0, 600);
 
     // Tool-round budget: a plain chat needs few rounds, but skill pipelines
     // (stickman / Magic Drum build whole films through tool rounds — write
@@ -783,6 +805,10 @@ function selectChat(id: string) {
           // free-first list of this provider's zero-cost models — lets the server
           // auto-switch to a working one if the selected model hits its limit
           freeModels: modelList.filter(m => isFreeModel(m)).map(m => m.id),
+          // foundation slice: stable run id + bounded memory recall across rounds
+          runId: runIdRef.current || undefined,
+          chatId,
+          memories: getCachedMemories(memoryQuery),
         }),
         signal: controller.signal,
       });
@@ -801,8 +827,11 @@ function selectChat(id: string) {
           calls = tc;
         },
         onDone: (info) => {
+          if (info.runId) runIdRef.current = info.runId;
           setStage("");
-          setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2713 ${info.latencyMs ? (info.latencyMs / 1000).toFixed(1) + "s" : ""} ${info.usage?.total_tokens ? info.usage.total_tokens + " tokens" : ""}`]);
+          const cost = typeof info.usage?.cost_usd === "number" ? ` · ~$${info.usage.cost_usd.toFixed(4)}` : "";
+          const recalled = info.memoriesUsed?.length ? ` · ${info.memoriesUsed.length} memories` : "";
+          setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2713 ${info.latencyMs ? (info.latencyMs / 1000).toFixed(1) + "s" : ""} ${info.usage?.total_tokens ? info.usage.total_tokens + " tokens" : ""}${cost}${recalled}`]);
         },
         onError: (msg) => {
           failed = msg;
@@ -849,11 +878,33 @@ function selectChat(id: string) {
         tool_calls: calls.map((tc) => ({ id: tc.id, type: "function", function: { name: tc.name, arguments: JSON.stringify(tc.arguments ?? {}) } })),
       });
       for (const tc of calls) {
+        const toolStarted = new Date().getTime();
+        const runId = runIdRef.current;
+        void recordRunEvent(runId || "", "tool.started", {
+          callId: tc.id, name: tc.name, arguments: tc.arguments || {}, round: iterations,
+        });
         // Server tools (web search, URL fetch, APIs, SQL, image generation)
         // need the active provider key, which never reaches this component
         // decrypted unless we hand it over per call.
-        const toolResult = await runMEDUSATool(tc.name, tc.arguments || {}, {
-          provider, model, vault: decryptedVault,
+        let toolResult: ToolResult;
+        try {
+          toolResult = await runMEDUSATool(tc.name, tc.arguments || {}, {
+            provider, model, vault: decryptedVault,
+          });
+        } catch (toolErr) {
+          void recordRunEvent(runId || "", "tool.failed", {
+            callId: tc.id, name: tc.name, error: (toolErr as Error)?.message || "Tool failed",
+            durationMs: new Date().getTime() - toolStarted,
+          });
+          throw toolErr;
+        }
+        void recordRunEvent(runId || "", "tool.completed", {
+          callId: tc.id,
+          name: tc.name,
+          ok: toolResult.ok,
+          summary: String(toolResult.summary || "").slice(0, 500),
+          files: (toolResult.files || []).length,
+          durationMs: new Date().getTime() - toolStarted,
         });
         history.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(toolResult) });
         const produced = toolResult.files || [];
@@ -1039,6 +1090,18 @@ function selectChat(id: string) {
     if (speakReplies) stopSpeaking();
     const chatId = activeChat.id;
     const userContent = input.trim();
+    // One stable id per turn, shared by chat, tool and media paths.
+    const runId = newId("run");
+    runIdRef.current = runId;
+    void fetch("/api/traces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: runId, prompt: userContent.slice(0, 8_000), kind: "chat",
+        provider, model, mode, chatId,
+        inputSnapshot: { prompt: userContent, provider, model, mode, chatId, attachments: files.length },
+      }),
+    }).catch(() => {});
     const attachments = files.length
       ? files.map((f) => ({ name: f.name, type: f.mime, size: f.size, preview: f.preview, kind: f.kind, note: f.note }))
       : undefined;
@@ -1075,6 +1138,7 @@ function selectChat(id: string) {
 
     const controller = new AbortController();
     abortRef.current = controller;
+    let turnError: string | null = null;
 
     try {
       const directImage = mode === "image" && plugins.image && caps.image;
@@ -1090,6 +1154,7 @@ function selectChat(id: string) {
         setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u25a0 stopped by user`]);
         updateLastMessage(chatId, streamTextRef.current ? streamTextRef.current + "\n\n_— stopped_" : "_— stopped_");
       } else {
+        turnError = err.message;
         updateLastMessage(chatId, `**Error:** ${err.message}\n\nCheck Providers Vault \u2192 connect ${provider} key.`);
         setLogs((l) => [...l, `[${new Date().toLocaleTimeString()}] \u2717 ${err.message}`]);
       }
@@ -1097,11 +1162,32 @@ function selectChat(id: string) {
       setRunning(false);
       setStage("");
       abortRef.current = null;
+      let finalText = "";
       // Fenced ```path blocks in the reply become real edits in the workspace.
       try {
         const last = useMEDUSA.getState().chats.find((c) => c.id === chatId)?.messages.at(-1);
+        finalText = last?.role === "assistant" ? last.content || "" : "";
         if (last?.role === "assistant" && last.content) applyProjectReply(last.content);
       } catch {}
+      const finishedRunId = runIdRef.current;
+      if (finishedRunId) {
+        void finishRun(
+          finishedRunId,
+          controller.signal.aborted ? "aborted" : turnError ? "failed" : "completed",
+          turnError,
+        );
+      }
+      if (!turnError && !controller.signal.aborted) {
+        const candidates = extractMemoryCandidates(userContent, chatId);
+        if (candidates.length) void saveMemories(candidates);
+      }
+      // Keep the final reply available to a replay without sending it to the model.
+      if (finishedRunId && finalText) {
+        void recordRunEvent(finishedRunId, "reply.final", {
+          chars: finalText.length,
+          preview: finalText.slice(0, 800),
+        }).catch(() => {});
+      }
     }
   }
 

@@ -41,9 +41,12 @@ export function CommandPalette() {
   const items: Item[] = useMemo(() => {
     const list: Item[] = [
       { id: "nav-chat", section: "Go to", label: "Chat", hint: "/chat", run: () => router.push("/chat") },
+      { id: "nav-canvas", section: "Go to", label: "Canvas", hint: "/canvas", run: () => router.push("/canvas") },
       { id: "nav-dash", section: "Go to", label: "Workforce dashboard", hint: "/dashboard", run: () => router.push("/dashboard") },
       { id: "nav-agents", section: "Go to", label: "Agents", hint: "/agents", run: () => router.push("/agents") },
       { id: "nav-skills", section: "Go to", label: "Skills", hint: "/skills", run: () => router.push("/skills") },
+      { id: "nav-runtime", section: "Go to", label: "Agent runtime", hint: "/runtime", run: () => router.push("/runtime") },
+      { id: "nav-genome", section: "Go to", label: "Skill genome", hint: "/genome", run: () => router.push("/genome") },
       { id: "nav-vault", section: "Go to", label: "Providers vault", hint: "/vault", run: () => router.push("/vault") },
       { id: "nav-settings", section: "Go to", label: "Settings", hint: "/settings", run: () => router.push("/settings") },
       { id: "act-newchat", section: "Actions", label: "New chat", hint: "create", run: () => { createChat({ provider: settings.defaultProvider }); router.push("/chat"); } },
@@ -70,8 +73,6 @@ export function CommandPalette() {
     return items.filter((it) => `${it.section} ${it.label} ${it.hint || ""}`.toLowerCase().includes(needle)).slice(0, 40);
   }, [items, q]);
 
-  useEffect(() => setIdx(0), [q]);
-
   if (!open) return null;
 
   const icons: Record<string, typeof Search> = {
@@ -91,7 +92,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setIdx(0); }}
             onKeyDown={(e) => {
               if (e.key === "ArrowDown") { e.preventDefault(); setIdx((v) => Math.min(v + 1, filtered.length - 1)); }
               if (e.key === "ArrowUp") { e.preventDefault(); setIdx((v) => Math.max(v - 1, 0)); }

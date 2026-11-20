@@ -2,7 +2,7 @@
 // chat composer) and the server (`/api/chat`), so it must never touch `window`,
 // IndexedDB or any other browser-only API.
 
-export type SkillSource = "builtin" | "upload";
+export type SkillSource = "builtin" | "upload" | "genome";
 
 export interface InstalledSkill {
   /** Stable slug used for the IndexedDB package key and the on-disk folder. */

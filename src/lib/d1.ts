@@ -100,6 +100,256 @@ export const GENERATION_SCHEMA: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_generation_jobs_uid ON generation_jobs(uid, created_at)`,
 ];
 
+/**
+ * Foundation slice: durable memory, replayable execution traces and a usage
+ * ledger, plus the memory kernel (versions, graph links, local vectors).
+ * Mirrors `migrations/0005_foundation.sql`, `0006_memory_kernel.sql`,
+ * `0007_agent_runtime.sql`, `0008_skill_genome.sql` and `0009_canvas.sql`;
+ * keep them in sync. The file fallback below understands the simple
+ * INSERT/SELECT/DELETE statements these routes issue, so the whole slice also
+ * works in plain `next dev`.
+ */
+export const FOUNDATION_SCHEMA: string[] = [
+  `CREATE TABLE IF NOT EXISTS memory_records (
+     id                TEXT PRIMARY KEY,
+     uid               TEXT NOT NULL,
+     project_id        TEXT,
+     kind              TEXT NOT NULL,
+     content           TEXT NOT NULL,
+     source_chat_id    TEXT,
+     source_message_id TEXT,
+     pinned            INTEGER NOT NULL DEFAULT 0,
+     score             REAL NOT NULL DEFAULT 0,
+     created_at        TEXT NOT NULL,
+     updated_at        TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_records_uid ON memory_records(uid, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_records_project ON memory_records(project_id, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS execution_runs (
+     id             TEXT PRIMARY KEY,
+     uid            TEXT NOT NULL,
+     kind           TEXT NOT NULL,
+     status         TEXT NOT NULL,
+     prompt         TEXT NOT NULL DEFAULT '',
+     input_snapshot TEXT,
+     provider       TEXT,
+     model          TEXT,
+     mode           TEXT,
+     chat_id        TEXT,
+     started_at     TEXT NOT NULL,
+     ended_at       TEXT,
+     error          TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_runs_uid ON execution_runs(uid, started_at)`,
+  `CREATE TABLE IF NOT EXISTS execution_events (
+     id         TEXT PRIMARY KEY,
+     run_id     TEXT NOT NULL,
+     uid        TEXT NOT NULL,
+     seq        INTEGER NOT NULL,
+     type       TEXT NOT NULL,
+     payload    TEXT,
+     created_at TEXT NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_events_run ON execution_events(run_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_events_uid ON execution_events(uid, created_at)`,
+  `CREATE TABLE IF NOT EXISTS usage_events (
+     id                TEXT PRIMARY KEY,
+     uid               TEXT NOT NULL,
+     run_id            TEXT,
+     kind              TEXT NOT NULL,
+     provider          TEXT NOT NULL,
+     model             TEXT NOT NULL,
+     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+     completion_tokens INTEGER NOT NULL DEFAULT 0,
+     total_tokens      INTEGER NOT NULL DEFAULT 0,
+     cost_usd          REAL NOT NULL DEFAULT 0,
+     currency          TEXT NOT NULL DEFAULT 'USD',
+     pricing_source    TEXT,
+     latency_ms        INTEGER,
+     created_at        TEXT NOT NULL,
+     metadata          TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS idx_usage_events_uid ON usage_events(uid, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_usage_events_run ON usage_events(run_id)`,
+  `CREATE TABLE IF NOT EXISTS memory_versions (
+      id           TEXT PRIMARY KEY,
+      memory_id    TEXT NOT NULL,
+      uid          TEXT NOT NULL,
+      version      INTEGER NOT NULL,
+      content      TEXT NOT NULL,
+      kind         TEXT NOT NULL,
+      pinned       INTEGER NOT NULL DEFAULT 0,
+      score        REAL NOT NULL DEFAULT 0,
+      change_note  TEXT,
+      changed_at   TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_versions_memory ON memory_versions(memory_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_versions_uid ON memory_versions(uid, changed_at)`,
+  `CREATE TABLE IF NOT EXISTS memory_links (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      from_id    TEXT NOT NULL,
+      to_id      TEXT NOT NULL,
+      relation   TEXT NOT NULL,
+      weight     REAL NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_links_uid ON memory_links(uid)`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_links_from ON memory_links(from_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_links_to ON memory_links(to_id)`,
+  `CREATE TABLE IF NOT EXISTS memory_vectors (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      dims       INTEGER NOT NULL,
+      vector     TEXT NOT NULL,
+      model      TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_vectors_uid ON memory_vectors(uid)`,
+  `CREATE TABLE IF NOT EXISTS memory_branches (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      name       TEXT NOT NULL,
+      project_id TEXT,
+      source_id  TEXT,
+      created_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_branches_uid ON memory_branches(uid, created_at)`,
+  `CREATE TABLE IF NOT EXISTS memory_branch_items (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      branch_id  TEXT NOT NULL,
+      memory_id  TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_memory_branch_items_branch ON memory_branch_items(branch_id)`,
+  `CREATE TABLE IF NOT EXISTS agent_tasks (
+      id             TEXT PRIMARY KEY,
+      uid            TEXT NOT NULL,
+      run_id         TEXT NOT NULL,
+      agent_id       TEXT NOT NULL,
+      name           TEXT NOT NULL,
+      role           TEXT NOT NULL,
+      provider       TEXT NOT NULL,
+      model          TEXT NOT NULL,
+      priority       INTEGER NOT NULL DEFAULT 0,
+      depends_on     TEXT NOT NULL DEFAULT '[]',
+      status         TEXT NOT NULL DEFAULT 'queued',
+      quota_tokens   INTEGER,
+      quota_ms       INTEGER,
+      score          REAL,
+      result_preview TEXT,
+      error          TEXT,
+      created_at     TEXT NOT NULL,
+      started_at     TEXT,
+      ended_at       TEXT
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_tasks_run ON agent_tasks(run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_tasks_uid ON agent_tasks(uid, created_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_messages (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      run_id     TEXT NOT NULL,
+      seq        INTEGER NOT NULL,
+      type       TEXT NOT NULL,
+      from_id    TEXT NOT NULL,
+      to_id      TEXT NOT NULL,
+      payload    TEXT,
+      created_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_run ON agent_messages(run_id, seq)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_messages_uid ON agent_messages(uid, created_at)`,
+  `CREATE TABLE IF NOT EXISTS agent_workspace (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      run_id     TEXT NOT NULL,
+      key        TEXT NOT NULL,
+      value      TEXT NOT NULL,
+      revision   INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_workspace_run ON agent_workspace(run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_workspace_uid ON agent_workspace(uid, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS skill_genome (
+      id           TEXT PRIMARY KEY,
+      uid          TEXT NOT NULL,
+      family_id    TEXT NOT NULL,
+      slug         TEXT NOT NULL,
+      name         TEXT NOT NULL,
+      description  TEXT NOT NULL DEFAULT '',
+      kind         TEXT NOT NULL DEFAULT 'prompt',
+      body         TEXT NOT NULL,
+      dna          TEXT NOT NULL DEFAULT '{}',
+      tests        TEXT NOT NULL DEFAULT '[]',
+      version      INTEGER NOT NULL DEFAULT 1,
+      generation   INTEGER NOT NULL DEFAULT 0,
+      parent_ids   TEXT NOT NULL DEFAULT '[]',
+      operator     TEXT NOT NULL DEFAULT 'seed',
+      status       TEXT NOT NULL DEFAULT 'draft',
+      fitness      REAL NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_genome_uid ON skill_genome(uid, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_genome_family ON skill_genome(family_id, version)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_genome_status ON skill_genome(uid, status)`,
+  `CREATE TABLE IF NOT EXISTS skill_outcomes (
+      id                TEXT PRIMARY KEY,
+      uid               TEXT NOT NULL,
+      skill_id          TEXT NOT NULL,
+      run_id            TEXT,
+      passed            INTEGER NOT NULL DEFAULT 0,
+      score             REAL NOT NULL DEFAULT 0,
+      checks            TEXT NOT NULL DEFAULT '[]',
+      latency_ms        INTEGER,
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd          REAL NOT NULL DEFAULT 0,
+      provider          TEXT,
+      model             TEXT,
+      error             TEXT,
+      created_at        TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_outcomes_skill ON skill_outcomes(skill_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_skill_outcomes_uid ON skill_outcomes(uid, created_at)`,
+  `CREATE TABLE IF NOT EXISTS canvas_nodes (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      board_id   TEXT NOT NULL DEFAULT 'main',
+      kind       TEXT NOT NULL DEFAULT 'note',
+      title      TEXT NOT NULL DEFAULT '',
+      body       TEXT NOT NULL DEFAULT '',
+      x          REAL NOT NULL DEFAULT 0,
+      y          REAL NOT NULL DEFAULT 0,
+      color      TEXT NOT NULL DEFAULT '#22d3ee',
+      branch     TEXT NOT NULL DEFAULT 'main',
+      parent_id  TEXT,
+      source     TEXT,
+      device_id  TEXT NOT NULL DEFAULT 'unknown',
+      lamport    INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted    INTEGER NOT NULL DEFAULT 0
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_canvas_nodes_board ON canvas_nodes(uid, board_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_canvas_nodes_branch ON canvas_nodes(uid, board_id, branch)`,
+  `CREATE TABLE IF NOT EXISTS canvas_edges (
+      id         TEXT PRIMARY KEY,
+      uid        TEXT NOT NULL,
+      board_id   TEXT NOT NULL DEFAULT 'main',
+      from_id    TEXT NOT NULL,
+      to_id      TEXT NOT NULL,
+      label      TEXT NOT NULL DEFAULT '',
+      relation   TEXT NOT NULL DEFAULT 'related',
+      device_id  TEXT NOT NULL DEFAULT 'unknown',
+      lamport    INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted    INTEGER NOT NULL DEFAULT 0
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_canvas_edges_board ON canvas_edges(uid, board_id)`,
+];
+
 /* -------------------------------------------------------------------------- */
 /* accessor                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -159,6 +409,23 @@ export function ensureGenerationSchema(db: D1Like): Promise<void> {
     });
   }
   return genSchemaPromise;
+}
+
+let foundationSchemaPromise: Promise<void> | null = null;
+
+/** Run the foundation DDL once per isolate. Safe to call on every request. */
+export function ensureFoundationSchema(db: D1Like): Promise<void> {
+  if (!foundationSchemaPromise) {
+    foundationSchemaPromise = (async () => {
+      for (const stmt of FOUNDATION_SCHEMA) {
+        await db.prepare(stmt).run();
+      }
+    })().catch((e) => {
+      foundationSchemaPromise = null;
+      throw e;
+    });
+  }
+  return foundationSchemaPromise;
 }
 
 /* -------------------------------------------------------------------------- */
