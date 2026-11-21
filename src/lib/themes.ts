@@ -18,6 +18,10 @@ export const THEME_IDS = [
   "abyss",
   "ember",
   "vapor",
+  "aura-light",
+  "aura-dark",
+  "lime-light",
+  "lime-dark",
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -186,6 +190,82 @@ export const THEMES: ThemeDef[] = [
       text: "#f7ecff",
       sub: "#c4a9d9",
       accent: "#f472b6",
+    },
+  },
+  {
+    id: "aura-light",
+    label: "Aura Light",
+    desc: "Violet & cyan glass · Daylight",
+    mode: "light",
+    preview: {
+      bg:
+        "radial-gradient(420px 280px at 6% 0%, rgba(167,139,250,0.30), transparent 60%)," +
+        "radial-gradient(400px 260px at 100% 4%, rgba(34,211,238,0.26), transparent 60%)," +
+        "linear-gradient(130deg, #f8fafc, #f5f3ff 55%, #ecfeff)",
+      surface: "rgba(255,255,255,0.75)",
+      bar: "rgba(255,255,255,0.65)",
+      sidebar: "rgba(255,255,255,0.6)",
+      border: "rgba(124,58,237,0.12)",
+      text: "#0f172a",
+      sub: "#475569",
+      accent: "#7c3aed",
+    },
+  },
+  {
+    id: "aura-dark",
+    label: "Aura Dark",
+    desc: "Violet & cyan glass · Night",
+    mode: "dark",
+    preview: {
+      bg:
+        "radial-gradient(420px 280px at 6% 0%, rgba(147,51,234,0.42), transparent 60%)," +
+        "radial-gradient(400px 260px at 100% 4%, rgba(6,182,212,0.36), transparent 60%)," +
+        "linear-gradient(145deg, #09090f, #160f2b 55%, #06202b)",
+      surface: "rgba(18,19,31,0.65)",
+      bar: "rgba(18,19,31,0.55)",
+      sidebar: "rgba(18,19,31,0.5)",
+      border: "rgba(56,189,248,0.2)",
+      text: "#f8fafc",
+      sub: "#94a3b8",
+      accent: "#9333ea",
+    },
+  },
+  {
+    id: "lime-light",
+    label: "Lime Light",
+    desc: "Lime & emerald · Daylight",
+    mode: "light",
+    preview: {
+      bg:
+        "radial-gradient(420px 280px at 6% 0%, rgba(163,230,53,0.28), transparent 60%)," +
+        "radial-gradient(400px 260px at 100% 4%, rgba(52,211,153,0.22), transparent 60%)," +
+        "linear-gradient(130deg, #f7f9f8, #f7fee7 55%, #ecfdf5)",
+      surface: "rgba(255,255,255,0.8)",
+      bar: "rgba(255,255,255,0.7)",
+      sidebar: "rgba(255,255,255,0.65)",
+      border: "rgba(16,185,129,0.18)",
+      text: "#111815",
+      sub: "#4b5563",
+      accent: "#65a30d",
+    },
+  },
+  {
+    id: "lime-dark",
+    label: "Lime Dark",
+    desc: "Electric lime wireframe · Night",
+    mode: "dark",
+    preview: {
+      bg:
+        "radial-gradient(420px 280px at 6% 0%, rgba(132,204,22,0.32), transparent 60%)," +
+        "radial-gradient(400px 260px at 100% 4%, rgba(16,185,129,0.26), transparent 60%)," +
+        "linear-gradient(145deg, #0a0d0c, #142017 55%, #04140f)",
+      surface: "rgba(17,25,22,0.7)",
+      bar: "rgba(17,25,22,0.6)",
+      sidebar: "rgba(17,25,22,0.55)",
+      border: "rgba(163,230,53,0.22)",
+      text: "#f3f4f6",
+      sub: "#9ca3af",
+      accent: "#a3e635",
     },
   },
 ];

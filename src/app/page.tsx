@@ -14,7 +14,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="text-sm px-5 py-2 rounded-full bg-foreground text-background">Open dashboard</Link>
+            <Link href="/dashboard" className="cta-gradient text-sm px-5 py-2 rounded-full bg-foreground text-background">Open dashboard</Link>
           </div>
         </div>
       </header>
@@ -32,7 +32,7 @@ export default function Home() {
               Build multi-agent teams that code, write and operate with any provider — Nvidia, OpenRouter, OmeRoute, OpenAI, Anthropic and more. One control plane. Own it like it&apos;s yours.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-foreground text-background px-6 py-3 text-sm font-medium">Open dashboard <ArrowRight className="h-4 w-4" /></Link>
+              <Link href="/dashboard" className="cta-gradient inline-flex items-center gap-2 rounded-full bg-foreground text-background px-6 py-3 text-sm font-medium">Open dashboard <ArrowRight className="h-4 w-4" /></Link>
               <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border px-6 py-3 text-sm font-medium">Open dashboard</Link>
             </div>
           </div>

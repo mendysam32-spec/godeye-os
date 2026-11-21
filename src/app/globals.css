@@ -579,6 +579,298 @@
   color: #f9a8d4;
 }
 
+/* Aura Light — violet & cyan frosted glass over iridescent mist */
+.theme-aura-light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: rgba(255, 255, 255, 0.75);
+  --card-foreground: #0f172a;
+  --elevated-surface: rgba(255, 255, 255, 0.86);
+  --secondary: rgba(255, 255, 255, 0.58);
+  --secondary-foreground: #0f172a;
+  --secondary-tab-active-bg: rgba(255, 255, 255, 0.68);
+  --button-subtle-bg: rgba(255, 255, 255, 0.6);
+  --button-subtle-bg-hover: rgba(255, 255, 255, 0.78);
+  --text-tertiary: #0f172a5c;
+  --popover: rgba(255, 255, 255, 0.9);
+  --popover-foreground: #0f172a;
+  --primary: #0f172a;
+  --primary-foreground: #ffffff;
+  --muted: rgba(255, 255, 255, 0.55);
+  --muted-foreground: #475569;
+  --accent: #7c3aed;
+  --accent-foreground: #ffffff;
+  --destructive: oklch(57.7% .245 27.325);
+  --destructive-foreground: #ffffff;
+  --warning: oklch(75% .183 55);
+  --warning-foreground: oklch(41% .16 55);
+  --success: oklch(60% .19 145);
+  --success-foreground: oklch(36% .15 145);
+  --info: oklch(62% .18 250);
+  --info-foreground: oklch(40% .15 250);
+  --border: rgba(124, 58, 237, 0.12);
+  --border-solid: rgba(124, 58, 237, 0.24);
+  --border-soft: rgba(255, 255, 255, 0.6);
+  --border-strong: rgba(124, 58, 237, 0.3);
+  --input: rgba(15, 23, 42, 0.08);
+  --ring: rgba(124, 58, 237, 0.28);
+  --shadow-soft-card: 0 0 0 1px rgba(124, 58, 237, 0.06), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-soft-popover: 0 0 0 1px rgba(124, 58, 237, 0.08), 0 4px 8px rgba(15, 23, 42, 0.08);
+  --shadow-soft-floating: 0 0 0 1px rgba(124, 58, 237, 0.1), 0 8px 16px rgba(15, 23, 42, 0.1), 0 16px 32px rgba(124, 58, 237, 0.08);
+  --home-content-surface: rgba(255, 255, 255, 0.62);
+  --home-composer-tray-bg: rgba(255, 255, 255, 0.58);
+  --home-brand-foreground: #0f172a;
+  --home-brand-accent: #7c3aed;
+  --home-sidebar-primary-text: #000000d6;
+  --home-sidebar-secondary-text: #000000cc;
+  --home-sidebar-section-text: #00000099;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --brand-gradient: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%);
+  --brand-gradient-foreground: #ffffff;
+  --cta-bg: linear-gradient(90deg, #6d28d9, #0891b2);
+  --cta-foreground: #ffffff;
+}
+.theme-aura-light body {
+  background:
+    radial-gradient(1100px 720px at 6% -8%, rgba(167, 139, 250, 0.22), transparent 55%),
+    radial-gradient(1000px 660px at 98% 0%, rgba(34, 211, 238, 0.20), transparent 55%),
+    radial-gradient(900px 620px at 10% 108%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(820px 560px at 92% 104%, rgba(167, 139, 250, 0.18), transparent 55%),
+    #f8fafc;
+}
+.theme-aura-light .bg-card {
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(124, 58, 237, 0.12);
+  box-shadow: 0 8px 32px rgba(76, 29, 149, 0.08), 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+.theme-aura-light .bg-background { backdrop-filter: blur(10px); }
+.theme-aura-light ::selection { background: #ddd6fe; color: #4c1d95; }
+.theme-aura-light a:hover { color: #6d28d9; }
+
+/* Aura Dark — cosmic obsidian with luminous violet and cyan waves */
+.theme-aura-dark {
+  --background: #09090f;
+  --foreground: #f8fafc;
+  --card: rgba(18, 19, 31, 0.65);
+  --card-foreground: #f8fafc;
+  --elevated-surface: rgba(30, 27, 48, 0.8);
+  --secondary: rgba(18, 19, 31, 0.55);
+  --secondary-foreground: #f8fafc;
+  --secondary-tab-active-bg: rgba(147, 51, 234, 0.16);
+  --button-subtle-bg: rgba(255, 255, 255, 0.07);
+  --button-subtle-bg-hover: rgba(255, 255, 255, 0.13);
+  --text-tertiary: #ffffff66;
+  --popover: rgba(18, 19, 31, 0.9);
+  --popover-foreground: #f8fafc;
+  --primary: #f8fafc;
+  --primary-foreground: #09090f;
+  --muted: rgba(255, 255, 255, 0.07);
+  --muted-foreground: #94a3b8;
+  --accent: #9333ea;
+  --accent-foreground: #f8fafc;
+  --destructive: oklch(70.4% .191 22.216);
+  --destructive-foreground: #fafafa;
+  --warning: oklch(80% .15 75);
+  --warning-foreground: oklch(75% .15 75);
+  --success: oklch(70% .17 150);
+  --success-foreground: oklch(80% .17 150);
+  --info: oklch(70% .16 255);
+  --info-foreground: oklch(80% .14 255);
+  --border: rgba(56, 189, 248, 0.2);
+  --border-solid: rgba(56, 189, 248, 0.3);
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(56, 189, 248, 0.38);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: rgba(34, 211, 238, 0.4);
+  --shadow-soft-card: 0 0 0 1px rgba(56, 189, 248, 0.08), 0 1px 2px #000a;
+  --shadow-soft-popover: 0 0 0 1px rgba(56, 189, 248, 0.12), 0 4px 8px #000a;
+  --shadow-soft-floating: 0 0 0 1px rgba(56, 189, 248, 0.16), 0 8px 16px #00000080, 0 16px 32px #00000080;
+  --home-content-surface: rgba(18, 19, 31, 0.55);
+  --home-composer-tray-bg: rgba(18, 19, 31, 0.6);
+  --home-brand-foreground: #f8fafc;
+  --home-brand-accent: #9333ea;
+  --home-sidebar-primary-text: #ffffffd6;
+  --home-sidebar-secondary-text: #fffc;
+  --home-sidebar-section-text: #fff9;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --glass-bg: rgba(18, 19, 31, 0.65);
+  --brand-gradient: linear-gradient(135deg, #9333ea 0%, #22d3ee 100%);
+  --brand-gradient-foreground: #f8fafc;
+  --cta-bg: linear-gradient(90deg, #a855f7, #22d3ee);
+  --cta-foreground: #09090f;
+}
+.theme-aura-dark body {
+  background:
+    radial-gradient(1100px 720px at 4% -10%, rgba(147, 51, 234, 0.35), transparent 55%),
+    radial-gradient(1000px 680px at 96% -4%, rgba(6, 182, 212, 0.30), transparent 55%),
+    radial-gradient(900px 640px at 12% 110%, rgba(147, 51, 234, 0.24), transparent 55%),
+    radial-gradient(800px 560px at 88% 108%, rgba(6, 182, 212, 0.22), transparent 55%),
+    #09090f;
+}
+.theme-aura-dark .bg-card {
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  background: rgba(18, 19, 31, 0.65);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.theme-aura-dark .bg-background { backdrop-filter: blur(12px); }
+.theme-aura-dark ::selection { background: #a855f7; color: #09090f; }
+.theme-aura-dark a:hover { color: #67e8f9; }
+
+/* Lime Light — mineral white with botanical lime mesh and emerald glass */
+.theme-lime-light {
+  --background: #f7f9f8;
+  --foreground: #111815;
+  --card: rgba(255, 255, 255, 0.8);
+  --card-foreground: #111815;
+  --elevated-surface: rgba(255, 255, 255, 0.9);
+  --secondary: rgba(255, 255, 255, 0.65);
+  --secondary-foreground: #111815;
+  --secondary-tab-active-bg: rgba(132, 204, 22, 0.12);
+  --button-subtle-bg: rgba(255, 255, 255, 0.68);
+  --button-subtle-bg-hover: rgba(255, 255, 255, 0.85);
+  --text-tertiary: #1118155c;
+  --popover: rgba(255, 255, 255, 0.92);
+  --popover-foreground: #111815;
+  --primary: #111815;
+  --primary-foreground: #ffffff;
+  --muted: rgba(255, 255, 255, 0.6);
+  --muted-foreground: #4b5563;
+  --accent: #65a30d;
+  --accent-foreground: #ffffff;
+  --destructive: oklch(57.7% .245 27.325);
+  --destructive-foreground: #ffffff;
+  --warning: oklch(75% .183 55);
+  --warning-foreground: oklch(41% .16 55);
+  --success: oklch(60% .19 145);
+  --success-foreground: oklch(36% .15 145);
+  --info: oklch(62% .18 250);
+  --info-foreground: oklch(40% .15 250);
+  --border: rgba(16, 185, 129, 0.18);
+  --border-solid: rgba(16, 185, 129, 0.3);
+  --border-soft: rgba(255, 255, 255, 0.7);
+  --border-strong: rgba(16, 185, 129, 0.36);
+  --input: rgba(17, 24, 21, 0.08);
+  --ring: rgba(132, 204, 22, 0.32);
+  --shadow-soft-card: 0 0 0 1px rgba(16, 185, 129, 0.08), 0 1px 2px rgba(10, 15, 13, 0.06);
+  --shadow-soft-popover: 0 0 0 1px rgba(16, 185, 129, 0.1), 0 4px 8px rgba(10, 15, 13, 0.08);
+  --shadow-soft-floating: 0 0 0 1px rgba(16, 185, 129, 0.12), 0 8px 16px rgba(10, 15, 13, 0.1), 0 16px 32px rgba(16, 185, 129, 0.08);
+  --home-content-surface: rgba(255, 255, 255, 0.68);
+  --home-composer-tray-bg: rgba(255, 255, 255, 0.62);
+  --home-brand-foreground: #111815;
+  --home-brand-accent: #65a30d;
+  --home-sidebar-primary-text: #000000d6;
+  --home-sidebar-secondary-text: #000000cc;
+  --home-sidebar-section-text: #00000099;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --brand-gradient: linear-gradient(135deg, #65a30d 0%, #059669 100%);
+  --brand-gradient-foreground: #ffffff;
+  --cta-bg: #84cc16;
+  --cta-foreground: #0a0f0d;
+}
+.theme-lime-light body {
+  background:
+    radial-gradient(1100px 720px at 6% -8%, rgba(163, 230, 53, 0.22), transparent 55%),
+    radial-gradient(1000px 660px at 96% 0%, rgba(52, 211, 153, 0.16), transparent 55%),
+    radial-gradient(900px 620px at 10% 108%, rgba(52, 211, 153, 0.14), transparent 55%),
+    radial-gradient(820px 560px at 92% 104%, rgba(163, 230, 53, 0.16), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 39px, rgba(16, 185, 129, 0.05) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgba(16, 185, 129, 0.05) 39px 40px),
+    #f7f9f8;
+}
+.theme-lime-light .bg-card {
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(16, 185, 129, 0.18);
+  box-shadow: 0 8px 32px rgba(6, 95, 70, 0.08), 0 1px 2px rgba(10, 15, 13, 0.05);
+}
+.theme-lime-light .bg-background { backdrop-filter: blur(10px); }
+.theme-lime-light ::selection { background: #d9f99d; color: #1a2e05; }
+.theme-lime-light a:hover { color: #4d7c0f; }
+
+/* Lime Dark — carbon obsidian with bio-digital lime wireframes */
+.theme-lime-dark {
+  --background: #0a0d0c;
+  --foreground: #f3f4f6;
+  --card: rgba(17, 25, 22, 0.7);
+  --card-foreground: #f3f4f6;
+  --elevated-surface: rgba(24, 36, 30, 0.85);
+  --secondary: rgba(17, 25, 22, 0.6);
+  --secondary-foreground: #f3f4f6;
+  --secondary-tab-active-bg: rgba(163, 230, 53, 0.12);
+  --button-subtle-bg: rgba(163, 230, 53, 0.08);
+  --button-subtle-bg-hover: rgba(163, 230, 53, 0.14);
+  --text-tertiary: #ffffff66;
+  --popover: rgba(17, 25, 22, 0.92);
+  --popover-foreground: #f3f4f6;
+  --primary: #f3f4f6;
+  --primary-foreground: #0a0d0c;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #9ca3af;
+  --accent: #a3e635;
+  --accent-foreground: #0a0d0c;
+  --destructive: oklch(70.4% .191 22.216);
+  --destructive-foreground: #fafafa;
+  --warning: oklch(80% .15 75);
+  --warning-foreground: oklch(75% .15 75);
+  --success: oklch(70% .17 150);
+  --success-foreground: oklch(80% .17 150);
+  --info: oklch(70% .16 255);
+  --info-foreground: oklch(80% .14 255);
+  --border: rgba(163, 230, 53, 0.22);
+  --border-solid: rgba(163, 230, 53, 0.32);
+  --border-soft: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(163, 230, 53, 0.4);
+  --input: rgba(163, 230, 53, 0.14);
+  --ring: rgba(163, 230, 53, 0.4);
+  --shadow-soft-card: 0 0 0 1px rgba(163, 230, 53, 0.08), 0 1px 2px #000a;
+  --shadow-soft-popover: 0 0 0 1px rgba(163, 230, 53, 0.12), 0 4px 8px #000a;
+  --shadow-soft-floating: 0 0 0 1px rgba(163, 230, 53, 0.16), 0 8px 16px #00000080, 0 16px 32px #00000080;
+  --home-content-surface: rgba(17, 25, 22, 0.55);
+  --home-composer-tray-bg: rgba(17, 25, 22, 0.6);
+  --home-brand-foreground: #f3f4f6;
+  --home-brand-accent: #a3e635;
+  --home-sidebar-primary-text: #ffffffd6;
+  --home-sidebar-secondary-text: #fffc;
+  --home-sidebar-section-text: #fff9;
+  --home-sidebar-nav-hover: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --home-sidebar-nav-active: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --glass-bg: rgba(17, 25, 22, 0.7);
+  --brand-gradient: linear-gradient(135deg, #a3e635 0%, #10b981 100%);
+  --brand-gradient-foreground: #0a0d0c;
+  --cta-bg: linear-gradient(90deg, #a3e635, #4ade80);
+  --cta-foreground: #0a0d0c;
+}
+.theme-lime-dark body {
+  background:
+    radial-gradient(1100px 720px at 4% -10%, rgba(132, 204, 22, 0.25), transparent 55%),
+    radial-gradient(1000px 680px at 96% -4%, rgba(16, 185, 129, 0.20), transparent 55%),
+    radial-gradient(900px 640px at 12% 110%, rgba(16, 185, 129, 0.16), transparent 55%),
+    radial-gradient(800px 560px at 88% 108%, rgba(132, 204, 22, 0.18), transparent 55%),
+    repeating-linear-gradient(0deg, transparent 0 39px, rgba(163, 230, 53, 0.05) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgba(163, 230, 53, 0.05) 39px 40px),
+    #0a0d0c;
+}
+.theme-lime-dark .bg-card {
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  background: rgba(17, 25, 22, 0.7);
+  border: 1px solid rgba(163, 230, 53, 0.22);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.theme-lime-dark .bg-background { backdrop-filter: blur(12px); }
+.theme-lime-dark ::selection { background: #a3e635; color: #0a0d0c; }
+.theme-lime-dark a:hover { color: #bef264; }
+
 /* legacy .dark support (same values as theme-eclipse; some CSS targets
    `.dark .glass` and similar - kept for Tailwind/compat purposes) */
 .dark {
@@ -699,10 +991,28 @@ input, textarea, select, [contenteditable="true"] {
 
 .glass {
   backdrop-filter: blur(12px);
-  background: rgba(255,255,255,0.7);
+  background: var(--glass-bg, rgba(255,255,255,0.7));
 }
 .dark .glass {
-  background: rgba(18, 21, 29, 0.7);
+  background: var(--glass-bg, rgba(18, 21, 29, 0.7));
+}
+
+/* Theme-native brand gradient + CTA. Scoped to the four new glass themes so
+   applying these classes elsewhere never changes the original themes. */
+.theme-aura-light .brand-gradient,
+.theme-aura-dark .brand-gradient,
+.theme-lime-light .brand-gradient,
+.theme-lime-dark .brand-gradient {
+  background: var(--brand-gradient);
+  color: var(--brand-gradient-foreground);
+}
+.theme-aura-light .cta-gradient,
+.theme-aura-dark .cta-gradient,
+.theme-lime-light .cta-gradient,
+.theme-lime-dark .cta-gradient {
+  background: var(--cta-bg);
+  color: var(--cta-foreground);
+  font-weight: 600;
 }
 
 /* Medusa 3D head */
