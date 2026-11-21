@@ -1,4 +1,9 @@
-import { PROVIDERS, CAPABLE_MODELS_RE, isValidApiKey, type ProviderId, type ProviderModel } from "./providers";
+import {
+  PROVIDERS, CAPABLE_MODELS_RE, isValidApiKey, isProviderId,
+  providerAuthMode, providerDiscovery, providerKind, isValidProviderCredential,
+  type ProviderId, type ProviderModel, type Provider,
+} from "./providers";
+import { validateProviderEndpoint, endpointAllowsLocal } from "./provider-endpoints";
 import {
   asParts, budgetParts, flattenText, isBinaryPart,
   openAIParts, anthropicParts, googleParts, cohereParts,
@@ -211,7 +216,9 @@ async function callOpenAICompatible(call: LLMCall, apiKey: string, baseUrl: stri
   const url = isNvcf ? rawBase : `${rawBase}/chat/completions`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
+    // Keyless local runtimes (Ollama / LM Studio / self-hosted gateways) must
+    // never receive a bogus `Bearer ` header — some of them reject it outright.
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
   };
   // OpenRouter requires extra headers for ranking
   if (call.provider === "openrouter") {
@@ -772,61 +779,146 @@ async function callCohere(call: LLMCall, apiKey: string): Promise<LLMResult> {
   };
 }
 
-export async function callLLM(call: LLMCall, apiKey: string, opts?: { baseUrl?: string }): Promise<LLMResult> {
-  if (!isValidApiKey(apiKey)) {
-    throw new Error("API key contains spaces, line breaks or non-ASCII characters — re-copy it from the provider dashboard.");
-  }
-  const cfg = providerConfig(call.provider);
-  // route by provider type
-  if (call.provider === "anthropic") return callAnthropic(call, apiKey);
-  if (call.provider === "google") return callGoogle(call, apiKey);
-  if (call.provider === "cohere") return callCohere(call, apiKey);
-  // default OpenAI-compatible (covers nvidia, openrouter, omeroute, openai, mistral, together, perplexity)
-  return callOpenAICompatible(call, apiKey, cfg.baseUrl, opts?.baseUrl);
+export interface LLMCallOptions {
+  /** User/self-hosted endpoint override — always validated server-side. */
+  baseUrl?: string;
+  /** Server policy: allow loopback/private endpoints (never taken from the client). */
+  allowLocal?: boolean;
 }
 
-// Fetch the live model list a provider exposes for a given API key.
-// Covers OpenAI-compatible /v1/models (nvidia, openrouter, omeroute, openai,
-// mistral, together, perplexity, agentrouter, cohere...) plus anthropic and google.
-// NVCF deployment URLs are single-function endpoints with no /models listing.
-// Models are flagged `image`/`video` when they can generate media so the chat
-// UI can dispatch to the real generation pipeline.
-export async function fetchProviderModels(provider: ProviderId, apiKey: string, endpoint?: string): Promise<ProviderModel[]> {
-  if (!isValidApiKey(apiKey)) return [];
-  const cfg = providerConfig(provider);
-  try {
-    const rawBase = (endpoint || cfg.baseUrl).replace(/\/+$/, "");
-    if (/api\.nvcf\.nvidia\.com/.test(rawBase)) return [];
-    // Exclude non-dialog families (embeddings, audio, re-rankers...) but NOT
-    // image/video generation models — those are surfaced so they can be used.
-    const skip = /(embed|embedding|reward|rerank|ranker|guard|tts|asr|whisper|speech|tokeniz)/i;
+/**
+ * Keyless runtimes store a non-secret sentinel in the vault so their endpoint
+ * survives the decrypt-to-API chokepoint. Never forward that sentinel as a
+ * `Bearer` credential — strip it here for `auth: "none"` providers.
+ */
+function authKey(cfg: Provider | undefined, apiKey: unknown): string {
+  if (providerAuthMode(cfg) === "none") return "";
+  return typeof apiKey === "string" ? apiKey.trim() : "";
+}
 
+function resolveEndpoint(raw: string | undefined, allowLocal?: boolean): string | undefined {
+  if (!raw || !String(raw).trim()) return undefined;
+  const result = validateProviderEndpoint(raw, { allowLocal: allowLocal ?? endpointAllowsLocal() });
+  if (!result.ok) throw new Error(`Invalid provider endpoint: ${result.error}`);
+  return result.url;
+}
+
+/**
+ * Model-agnostic entry point. The provider kind (not its id) selects the wire
+ * adapter, credentials are checked against the provider's auth policy, and
+ * keyless local runtimes are first-class. `callLLM(call, key, { baseUrl })`
+ * remains source-compatible with every existing caller.
+ */
+export async function callLLM(call: LLMCall, apiKey?: string | null, opts?: LLMCallOptions): Promise<LLMResult> {
+  if (!isProviderId(call.provider)) throw new Error(`Unknown provider ${call.provider}`);
+  const cfg = providerConfig(call.provider);
+  const mode = providerAuthMode(cfg);
+  const key = authKey(cfg, apiKey);
+  if (mode === "api-key" && !isValidApiKey(key)) {
+    throw new Error("API key contains spaces, line breaks or non-ASCII characters — re-copy it from the provider dashboard.");
+  }
+  if (mode === "optional-api-key" && key && !isValidApiKey(key)) {
+    throw new Error("API key contains spaces, line breaks or non-ASCII characters — re-copy it from the provider dashboard.");
+  }
+
+  const endpoint = resolveEndpoint(opts?.baseUrl, opts?.allowLocal);
+  if (cfg.localOnly && !endpoint) {
+    const base = validateProviderEndpoint(cfg.baseUrl, { allowLocal: opts?.allowLocal ?? endpointAllowsLocal() });
+    if (!base.ok) throw new Error(`${cfg.name} is unavailable in this deployment: ${base.error}`);
+  }
+  const kind = providerKind(cfg);
+  if (endpoint && kind !== "openai-compatible" && kind !== "local-openai") {
+    throw new Error(`Endpoint overrides are not supported for ${cfg.name}; only OpenAI-compatible providers accept one.`);
+  }
+
+  switch (kind) {
+    case "anthropic": return callAnthropic(call, key);
+    case "google": return callGoogle(call, key);
+    case "cohere": return callCohere(call, key);
+    case "local-openai":
+    case "openai-compatible":
+    default:
+      return callOpenAICompatible(call, key, cfg.baseUrl, endpoint);
+  }
+}
+
+// ------------------------------------------------------------- model discovery
+
+export interface ProviderModelList {
+  ok: boolean;
+  models: ProviderModel[];
+  error?: string;
+}
+
+/** Detailed discovery result; unlike `fetchProviderModels` it explains failures. */
+export async function listProviderModels(
+  provider: ProviderId,
+  apiKey?: string | null,
+  endpoint?: string,
+  options?: { allowLocal?: boolean },
+): Promise<ProviderModelList> {
+  if (!isProviderId(provider)) return { ok: false, models: [], error: "Unknown provider" };
+  const cfg = providerConfig(provider);
+  const key = authKey(cfg, apiKey);
+  if (!isValidProviderCredential(provider, key)) {
+    return { ok: false, models: [], error: providerAuthMode(cfg) === "none" ? "Credentials rejected" : "Invalid API key" };
+  }
+
+  let rawBase = cfg.baseUrl;
+  if (endpoint && String(endpoint).trim()) {
+    const validated = validateProviderEndpoint(endpoint, { allowLocal: options?.allowLocal ?? endpointAllowsLocal() });
+    if (!validated.ok) return { ok: false, models: [], error: validated.error };
+    rawBase = validated.url;
+  }
+  if (!rawBase) {
+    return { ok: false, models: [], error: "Set an endpoint for this provider in the Providers Vault first" };
+  }
+  if (cfg.localOnly && !endpoint) {
+    const base = validateProviderEndpoint(rawBase, { allowLocal: options?.allowLocal ?? endpointAllowsLocal() });
+    if (!base.ok) return { ok: false, models: [], error: `${cfg.name} is unavailable in this deployment: ${base.error}` };
+  }
+  if (/api\.nvcf\.nvidia\.com/.test(rawBase)) return { ok: true, models: [] };
+
+  // Exclude non-dialog families (embeddings, audio, re-rankers...) but NOT
+  // image/video generation models — those are surfaced so they can be used.
+  const skip = /(embed|embedding|reward|rerank|ranker|guard|tts|asr|whisper|speech|tokeniz)/i;
+
+  try {
     let url: string;
-    let headers: Record<string, string>;
-    if (provider === "anthropic") {
+    let headers: Record<string, string> = {};
+    const discovery = providerDiscovery(cfg);
+    if (discovery === "ollama-tags") {
+      // Ollama's tag list lives at the root, while chat uses /v1.
+      const root = rawBase.replace(/\/v1\/?$/, "");
+      url = `${root}/api/tags`;
+    } else if (provider === "anthropic") {
       url = `${rawBase}/v1/models`;
-      headers = { "x-api-key": apiKey, "anthropic-version": "2023-06-01" };
+      headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
     } else if (provider === "google") {
-      url = `${rawBase}/models?key=${encodeURIComponent(apiKey)}`;
-      headers = { "Content-Type": "application/json" };
+      url = `${rawBase}/models?key=${encodeURIComponent(key)}`;
     } else {
       url = `${rawBase}/models`;
-      headers = { Authorization: `Bearer ${apiKey}` };
+      if (key) headers = { Authorization: `Bearer ${key}` };
       // AgentRouter only serves clients that carry the OpenAI-SDK / Roo Code identity headers.
       if (provider === "agentrouter") {
-        headers["X-Stainless-OS"] = "Linux";
-        headers["X-Stainless-Arch"] = "x64";
-        headers["X-Stainless-Lang"] = "js";
-        headers["X-Stainless-Runtime"] = "node";
-        headers["X-Stainless-Runtime-Version"] = "v22.22.1";
-        headers["HTTP-Referer"] = "https://github.com/RooVetGit/Roo-Cline";
-        headers["X-Title"] = "Roo Code";
-        headers["User-Agent"] = "RooCode/3.53.0";
+        headers = {
+          ...headers,
+          "X-Stainless-OS": "Linux",
+          "X-Stainless-Arch": "x64",
+          "X-Stainless-Lang": "js",
+          "X-Stainless-Runtime": "node",
+          "X-Stainless-Runtime-Version": "v22.22.1",
+          "HTTP-Referer": "https://github.com/RooVetGit/Roo-Cline",
+          "X-Title": "Roo Code",
+          "User-Agent": "RooCode/3.53.0",
+        };
       }
     }
 
     const res = await fetch(url, { headers });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return { ok: false, models: [], error: `${cfg.name} model listing failed (${res.status})` };
+    }
     const json: unknown = await res.json();
 
     const asList = json as { data?: unknown[]; models?: unknown[] };
@@ -877,23 +969,84 @@ export async function fetchProviderModels(provider: ProviderId, apiKey: string, 
         ...(video ? { video: true } : {}),
         ...(reasoning ? { reasoning: true } : {}),
         ...(vision ? { vision: true } : {}),
-        ...(idFree || pricedFree ? { free: true } : pricedPaid ? { free: false } : {}),
+        ...(cfg.localOnly ? { local: true, free: true } : {}),
+        ...(!cfg.localOnly && (idFree || pricedFree) ? { free: true } : pricedPaid ? { free: false } : {}),
       });
     }
     out.sort((a, b) => a.id.localeCompare(b.id));
-    return out;
-  } catch {
-    return [];
+    return { ok: true, models: out };
+  } catch (error) {
+    return { ok: false, models: [], error: (error as Error)?.message || "Model discovery failed" };
   }
 }
 
-export async function testProviderKey(provider: ProviderId, apiKey: string, endpoint?: string): Promise<{ ok: boolean; message: string }> {
-  try {
-    const model = PROVIDERS.find(p => p.id === provider)?.models[0].id;
-    if (!model) throw new Error("No model for provider");
-    const r = await callLLM({ provider, model, messages: [{ role: "user", content: "Reply with OK" }], maxTokens: 5, temperature: 0 }, apiKey, endpoint ? { baseUrl: endpoint } : undefined);
-    return { ok: !!r.content, message: r.content.slice(0, 200) || "Connected" };
-  } catch (e: any) {
-    return { ok: false, message: e.message || "Failed" };
+/** Backwards-compatible wrapper used by callers that only want the list. */
+export async function fetchProviderModels(
+  provider: ProviderId,
+  apiKey?: string | null,
+  endpoint?: string,
+  options?: { allowLocal?: boolean },
+): Promise<ProviderModel[]> {
+  const result = await listProviderModels(provider, apiKey, endpoint, options);
+  return result.models;
+}
+
+export interface ProviderTestInput {
+  provider: ProviderId;
+  apiKey?: string | null;
+  endpoint?: string;
+  /** Explicit model to test; otherwise the first discovered/catalog model. */
+  model?: string;
+  allowLocal?: boolean;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  message: string;
+  models?: ProviderModel[];
+}
+
+/** Health check for a provider: discover models, then probe a real completion. */
+export async function testProviderKey(input: ProviderTestInput): Promise<ProviderTestResult> {
+  const { provider } = input;
+  if (!isProviderId(provider)) return { ok: false, message: "Unknown provider" };
+  const cfg = providerConfig(provider);
+  const key = authKey(cfg, input.apiKey);
+  if (!isValidProviderCredential(provider, key)) {
+    return { ok: false, message: providerAuthMode(cfg) === "none" ? "Credentials rejected" : "Invalid API key" };
   }
+
+  const endpointResult = input.endpoint
+    ? validateProviderEndpoint(input.endpoint, { allowLocal: input.allowLocal ?? endpointAllowsLocal() })
+    : null;
+  if (endpointResult && !endpointResult.ok) {
+    return { ok: false, message: `Invalid endpoint: ${endpointResult.error}` };
+  }
+
+  const listed = await listProviderModels(provider, key, input.endpoint, { allowLocal: input.allowLocal });
+  const candidates = [input.model, listed.models[0]?.id, cfg.models[0]?.id]
+    .filter((m): m is string => typeof m === "string" && !!m);
+  const unique = [...new Set(candidates)].slice(0, 2);
+  if (!unique.length) {
+    return {
+      ok: false,
+      message: listed.error || `No model available for ${cfg.name} — sync models or pick one manually`,
+      models: listed.models,
+    };
+  }
+
+  let lastError = "Provider check failed";
+  for (const model of unique) {
+    try {
+      const r = await callLLM(
+        { provider, model, messages: [{ role: "user", content: "Reply with OK" }], maxTokens: 5, temperature: 0 },
+        key,
+        endpointResult?.ok ? { baseUrl: endpointResult.url } : undefined,
+      );
+      return { ok: !!r.content, message: r.content.slice(0, 200) || "Connected", models: listed.models };
+    } catch (error) {
+      lastError = (error as Error)?.message || "Failed";
+    }
+  }
+  return { ok: false, message: lastError, models: listed.models };
 }

@@ -1,23 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchProviderModels } from "@/lib/llm-router";
-import { isValidApiKey, type ProviderId } from "@/lib/providers";
+import { listProviderModels } from "@/lib/llm-router";
+import { isProviderId, isValidProviderCredential } from "@/lib/providers";
+import { endpointAllowsLocal } from "@/lib/provider-endpoints";
 import { requireUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   const user = await requireUser(req);
   if (!user) return NextResponse.json({ error: "Login required" }, { status: 401 });
 
-  const { provider, apiKey, endpoint } = await req.json().catch(() => ({}));
-  if (!provider || !apiKey) return NextResponse.json({ error: "provider and apiKey required" }, { status: 400 });
-  const key = String(apiKey).trim();
-  if (!isValidApiKey(key)) {
-    return NextResponse.json({ ok: false, error: "API key contains spaces, line breaks or non-ASCII characters — re-copy it and try again." }, { status: 400 });
+  const body = await req.json().catch(() => ({}));
+  const provider = body?.provider;
+  if (!isProviderId(provider)) {
+    return NextResponse.json({ ok: false, error: "Unknown provider" }, { status: 400 });
   }
-
-  try {
-    const models = await fetchProviderModels(provider as ProviderId, key, endpoint ? String(endpoint).trim() : undefined);
-    return NextResponse.json({ ok: true, provider, models });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Failed to list models" }, { status: 400 });
+  const apiKey = typeof body?.apiKey === "string" ? body.apiKey.trim() : "";
+  if (!isValidProviderCredential(provider, apiKey)) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid API key — no spaces, line breaks or non-ASCII characters." },
+      { status: 400 },
+    );
   }
+  const endpoint = typeof body?.endpoint === "string" ? body.endpoint.trim() : undefined;
+  const result = await listProviderModels(provider, apiKey || undefined, endpoint || undefined, {
+    allowLocal: endpointAllowsLocal(),
+  });
+  return NextResponse.json(
+    { ok: result.ok, models: result.models, ...(result.error ? { error: result.error } : {}) },
+    { status: result.ok ? 200 : 400 },
+  );
 }

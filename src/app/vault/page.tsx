@@ -1,10 +1,20 @@
 "use client";
 import { Sidebar } from "@/components/sidebar";
-import { PROVIDERS, isValidApiKey, isFreeModel, type ProviderId, type ProviderModel } from "@/lib/providers";
+import {
+  PROVIDERS, isFreeModel, isLocalProvider, providerAllowsEndpointEdit,
+  providerAuthMode, isValidProviderCredential, type ProviderId, type ProviderModel,
+} from "@/lib/providers";
 import { useMEDUSA, type VaultKey } from "@/lib/store";
 import { useState, useEffect, useRef } from "react";
-import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, RefreshCw } from "lucide-react";
+import { Check, Eye, EyeOff, PlugZap, Shield, Loader2, AlertCircle, Lock, RefreshCw, Server } from "lucide-react";
 import { encryptKey, readStoredKey, maskKey } from "@/lib/vault-crypto";
+
+/**
+ * Keyless runtimes still need a stored value so the decrypt-to-API chokepoint
+ * forwards their endpoint. This is a non-secret sentinel, never used as a
+ * credential — the router strips it for `auth: "none"` providers.
+ */
+const KEYLESS_SENTINEL = "local-runtime-keyless";
 
 export default function VaultPage() {
   const { vault, setVaultKey, clearVaultKey } = useMEDUSA();
@@ -14,8 +24,20 @@ export default function VaultPage() {
   const [decrypted, setDecrypted] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
   const [msg, setMsg] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const [localAllowed, setLocalAllowed] = useState<boolean | null>(null);
 
   const repaired = useRef<Set<string>>(new Set());
+
+  // Whether this deployment can reach loopback/private endpoints. The server
+  // decides — the client never gets to override the policy.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/runtime-router")
+      .then((r) => r.json().catch(() => null))
+      .then((j) => { if (!cancelled) setLocalAllowed(j?.localEndpointsAllowed === true); })
+      .catch(() => { if (!cancelled) setLocalAllowed(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Decrypt stored keys for display, recover keys written before the GodEye
   // rename, and drop entries that are unreadable or contain garbage.
@@ -56,43 +78,47 @@ export default function VaultPage() {
   }
 
   async function connect(p: (typeof PROVIDERS)[number], val: string, ep?: string) {
-    const apiKey = val.trim();
-    if (!apiKey) return;
-    if (!isValidApiKey(apiKey)) {
+    const mode = providerAuthMode(p);
+    const requestedKey = val.trim();
+    if (mode === "api-key" && !requestedKey) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "Paste an API key to connect this provider." } }));
+      return;
+    }
+    if (requestedKey && !isValidProviderCredential(p.id, requestedKey)) {
       setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "That key contains spaces, line breaks or non-ASCII characters — re-copy it and paste again." } }));
       return;
     }
+    const cleanEp = ep?.trim() || "";
+    if (p.endpointRequired && !cleanEp) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "Set an HTTPS endpoint above — this provider needs one." } }));
+      return;
+    }
+    const apiKeyForApi = mode === "none" ? "" : requestedKey;
     setTesting((s) => ({ ...s, [p.id]: true }));
     clearMsg(p.id);
-    const cleanEp = ep?.trim() || "";
     try {
+      const body = JSON.stringify({ provider: p.id, apiKey: apiKeyForApi, ...(cleanEp ? { endpoint: cleanEp } : {}) });
       const [testRes, modelRes] = await Promise.all([
-        fetch("/api/providers/test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: p.id, apiKey, ...(cleanEp ? { endpoint: cleanEp } : {}) }),
-        }),
-        fetch("/api/providers/models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: p.id, apiKey, ...(cleanEp ? { endpoint: cleanEp } : {}) }),
-        }).then(r => r.json().catch(() => ({ ok: false }))).catch(() => ({ ok: false })),
+        fetch("/api/providers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body }),
+        fetch("/api/providers/models", { method: "POST", headers: { "Content-Type": "application/json" }, body })
+          .then((r) => r.json().catch(() => ({ ok: false })))
+          .catch(() => ({ ok: false })),
       ]);
       const j = await testRes.json();
       const models = (modelRes.models || []) as ProviderModel[];
-      const enc = await encryptKey(apiKey);
+      const storedKey = mode === "none" ? await encryptKey(KEYLESS_SENTINEL) : await encryptKey(requestedKey);
       if (resOk(testRes, j)) {
-        setVaultKey(p.id, enc, true, cleanEp || undefined, models);
-        setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Live verified • connected${models.length ? ` • ${models.length} models synced` : ""} — encrypted at rest` } }));
-        setDraft(d => { const n = { ...d }; delete n[p.id]; return n; });
+        setVaultKey(p.id, storedKey, true, cleanEp || undefined, models);
+        setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `${mode === "none" ? "Local runtime detected • connected" : "Live verified • connected"}${models.length ? ` • ${models.length} models synced` : ""}${mode === "none" ? "" : " — encrypted at rest"}` } }));
+        setDraft((d) => { const n = { ...d }; delete n[p.id]; return n; });
       } else {
-        setVaultKey(p.id, enc, false, cleanEp || undefined, models);
-        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: `${j.message || j.error || "Key saved encrypted but verification failed — check key/endpoint/model"}${models.length ? ` (${models.length} models available)` : ""}` } }));
+        setVaultKey(p.id, storedKey, false, cleanEp || undefined, models);
+        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: `${j.message || j.error || (mode === "none" ? "Runtime check failed — is the server running?" : "Key saved encrypted but verification failed — check key/endpoint/model")}${models.length ? ` (${models.length} models available)` : ""}` } }));
       }
     } catch (e) {
-      const enc = await encryptKey(apiKey);
-      setVaultKey(p.id, enc, false, cleanEp || undefined);
-      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: (e instanceof Error ? e.message : "") || "Network error — saved encrypted locally" } }));
+      const storedKey = mode === "none" ? await encryptKey(KEYLESS_SENTINEL) : await encryptKey(requestedKey);
+      setVaultKey(p.id, storedKey, false, cleanEp || undefined);
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: (e instanceof Error ? e.message : "") || "Network error — saved locally" } }));
     } finally {
       setTesting((s) => ({ ...s, [p.id]: false }));
     }
@@ -100,9 +126,15 @@ export default function VaultPage() {
 
   async function syncModels(p: (typeof PROVIDERS)[number]) {
     const entry = vault[p.id];
-    const key = decrypted[p.id]?.trim() ?? "";
-    if (!entry?.key || !key) return;
-    if (!isValidApiKey(key)) {
+    if (!entry) return;
+    const mode = providerAuthMode(p);
+    const dec = decrypted[p.id]?.trim() ?? "";
+    const apiKeyForApi = mode === "none" ? "" : dec;
+    if (mode === "api-key" && !apiKeyForApi) {
+      setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "Saved key is unreadable — disconnect and paste a fresh key." } }));
+      return;
+    }
+    if (apiKeyForApi && !isValidProviderCredential(p.id, apiKeyForApi)) {
       setMsg((s) => ({ ...s, [p.id]: { ok: false, text: "Saved key is unreadable — disconnect and paste a fresh key." } }));
       return;
     }
@@ -112,7 +144,7 @@ export default function VaultPage() {
       const res = await fetch("/api/providers/models", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: p.id, apiKey: key, ...(entry.endpoint?.trim() ? { endpoint: entry.endpoint.trim() } : {}) }),
+        body: JSON.stringify({ provider: p.id, apiKey: apiKeyForApi, ...(entry.endpoint?.trim() ? { endpoint: entry.endpoint.trim() } : {}) }),
       });
       const j = await res.json();
       const models = (Array.isArray(j.models) ? j.models : []) as ProviderModel[];
@@ -120,7 +152,7 @@ export default function VaultPage() {
         setVaultKey(p.id, entry.key, !!entry.connected, entry.endpoint, models);
         setMsg((s) => ({ ...s, [p.id]: { ok: true, text: `Synced ${models.length} models from ${p.name}` } }));
       } else {
-        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.error || `No models returned — key may not have model access` } }));
+        setMsg((s) => ({ ...s, [p.id]: { ok: false, text: j.error || "No models returned — check the endpoint or key" } }));
       }
     } catch (e) {
       setMsg((s) => ({ ...s, [p.id]: { ok: false, text: (e instanceof Error ? e.message : "") || "Failed to sync models" } }));
@@ -138,22 +170,22 @@ export default function VaultPage() {
       <Sidebar />
       <main className="flex-1 min-w-0">
         <div className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur px-4 md:px-6 h-16 flex items-center justify-between gap-2">
-          <div className="min-w-0"><div className="font-semibold text-sm md:text-base">Providers Vault</div><div className="text-xs text-muted-foreground truncate">Link API keys — live verified • encrypted at rest</div></div>
+          <div className="min-w-0"><div className="font-semibold text-sm md:text-base">Providers Vault</div><div className="text-xs text-muted-foreground truncate">Cloud keys + local runtimes — live verified • encrypted at rest</div></div>
           <div className="text-xs flex items-center gap-1.5 shrink-0"><Shield className="h-3.5 w-3.5"/> Encrypted • Live tested</div>
         </div>
         <div className="p-4 md:p-6 max-w-6xl mx-auto">
           <div className="rounded-2xl border bg-amber-50 border-amber-200 p-4 text-sm flex gap-3">
             <PlugZap className="h-5 w-5 text-amber-600 shrink-0"/>
-            <div><div className="font-medium">Agents load by API providers — live</div><div className="text-muted-foreground">Connect Nvidia, OpenRouter, OmeRoute and more. Click Connect to live-verify the key against the provider. Switch models per agent on the Workforce canvas. Fallback auto-routes if a provider fails.</div></div>
+            <div><div className="font-medium">Cloud providers and local runtimes, one vault</div><div className="text-muted-foreground">Connect Nvidia, OpenRouter and more with an API key, or run a local model with Ollama / LM Studio (no key needed). Custom OpenAI-compatible endpoints are supported too. The runtime router picks the right adapter and can fall back between approved models — verify each connection here before using it.</div></div>
           </div>
 
           <div className="mt-4 rounded-2xl border bg-card p-4 flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
-            <div className="flex gap-2 text-xs"><span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-emerald-700"><Lock className="h-3 w-3"/> AES-GCM encrypted in browser</span><span className="inline-flex items-center gap-1.5 rounded-full bg-muted border px-3 py-1.5"><Shield className="h-3 w-3"/> Never sent plain except to provider</span></div>
+            <div className="flex gap-2 text-xs flex-wrap"><span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1.5 text-emerald-700"><Lock className="h-3 w-3"/> AES-GCM encrypted in browser</span><span className="inline-flex items-center gap-1.5 rounded-full bg-muted border px-3 py-1.5"><Shield className="h-3 w-3"/> Never sent plain except to provider</span><span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 border border-sky-200 px-3 py-1.5 text-sky-700"><Server className="h-3 w-3"/> Local runtimes stay on your machine</span></div>
             <div className="text-xs text-muted-foreground">Keys are encrypted with <code className="bg-muted px-1 rounded">enc:</code> + AES-GCM before localStorage. Decrypted only for API calls.</div>
           </div>
 
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
-            {PROVIDERS.map(p => {
+            {PROVIDERS.map((p) => {
               const v = vault[p.id];
               const isConnected = !!v?.connected;
               const dec = decrypted[p.id] ?? "";
@@ -161,56 +193,92 @@ export default function VaultPage() {
               const ep = endpoint[p.id] !== undefined ? endpoint[p.id] : (v?.endpoint || "");
               const m = msg[p.id];
               const dynModels = v?.models && v.models.length ? v.models : p.models;
+              const mode = providerAuthMode(p);
+              const local = isLocalProvider(p.id);
+              const cloudLocalBlocked = local && localAllowed === false;
+              const showKey = mode !== "none";
+              const showEndpoint = providerAllowsEndpointEdit(p);
               return (
                 <div key={p.id} className={`rounded-2xl border p-4 md:p-5 ${isConnected ? "bg-card border-emerald-200" : "bg-card"}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-9 w-9 rounded-xl grid place-items-center text-white text-sm shrink-0" style={{background: p.color}}>{p.icon}</div>
-                      <div className="min-w-0"><div className="font-medium text-sm flex items-center gap-2 truncate">{p.name} {isConnected && <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><Check className="h-3 w-3"/> connected</span>}{!isConnected && v?.key && <span className="text-xs text-amber-600">saved • not verified</span>}</div>
-                      <div className="text-xs text-muted-foreground truncate">{v?.endpoint || p.baseUrl}</div></div>
+                      <div className="h-9 w-9 rounded-xl grid place-items-center text-white text-sm shrink-0" style={{ background: p.color }}>{p.icon}</div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm flex items-center gap-2 flex-wrap truncate">
+                          {p.name}
+                          {isConnected && <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><Check className="h-3 w-3"/> connected</span>}
+                          {!isConnected && v?.key && <span className="text-xs text-amber-600">saved • not verified</span>}
+                          {local && <span className="text-[10px] rounded-full bg-sky-50 border border-sky-200 text-sky-700 px-1.5 py-0.5">local</span>}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">{v?.endpoint || p.baseUrl || "set an endpoint below"}</div>
+                      </div>
                     </div>
                   </div>
 
+                  {cloudLocalBlocked && (
+                    <div className="mt-3 text-xs flex gap-1.5 p-2 rounded-xl border bg-amber-50 border-amber-200 text-amber-800">
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0"/>
+                      <span>This is a cloud deployment — loopback/private endpoints are disabled. Run MEDUSA locally (or configure a trusted bridge with <code className="bg-muted px-1 rounded">MEDUSA_ALLOW_LOCAL_ENDPOINTS=1</code>) to use {p.name}.</span>
+                    </div>
+                  )}
+
                   <div className="mt-3">
-                    <div className="text-xs font-medium flex items-center gap-1">API Key <Lock className="h-3 w-3 text-muted-foreground"/></div>
-                    <div className="mt-1 flex gap-2">
-                      <div className="relative flex-1 min-w-0">
-                        <input
-                          type={visible[p.id] ? "text" : "password"}
-                          value={val}
-                          onChange={e=>setDraft(d=>({...d, [p.id]: e.target.value}))}
-                          onFocus={() => {
-                            if (!visible[p.id] && dec) {
-                              setVisible(s=>({...s, [p.id]: true}));
-                              setDraft(d=>({...d, [p.id]: dec}));
-                            }
-                          }}
-                          placeholder={p.keyPlaceholder} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm pr-9 outline-none focus:ring-2 focus:ring-foreground/10"/>
-                        <button onClick={()=>setVisible(s=>({...s, [p.id]: !s[p.id]}))} className="absolute right-2 top-1/2 -translate-y-1/2 p-1">
-                          {visible[p.id] ? <EyeOff className="h-4 w-4"/> : <Eye className="h-4 w-4"/>}
-                        </button>
+                    {showKey ? (
+                      <>
+                        <div className="text-xs font-medium flex items-center gap-1">API Key {mode === "optional-api-key" && <span className="text-[10px] text-muted-foreground font-normal">optional — leave blank if unauthenticated</span>} <Lock className="h-3 w-3 text-muted-foreground"/></div>
+                        <div className="mt-1 flex gap-2">
+                          <div className="relative flex-1 min-w-0">
+                            <input
+                              type={visible[p.id] ? "text" : "password"}
+                              value={val}
+                              onChange={(e) => setDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                              onFocus={() => {
+                                if (!visible[p.id] && dec) {
+                                  setVisible((s) => ({ ...s, [p.id]: true }));
+                                  setDraft((d) => ({ ...d, [p.id]: dec }));
+                                }
+                              }}
+                              placeholder={p.keyPlaceholder} className="w-full rounded-xl border bg-muted px-3 py-2.5 text-sm pr-9 outline-none focus:ring-2 focus:ring-foreground/10"/>
+                            <button onClick={() => setVisible((s) => ({ ...s, [p.id]: !s[p.id] }))} className="absolute right-2 top-1/2 -translate-y-1/2 p-1">
+                              {visible[p.id] ? <EyeOff className="h-4 w-4"/> : <Eye className="h-4 w-4"/>}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-xs rounded-xl border bg-muted/50 px-3 py-2 text-muted-foreground flex items-center gap-2">
+                        <Server className="h-3.5 w-3.5"/> No API key needed — runs on your own machine.
                       </div>
-                    </div>
-                    <div className="mt-2">
-                      <div className="text-xs font-medium flex items-center gap-1">Endpoint URL <span className="text-[10px] text-muted-foreground font-normal">optional — overrides {p.baseUrl}</span></div>
-                      <input
-                        value={ep}
-                        onChange={e=>setEndpoint(s=>({...s, [p.id]: e.target.value}))}
-                        placeholder={p.id === "nvidia" ? "https://api.nvcf.nvidia.com/v2/nvcf/deployments/functions/YOUR_ID/versions/YOUR_VERSION" : p.baseUrl}
-                        className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10 font-mono text-xs"
-                      />
-                    </div>
+                    )}
+                    {showEndpoint && (
+                      <div className="mt-2">
+                        <div className="text-xs font-medium flex items-center gap-1">Endpoint URL <span className="text-[10px] text-muted-foreground font-normal">{p.endpointRequired ? "required — overrides the catalog URL" : `optional — defaults to ${p.baseUrl}`}</span></div>
+                        <input
+                          value={ep}
+                          onChange={(e) => setEndpoint((s) => ({ ...s, [p.id]: e.target.value }))}
+                          placeholder={p.id === "nvidia" ? "https://api.nvcf.nvidia.com/v2/nvcf/deployments/functions/YOUR_ID/versions/YOUR_VERSION" : p.baseUrl}
+                          className="mt-1 w-full rounded-xl border bg-muted px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-foreground/10 font-mono text-xs"
+                        />
+                        {local && <div className="mt-1 text-[11px] text-muted-foreground">Use the address of the model server on the machine running MEDUSA. Remote HTTPS endpoints may be bridged by your administrator.</div>}
+                      </div>
+                    )}
                     <div className="mt-2 flex gap-2 items-center flex-wrap">
-                      <button onClick={()=>connect(p, draft[p.id] ?? dec, ep)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium disabled:opacity-50">
-                        {testing[p.id] && <Loader2 className="h-3 w-3 animate-spin"/>} {testing[p.id] ? "Verifying..." : "Connect & verify"}
+                      <button
+                        onClick={() => connect(p, draft[p.id] ?? dec, ep)}
+                        disabled={!!testing[p.id] || cloudLocalBlocked}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-foreground text-background px-4 py-1.5 text-xs font-medium disabled:opacity-50"
+                        title={cloudLocalBlocked ? "Local endpoints are disabled in this deployment" : undefined}
+                      >
+                        {testing[p.id] && <Loader2 className="h-3 w-3 animate-spin"/>}
+                        {testing[p.id] ? "Verifying..." : mode === "none" ? "Connect local runtime" : "Connect & verify"}
                       </button>
-                      {v?.key && v?.models && v.models.length > 0 && (
-                        <button onClick={()=>syncModels(p)} disabled={!!testing[p.id]} className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs disabled:opacity-50" title="Re-fetch model list from provider">
-                          <RefreshCw className="h-3 w-3"/> Sync {v.models.length} models
+                      {v && (
+                        <button onClick={() => syncModels(p)} disabled={!!testing[p.id] || cloudLocalBlocked} className="inline-flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-xs disabled:opacity-50" title="Re-fetch model list from provider">
+                          <RefreshCw className="h-3 w-3"/> Sync {dynModels.length} models
                         </button>
                       )}
-                      {v?.key && <button onClick={()=>{ clearVaultKey(p.id); setDraft(d=>{const n={...d}; delete n[p.id]; return n;}); setEndpoint(s=>{const n={...s}; delete n[p.id]; return n;}); setMsg(s=>{const n={...s}; delete n[p.id]; return n;});}} className="rounded-full border px-4 py-1.5 text-xs">Disconnect</button>}
-                      <span className="text-xs text-muted-foreground hidden sm:inline">{dynModels.slice(0,2).map(x=>x.id).join(" • ")} • {dynModels.length} models</span>
+                      {v && <button onClick={() => { clearVaultKey(p.id); setDraft((d) => { const n = { ...d }; delete n[p.id]; return n; }); setEndpoint((s) => { const n = { ...s }; delete n[p.id]; return n; }); setMsg((s) => { const n = { ...s }; delete n[p.id]; return n; }); }} className="rounded-full border px-4 py-1.5 text-xs">Disconnect</button>}
+                      {dynModels.length > 0 && <span className="text-xs text-muted-foreground hidden sm:inline">{dynModels.slice(0, 2).map((x) => x.id).join(" • ")} • {dynModels.length} models</span>}
                     </div>
                     {p.id === "nvidia" && (
                       <div className="mt-2 text-[11px] text-muted-foreground">NVIDIA deployment keys use an NVCF URL like <code className="bg-muted px-1 rounded">…/v2/nvcf/deployments/functions/&lt;id&gt;/versions/&lt;ver&gt;</code>. Paste it above — MEDUSA calls it directly.</div>
@@ -220,13 +288,23 @@ export default function VaultPage() {
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {dynModels.slice(0, 12).map(mm=>(
-                      <span key={mm.id} title={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1">{mm.name} <span className={isFreeModel(mm) ? "text-emerald-600" : "text-amber-600"}>• {isFreeModel(mm) ? "Free" : "Paid"}</span> {mm.context && <span className="text-muted-foreground">• {mm.context}</span>}</span>
+                    {dynModels.slice(0, 12).map((mm) => (
+                      <span key={mm.id} title={mm.id} className="text-[11px] rounded-full bg-muted px-2 py-1 inline-flex flex-wrap items-center gap-1">
+                        {mm.name}
+                        {(mm.local || local) && <span className="text-sky-700">• Local</span>}
+                        {isFreeModel(mm) && <span className="text-emerald-600">• Free</span>}
+                        {!isFreeModel(mm) && !local && <span className="text-amber-600">• Paid</span>}
+                        {mm.vision && <span className="text-muted-foreground">vision</span>}
+                        {mm.image && <span className="text-muted-foreground">image</span>}
+                        {mm.video && <span className="text-muted-foreground">video</span>}
+                        {mm.reasoning && <span className="text-muted-foreground">reasoning</span>}
+                        {mm.context && <span className="text-muted-foreground">• {mm.context}</span>}
+                      </span>
                     ))}
                     {dynModels.length > 12 && <span className="text-[11px] rounded-full bg-muted px-2 py-1 text-muted-foreground">+{dynModels.length - 12} more</span>}
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         </div>

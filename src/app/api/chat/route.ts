@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, type ChatMessage as WireMessage, type LLMUsage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
-import { getProvider, isFreeModel } from "@/lib/providers";
+import { isProviderId, isValidProviderCredential, type ProviderModel } from "@/lib/providers";
+import { buildRuntimePlan, type RuntimePlan } from "@/lib/runtime-router";
+import type { RuntimeCapability } from "@/lib/runtime-config";
 import type { ChatMode } from "@/lib/store";
 import { authedRecord, saveState } from "@/lib/auth";
 import { MEDUSA_TOOLS, isToolProvider } from "@/lib/tools";
@@ -14,7 +16,7 @@ import {
 import { searchMemories } from "@/lib/memory";
 import { checkBudget } from "@/lib/economy";
 import {
-  classifyTask, getImprovementConfigValue, getRoutingRecommendation,
+  classifyTask, getImprovementConfigValue, getRoutingRecommendationPolicy,
 } from "@/lib/improvement";
 import { appendEvent, startRun } from "@/lib/traces";
 import { recordUsageEvent } from "@/lib/usage";
@@ -141,17 +143,21 @@ export async function POST(req: NextRequest) {
   if (!messages?.length || !provider || !requestedModel) {
     return NextResponse.json({ error: "messages, provider, model required" }, { status: 400 });
   }
-
-  const vaultRecord = (vault ?? {}) as Record<string, { key?: string; connected?: boolean; endpoint?: string } | string | undefined>;
-  const entry = vaultRecord[provider];
-  const apiKey = typeof entry === "string" ? entry : typeof entry?.key === "string" ? entry.key : null;
-  if (!apiKey) {
-    return NextResponse.json({ error: `No API key for ${provider}. Connect it in Providers Vault.` }, { status: 401 });
+  if (!isProviderId(provider)) {
+    return NextResponse.json({ error: `Unknown provider ${String(provider)}` }, { status: 400 });
   }
-  const endpointOverride =
-    entry && typeof entry === "object" && typeof entry.endpoint === "string" && entry.endpoint.trim()
-      ? { baseUrl: entry.endpoint.trim() }
-      : undefined;
+
+  const vaultRecord = (vault ?? {}) as Record<string, {
+    key?: string; apiKey?: string; connected?: boolean; endpoint?: string; models?: ProviderModel[]
+  } | string | undefined>;
+  const entry = vaultRecord[provider];
+  const apiKey = typeof entry === "string" ? entry : typeof entry?.key === "string" ? entry.key : "";
+  if (!isValidProviderCredential(provider, apiKey)) {
+    return NextResponse.json(
+      { error: `${provider} is not connected — finish setup in Providers Vault.` },
+      { status: 401 },
+    );
+  }
 
   // Stickman films are written as one long JSON script. A tight output cap
   // truncates it mid-JSON on every model (the classic "it always hits a limit"),
@@ -170,13 +176,45 @@ export async function POST(req: NextRequest) {
   // Improvement page. Replays keep their original model so divergence stays
   // deterministic; only live turns are auto-routed.
   const taskClass = classifyTask(lastUserText, mode);
-  const [routing, memoryPolicy, plannerPolicy] = await Promise.all([
-    replayOf || divergence ? Promise.resolve(null) : getRoutingRecommendation(user.id, taskClass).catch(() => null),
+  const skipPolicy = !!replayOf || !!divergence;
+  const [routingPolicy, memoryPolicy, plannerPolicy] = await Promise.all([
+    skipPolicy ? Promise.resolve(null) : getRoutingRecommendationPolicy(user.id, taskClass).catch(() => null),
     getImprovementConfigValue(user.id, "architecture.memory-indexer").catch(() => null),
     getImprovementConfigValue(user.id, "architecture.planner").catch(() => null),
   ]);
-  const routedModel = routing?.provider === provider && routing.model ? routing.model : null;
-  const model = routedModel || requestedModel;
+  const routing = routingPolicy?.provider === provider && routingPolicy.model
+    ? { provider, model: routingPolicy.model }
+    : null;
+  const routedModel = routing?.model ?? null;
+
+  // Capability requirements are derived from the request, never from model
+  // text. Image/video modes still use a chat completion to write the generation
+  // prompt (the real media pipeline is client-side), so they are not hard
+  // model capabilities here.
+  const requirements: RuntimeCapability[] = [];
+  if (mode === "terminal" || toolsEnabled) requirements.push("tools");
+  if (messages.some((m) => asParts(m.content).some((p) => p.type === "image"))) requirements.push("vision");
+  const askEffort = isReasoningEffort(reasoningEffort) ? reasoningEffort : settings?.reasoningEffort;
+  if (isReasoningEffort(askEffort) && askEffort !== "off") requirements.push("reasoning");
+
+  let plan: RuntimePlan;
+  try {
+    plan = await buildRuntimePlan({
+      uid: user.id,
+      requested: { provider, model: requestedModel },
+      vault: vaultRecord,
+      taskClass,
+      requirements,
+      skipPolicy,
+      freeModels,
+      policy: routingPolicy,
+      planner: plannerPolicy,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error)?.message || "No usable model for this runtime" }, { status: 400 });
+  }
+  const activeProvider = plan.primary.provider;
+  const model = plan.primary.model;
   const memoryLimit = Math.max(1, Math.min(MAX_MEMORY_ITEMS, Math.floor(Number(memoryPolicy?.maxItems) || MAX_MEMORY_ITEMS)));
   const minMemoryScore = Math.max(0, Number(memoryPolicy?.minScore) || 0);
   const rawHybridWeight = Number(memoryPolicy?.hybridWeight);
@@ -199,7 +237,7 @@ export async function POST(req: NextRequest) {
       role: m.role,
       content: flattenText(m.content).slice(0, 1_200),
     })),
-    provider,
+    provider: activeProvider,
     model,
     mode: mode || "chat",
     taskClass,
@@ -219,7 +257,7 @@ export async function POST(req: NextRequest) {
     kind: "chat",
     prompt: lastUserText.slice(0, 8_000),
     inputSnapshot: replaySnapshot,
-    provider,
+    provider: activeProvider,
     model,
     mode: mode || "chat",
     chatId: chatId ?? null,
@@ -230,9 +268,20 @@ export async function POST(req: NextRequest) {
   await appendEvent({
     uid: user.id,
     runId,
+    type: "runtime.planned",
+    payload: {
+      taskClass, primary: { provider: activeProvider, model, source: plan.primary.source },
+      attempts: plan.attempts.map((c) => ({ provider: c.provider, model: c.model, source: c.source })),
+      reason: plan.reason,
+      blocked: plan.blocked,
+    },
+  }).catch(() => null);
+  await appendEvent({
+    uid: user.id,
+    runId,
     type: "run.started",
     payload: {
-      provider, model, mode: mode || "chat", toolRounds: !!toolsEnabled,
+      provider: activeProvider, model, mode: mode || "chat", toolRounds: !!toolsEnabled,
       temperature: temperatureOverride ?? null,
       divergence: divergence ?? null,
       promptPreview: lastUserText.slice(0, 500),
@@ -243,7 +292,7 @@ export async function POST(req: NextRequest) {
       uid: user.id,
       runId,
       type: "improvement.routed",
-      payload: { taskClass, from: requestedModel, to: routedModel, provider, source: routing },
+      payload: { taskClass, from: requestedModel, to: routedModel, provider: activeProvider, source: routing },
     }).catch(() => null);
   }
   if (recalledMemories.length) {
@@ -318,7 +367,7 @@ export async function POST(req: NextRequest) {
     content:
       `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\n` +
       `You are running inside MEDUSA OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
-      `Reasoning effort: ${filmEffort}.\nProvider: ${provider}, Model: ${model}.` +
+      `Reasoning effort: ${filmEffort}.\nProvider: ${activeProvider}, Model: ${model}.` +
       (plannerPolicy?.preVerifyModelCapacity === true
         ? "\nPlanner policy: verify required tools, inputs and output capacity before committing to an approach."
         : "") +
@@ -348,7 +397,7 @@ export async function POST(req: NextRequest) {
     })),
   ];
 
-  const toolsEnabledActually = !!toolsEnabled && isToolProvider(provider);
+  const toolsEnabledActually = !!toolsEnabled && isToolProvider(activeProvider);
   const baseMax = mode === "coding" ? 4000 : mode === "research" ? 3500 : 2500;
   const effortBonus = filmEffort === "extra-high" ? 4000 : filmEffort === "high" ? 2000 : 0;
   const llmOpts = {
@@ -359,7 +408,13 @@ export async function POST(req: NextRequest) {
     reasoningEffort: filmEffort,
   };
 
-  async function recordUsage(usage: LLMUsage | undefined, usedModel: string, latencyMs: number, degraded?: boolean) {
+  async function recordUsage(
+    usage: LLMUsage | undefined,
+    usedModel: string,
+    latencyMs: number,
+    degraded?: boolean,
+    usedProvider: ProviderId = activeProvider,
+  ) {
     const total = usage?.total_tokens ?? 0;
     if (!isAdmin && total) {
       user.tokensUsed = (user.tokensUsed ?? 0) + total;
@@ -369,7 +424,7 @@ export async function POST(req: NextRequest) {
       uid: user.id,
       runId,
       kind: "chat",
-      provider,
+      provider: usedProvider,
       model: usedModel,
       usage,
       latencyMs,
@@ -377,19 +432,13 @@ export async function POST(req: NextRequest) {
     }).catch(() => null);
   }
 
-  // ---- free-model auto-fallback -------------------------------------------
-  // When the selected model stops working for quota reasons (429 / daily cap /
-  // free-tier limit / no credits), retry on the next free model of the same
-  // provider so work is not interrupted. The client sends its current free model
-  // ids (free-first sorted); the static catalog is the backup. A model that
-  // already streamed content is never swapped — that would duplicate text.
+  // ---- runtime-plan fallback ----------------------------------------------
+  // The resolver already applied capability, credential, endpoint and privacy
+  // constraints. Free-model swaps are one source inside that chain. Quota-like
+  // failures unlock the next approved candidate; a model that already streamed
+  // a delta is never swapped because that would duplicate text.
   const LIMIT_RE = /\b429\b|rate[ _-]?limit|ratelimit|quota|daily|monthly|exhaust|exceeded|too many requests|free[- ]tier|insufficient|credits?|balance|capacity|overloaded/i;
-  const clientFree = Array.isArray(freeModels) ? freeModels.filter((id): id is string => typeof id === "string" && !!id) : [];
-  const staticFree = (getProvider(provider)?.models || []).filter((m) => isFreeModel(m)).map((m) => m.id);
-  const policyFallbacks = plannerPolicy?.fallbackAfterAttempts == null ? 3 : Number(plannerPolicy.fallbackAfterAttempts);
-  const fallbackLimit = Math.max(0, Math.min(3, Number.isFinite(policyFallbacks) ? Math.floor(policyFallbacks) : 3));
-  const fallbackModels = [...new Set(clientFree.length ? clientFree : staticFree)].filter((id) => id !== model).slice(0, fallbackLimit);
-  const tryCandidates = [model, ...fallbackModels];
+  const tryCandidates = plan.attempts;
 
   // ---- streaming -----------------------------------------------------------
   // The response is created before the provider call so the client can render
@@ -411,18 +460,21 @@ export async function POST(req: NextRequest) {
         try {
           let r: Awaited<ReturnType<typeof callLLM>> | null = null;
           let usedModel = model;
+          let usedProvider = activeProvider;
           let deltas = false;
           let lastErr: unknown = null;
           for (let attempt = 0; attempt < tryCandidates.length; attempt++) {
-            const m = tryCandidates[attempt];
+            const candidate = tryCandidates[attempt];
+            const m = candidate.model;
             try {
-              emit({ type: "stage", stage: "thinking", label: attempt === 0 ? `Thinking — ${m}` : `${model} hit its limit — switching to ${m}` });
+              emit({ type: "stage", stage: "thinking", label: attempt === 0 ? `Thinking — ${m}` : `${model} hit its limit — switching to ${candidate.provider}/${m}` });
               await appendEvent({
                 uid: user.id,
                 runId,
                 type: "llm.request",
                 payload: {
-                  model: m, attempt, streaming: true, memories: recalledMemories.length,
+                  provider: candidate.provider, model: m, source: candidate.source,
+                  attempt, streaming: true, memories: recalledMemories.length,
                   temperature: llmOpts.temperature,
                   promptPreview: lastUserText.slice(0, 500),
                   systemPreview: systemMsg.content.slice(0, 300),
@@ -430,49 +482,56 @@ export async function POST(req: NextRequest) {
                 },
               }).catch(() => null);
               r = await callLLM(
-                { provider, model: m, messages: llmMessages, ...llmOpts, stream: true, signal: req.signal, onDelta: (t) => { deltas = true; emit({ delta: t }); } },
-                apiKey,
-                endpointOverride,
+                { provider: candidate.provider, model: m, messages: llmMessages, ...llmOpts, stream: true, signal: req.signal, onDelta: (t) => { deltas = true; emit({ delta: t }); } },
+                candidate.apiKey ?? apiKey,
+                candidate.endpoint ? { baseUrl: candidate.endpoint } : undefined,
               );
               usedModel = m;
+              usedProvider = candidate.provider;
               lastErr = null;
               break;
             } catch (err: unknown) {
               if ((err as Error)?.name === "AbortError") throw err;
               lastErr = err;
               const msg = String((err as Error)?.message || err || "");
-              // Only quota/limit-looking failures fall through to the next free
-              // model, and only while nothing has streamed yet.
+              // Only quota/limit-looking failures fall through to the next
+              // approved candidate, and only while nothing has streamed yet.
               if (deltas || attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) {
                 await appendEvent({
                   uid: user.id,
                   runId,
                   type: "llm.failed",
-                  payload: { model: m, attempt, error: msg.slice(0, 500) },
+                  payload: { provider: candidate.provider, model: m, attempt, error: msg.slice(0, 500) },
                 }).catch(() => null);
                 break;
               }
               if (attempt === 0) {
-                emit({ type: "notice", message: `${model} is rate-limited — auto-switching to another free model` });
+                emit({ type: "notice", message: `${model} is rate-limited — switching to an approved fallback` });
               }
+              const next = tryCandidates[attempt + 1];
               await appendEvent({
                 uid: user.id,
                 runId,
                 type: "llm.fallback",
-                payload: { from: m, to: tryCandidates[attempt + 1] ?? null, reason: msg.slice(0, 500) },
+                payload: {
+                  from: `${candidate.provider}/${m}`,
+                  to: next ? `${next.provider}/${next.model}` : null,
+                  reason: msg.slice(0, 500),
+                },
               }).catch(() => null);
             }
           }
           if (!r) {
             throw (lastErr ?? new Error("LLM failed"));
           }
-          const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded);
+          const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded, usedProvider);
           await saveState(state);
           await appendEvent({
             uid: user.id,
             runId,
             type: "llm.completed",
             payload: {
+              provider: usedProvider,
               model: usedModel,
               usage: r.usage ?? null,
               latencyMs: r.latencyMs,
@@ -490,7 +549,7 @@ export async function POST(req: NextRequest) {
           }
           emit({
             type: "done", content: r.content, usage: usageWire, latencyMs: r.latencyMs,
-            provider, model: usedModel, mode, runId, memoriesUsed: recalledMemories,
+            provider: usedProvider, model: usedModel, mode, runId, memoriesUsed: recalledMemories,
           });
         } catch (e: unknown) {
           const aborted = (e as Error)?.name === "AbortError";
@@ -531,24 +590,32 @@ export async function POST(req: NextRequest) {
   try {
     let r: Awaited<ReturnType<typeof callLLM>> | null = null;
     let usedModel = model;
+    let usedProvider = activeProvider;
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < tryCandidates.length; attempt++) {
-      const m = tryCandidates[attempt];
+      const candidate = tryCandidates[attempt];
+      const m = candidate.model;
       try {
         await appendEvent({
           uid: user.id,
           runId,
           type: "llm.request",
           payload: {
-            model: m, attempt, streaming: false, memories: recalledMemories.length,
+            provider: candidate.provider, model: m, source: candidate.source,
+            attempt, streaming: false, memories: recalledMemories.length,
             temperature: llmOpts.temperature,
             promptPreview: lastUserText.slice(0, 500),
             systemPreview: systemMsg.content.slice(0, 300),
             divergence: divergence ?? null,
           },
         }).catch(() => null);
-        r = await callLLM({ provider, model: m, messages: llmMessages, ...llmOpts, signal: req.signal }, apiKey, endpointOverride);
+        r = await callLLM(
+          { provider: candidate.provider, model: m, messages: llmMessages, ...llmOpts, signal: req.signal },
+          candidate.apiKey ?? apiKey,
+          candidate.endpoint ? { baseUrl: candidate.endpoint } : undefined,
+        );
         usedModel = m;
+        usedProvider = candidate.provider;
         lastErr = null;
         break;
       } catch (err: unknown) {
@@ -559,25 +626,31 @@ export async function POST(req: NextRequest) {
           uid: user.id,
           runId,
           type: "llm.failed",
-          payload: { model: m, attempt, error: msg.slice(0, 500) },
+          payload: { provider: candidate.provider, model: m, attempt, error: msg.slice(0, 500) },
         }).catch(() => null);
         if (attempt === tryCandidates.length - 1 || !LIMIT_RE.test(msg)) break;
+        const next = tryCandidates[attempt + 1];
         await appendEvent({
           uid: user.id,
           runId,
           type: "llm.fallback",
-          payload: { from: m, to: tryCandidates[attempt + 1] ?? null, reason: msg.slice(0, 500) },
+          payload: {
+            from: `${candidate.provider}/${m}`,
+            to: next ? `${next.provider}/${next.model}` : null,
+            reason: msg.slice(0, 500),
+          },
         }).catch(() => null);
       }
     }
     if (!r) throw (lastErr ?? new Error("LLM failed"));
-    const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded);
+    const usageEvent = await recordUsage(r.usage, usedModel, r.latencyMs, r.degraded, usedProvider);
     await saveState(state);
     await appendEvent({
       uid: user.id,
       runId,
       type: "llm.completed",
       payload: {
+        provider: usedProvider,
         model: usedModel,
         usage: r.usage ?? null,
         latencyMs: r.latencyMs,
@@ -587,7 +660,7 @@ export async function POST(req: NextRequest) {
       },
     }).catch(() => null);
     const usageWire = { ...(r.usage || {}), ...(usageEvent ? { cost_usd: usageEvent.costUsd } : {}) };
-    const common = { usage: usageWire, latencyMs: r.latencyMs, provider, model: usedModel, mode, runId, memoriesUsed: recalledMemories };
+    const common = { usage: usageWire, latencyMs: r.latencyMs, provider: usedProvider, model: usedModel, mode, runId, memoriesUsed: recalledMemories };
     if (r.toolCalls?.length) {
       return NextResponse.json({ toolCalls: r.toolCalls, ...common });
     }

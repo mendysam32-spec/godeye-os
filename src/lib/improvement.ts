@@ -10,6 +10,8 @@
  */
 
 import { ensureFoundationSchema, getChatDb, type D1Like } from "./d1";
+import { isProviderId, type ProviderId } from "./providers";
+import { isRuntimeCapability, type RuntimeCapability } from "./runtime-config";
 import {
   MAX_SKILL_BODY_CHARS,
   isImprovementPatternStatus,
@@ -149,6 +151,10 @@ const ARCHITECTURE_ALLOWLIST: Record<string, Record<string, "boolean" | "number"
     preVerifyModelCapacity: "boolean",
     fallbackAfterAttempts: "number",
     verifierRequired: "boolean",
+    preferLocal: "boolean",
+    allowCrossProviderFallback: "boolean",
+    allowLocalToRemoteFallback: "boolean",
+    maxRuntimeAttempts: "number",
   },
 };
 
@@ -991,6 +997,12 @@ export async function validateProposal(uid: string, id: string): Promise<Improve
       ...checks,
       { name: "task-class", passed: typeof p.taskClass === "string" && p.taskClass.trim().length >= 2 },
       { name: "provider-model", passed: typeof p.provider === "string" && typeof p.model === "string" && !!p.provider && !!p.model },
+      { name: "provider-catalog", passed: isProviderId(p.provider) },
+      // A model-produced routing proposal may only name a catalog provider and
+      // a bounded model id. Endpoints, keys and executable text are forbidden.
+      { name: "no-authority-fields", passed: !("endpoint" in p) && !("apiKey" in p) && !("baseUrl" in p) && !("code" in p) && !DANGEROUS_CODE.test(`${p.model ?? ""}${p.provider ?? ""}`) },
+      { name: "fallback-allowlist", passed: !Array.isArray(p.fallbacks) || p.fallbacks.length <= 4 && p.fallbacks.every((f) => !!f && typeof f === "object" && isProviderId((f as Record<string, unknown>).provider)) },
+      { name: "capability-allowlist", passed: !Array.isArray(p.capabilityRequirements) || p.capabilityRequirements.every(isRuntimeCapability) },
       { name: "evidence", passed: number(p.sampleSize) >= 1 && number(p.avgScore) > 0 },
     ];
   } else {
@@ -1079,14 +1091,35 @@ export async function mergeProposal(uid: string, id: string): Promise<Improvemen
   }
 
   if (proposal.type === "routing") {
-    const taskClass = clip(proposal.payload.taskClass, 80);
+    const taskClass = clip(proposal.payload.taskClass, 80).replace(/[^\w-]/g, "") || "general";
+    if (!isProviderId(proposal.payload.provider)) throw new Error("Routing provider is not in the catalog");
+    const model = clip(proposal.payload.model, 160).replace(/[^\w./:+\-]/g, "");
+    if (!model) throw new Error("Routing model id is required");
+    const rawFallbacks = Array.isArray(proposal.payload.fallbacks) ? proposal.payload.fallbacks.slice(0, 4) : [];
+    const fallbacks = rawFallbacks.flatMap((item): { provider: ProviderId; model: string }[] => {
+      if (!item || typeof item !== "object") return [];
+      const f = item as Record<string, unknown>;
+      if (!isProviderId(f.provider)) return [];
+      const fbModel = clip(f.model, 160).replace(/[^\w./:+\-]/g, "");
+      return fbModel ? [{ provider: f.provider, model: fbModel }] : [];
+    });
+    const capabilities = Array.isArray(proposal.payload.capabilityRequirements)
+      ? proposal.payload.capabilityRequirements.filter(isRuntimeCapability).slice(0, 7)
+      : [];
+    const attempts = Number(proposal.payload.maxAttempts);
     await upsertConfig(uid, `routing.${taskClass}`, {
-      provider: clip(proposal.payload.provider, 80),
-      model: clip(proposal.payload.model, 160),
+      provider: proposal.payload.provider,
+      model,
       autoApply: proposal.payload.autoApply !== false,
       avgScore: number(proposal.payload.avgScore),
       sampleSize: number(proposal.payload.sampleSize),
       sourceProposalId: proposal.id,
+      fallbacks,
+      capabilityRequirements: capabilities,
+      maxAttempts: Number.isFinite(attempts) ? Math.max(1, Math.min(4, Math.floor(attempts))) : 3,
+      allowCrossProviderFallback: proposal.payload.allowCrossProviderFallback === true,
+      allowLocalToRemoteFallback: proposal.payload.allowLocalToRemoteFallback === true,
+      preferLocal: proposal.payload.preferLocal === true,
     }, proposal.id);
   }
   if (proposal.type === "architecture") {
@@ -1125,11 +1158,53 @@ export async function getImprovementConfigValue(uid: string, key: string): Promi
 }
 
 export async function getRoutingRecommendation(uid: string, taskClass: string): Promise<{ provider: string; model: string } | null> {
+  const value = await getRoutingRecommendationPolicy(uid, taskClass);
+  return value ? { provider: value.provider, model: value.model } : null;
+}
+
+/** Full declarative routing policy. Never contains endpoints, keys or code. */
+export interface RoutingPolicy {
+  provider: ProviderId;
+  model: string;
+  fallbacks: { provider: ProviderId; model: string }[];
+  requiredCapabilities: RuntimeCapability[];
+  maxAttempts: number;
+  allowCrossProviderFallback: boolean;
+  allowLocalToRemoteFallback: boolean;
+  preferLocal: boolean;
+  sourceProposalId: string | null;
+}
+
+export async function getRoutingRecommendationPolicy(uid: string, taskClass: string): Promise<RoutingPolicy | null> {
   const value = await getImprovementConfigValue(uid, `routing.${taskClass}`).catch(() => null);
   if (!value || value.autoApply === false) return null;
-  const provider = typeof value.provider === "string" ? value.provider : "";
-  const model = typeof value.model === "string" ? value.model : "";
-  return provider && model ? { provider, model } : null;
+  if (!isProviderId(value.provider)) return null;
+  const model = clip(value.model, 160).replace(/[^\w./:+\-]/g, "");
+  if (!model) return null;
+  const fallbacks = Array.isArray(value.fallbacks)
+    ? value.fallbacks.flatMap((item): { provider: ProviderId; model: string }[] => {
+      if (!item || typeof item !== "object") return [];
+      const f = item as Record<string, unknown>;
+      if (!isProviderId(f.provider)) return [];
+      const fbModel = clip(f.model, 160).replace(/[^\w./:+\-]/g, "");
+      return fbModel ? [{ provider: f.provider, model: fbModel }] : [];
+    }).slice(0, 4)
+    : [];
+  const capabilities = Array.isArray(value.capabilityRequirements)
+    ? value.capabilityRequirements.filter(isRuntimeCapability).slice(0, 7)
+    : [];
+  const attempts = Number(value.maxAttempts);
+  return {
+    provider: value.provider,
+    model,
+    fallbacks,
+    requiredCapabilities: capabilities,
+    maxAttempts: Number.isFinite(attempts) ? Math.max(1, Math.min(4, Math.floor(attempts))) : 3,
+    allowCrossProviderFallback: value.allowCrossProviderFallback === true,
+    allowLocalToRemoteFallback: value.allowLocalToRemoteFallback === true,
+    preferLocal: value.preferLocal === true,
+    sourceProposalId: typeof value.sourceProposalId === "string" ? value.sourceProposalId : null,
+  };
 }
 
 /** One full Execute → … → Genome++ pass over existing records. */

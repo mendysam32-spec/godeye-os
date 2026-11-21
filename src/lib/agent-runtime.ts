@@ -16,7 +16,8 @@ import {
 } from "./foundation";
 import { getImprovementConfigValue } from "./improvement";
 import { callLLM, type ChatMessage } from "./llm-router";
-import type { ProviderId } from "./providers";
+import { isValidProviderCredential, type ProviderId } from "./providers";
+import { buildRuntimePlan } from "./runtime-router";
 import { proposeSkillFromRun } from "./skill-genome";
 import { appendEvent, finishRun, startRun } from "./traces";
 import { recordUsageEvent } from "./usage";
@@ -376,7 +377,10 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
   const verifier = input.verifier ?? {};
   const effort: Effort = input.reasoningEffort ?? "off";
   // Merged self-improvement config tunes the scheduler without rewriting code.
-  const schedulerPolicy = await getImprovementConfigValue(uid, "architecture.scheduler").catch(() => null);
+  const [schedulerPolicy, plannerPolicy] = await Promise.all([
+    getImprovementConfigValue(uid, "architecture.scheduler").catch(() => null),
+    getImprovementConfigValue(uid, "architecture.planner").catch(() => null),
+  ]);
   const policyConcurrency = schedulerPolicy?.maxConcurrency == null ? NaN : Number(schedulerPolicy.maxConcurrency);
   const concurrency = clamp(Number.isFinite(policyConcurrency) ? policyConcurrency : (input.concurrency ?? 3), 1, 6);
   const preferShortTasks = schedulerPolicy?.preferShortTasks === true;
@@ -505,9 +509,21 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
       return;
     }
 
-    const apiKey = vaultKey(input.vault, agent.provider);
-    if (!apiKey) {
-      const message = `No API key for ${agent.provider}. Connect it in Providers Vault.`;
+    // The same declarative runtime plan chat uses selects the model here, so
+    // swapping local/remote models never requires rewriting agent logic.
+    const plan = await buildRuntimePlan({
+      uid,
+      requested: { provider: agent.provider, model: agent.model },
+      vault: input.vault,
+      taskClass: "workforce",
+      requirements: effort !== "off" ? ["reasoning" as const] : [],
+      planner: plannerPolicy,
+    }).catch(() => null);
+    const runProvider = plan?.primary.provider ?? agent.provider;
+    const runModel = plan?.primary.model ?? agent.model;
+    const apiKey = vaultKey(input.vault, runProvider) ?? "";
+    if (!isValidProviderCredential(runProvider, apiKey)) {
+      const message = `${runProvider} is not connected — finish setup in Providers Vault.`;
       const report = verifyAgentResult(task.id, "", message, verifier);
       finish({
         agentId: task.id, agentName: agent.name, provider: agent.provider, model: agent.model,
@@ -544,16 +560,16 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
     try {
       const response = await callLLM(
         {
-          provider: agent.provider,
-          model: agent.model,
+          provider: runProvider,
+          model: runModel,
           messages,
           temperature: agent.temperature ?? (effort === "high" || effort === "extra-high" ? 0.3 : 0.5),
           maxTokens: task.quotaTokens ?? (effort === "extra-high" ? 5_000 : 2_500),
           reasoningEffort: effort,
           signal: controller.signal,
         },
-        apiKey,
-        vaultEndpoint(input.vault, agent.provider) ? { baseUrl: vaultEndpoint(input.vault, agent.provider) } : undefined,
+        apiKey || undefined,
+        vaultEndpoint(input.vault, runProvider) ? { baseUrl: vaultEndpoint(input.vault, runProvider) } : undefined,
       );
       const latencyMs = Date.now() - started;
       const report = verifyAgentResult(task.id, response.content, null, verifier);
@@ -634,8 +650,8 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
   let consensus = "";
   const observer = verifier.observer;
   if (observer && results.size) {
-    const apiKey = vaultKey(input.vault, observer.provider);
-    if (apiKey) {
+    const apiKey = vaultKey(input.vault, observer.provider) ?? "";
+    if (isValidProviderCredential(observer.provider, apiKey)) {
       const digest = [...results.values()]
         .map((r) => `[${r.agentName}] score=${r.score ?? 0}\n${(r.content || r.error || "").slice(0, 1_200)}`)
         .join("\n\n");
@@ -657,7 +673,7 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
               temperature: 0.2,
               maxTokens: 800,
             },
-            apiKey,
+            apiKey || undefined,
             vaultEndpoint(input.vault, observer.provider) ? { baseUrl: vaultEndpoint(input.vault, observer.provider) } : undefined,
           );
           consensus = response.content.slice(0, 4_000);
@@ -677,7 +693,7 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
         }
       }
     } else {
-      consensus = `Observer skipped: no API key for ${observer.provider}`.slice(0, 500);
+      consensus = `Observer skipped: ${observer.provider} is not connected`.slice(0, 500);
     }
   }
 

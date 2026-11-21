@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callLLM, type ChatMessage } from "@/lib/llm-router";
-import type { ProviderId } from "@/lib/providers";
+import { isProviderId, isValidProviderCredential, type ProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
 import { recordUsageEvent } from "@/lib/usage";
 
@@ -77,10 +77,11 @@ export async function POST(req: NextRequest) {
   const question = body?.question?.trim();
   if (!question) return NextResponse.json({ error: "question is required" }, { status: 400 });
   if (!body?.provider || !body?.model) return NextResponse.json({ error: "provider and model required" }, { status: 400 });
+  if (!isProviderId(body.provider)) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
 
-  const apiKey = vaultKeyFor(body.vault, body.provider);
-  if (!apiKey) {
-    return NextResponse.json({ error: `No API key for ${body.provider}. Connect it in Providers Vault.` }, { status: 401 });
+  const apiKey = vaultKeyFor(body.vault, body.provider) ?? "";
+  if (!isValidProviderCredential(body.provider, apiKey)) {
+    return NextResponse.json({ error: `${body.provider} is not connected — finish setup in Providers Vault.` }, { status: 401 });
   }
   const endpointEntry = body.vault?.[body.provider];
   const endpointOverride =

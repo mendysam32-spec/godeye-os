@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { ProviderId } from "@/lib/providers";
+import { isProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
 import { runAgentRuntime, type RuntimeAgentInput } from "@/lib/agent-runtime";
 
@@ -29,12 +29,12 @@ export async function POST(req: NextRequest) {
   const agents: RuntimeAgentInput[] = rawAgents.flatMap((value): RuntimeAgentInput[] => {
     if (!value || typeof value !== "object") return [];
     const a = value as Record<string, unknown>;
-    if (typeof a.id !== "string" || typeof a.model !== "string" || typeof a.provider !== "string") return [];
+    if (typeof a.id !== "string" || typeof a.model !== "string" || !isProviderId(a.provider)) return [];
     return [{
       id: a.id,
       name: typeof a.name === "string" ? a.name : "Agent",
       role: typeof a.role === "string" ? a.role : "Assistant",
-      provider: a.provider as ProviderId,
+      provider: a.provider,
       model: a.model,
       systemPrompt: typeof a.systemPrompt === "string" ? a.systemPrompt : "",
       temperature: typeof a.temperature === "number" ? a.temperature : undefined,
@@ -57,12 +57,12 @@ export async function POST(req: NextRequest) {
     ? verifierRaw.observer as Record<string, unknown>
     : null;
   const observer: RuntimeAgentInput | undefined = observerRaw &&
-    typeof observerRaw.id === "string" && typeof observerRaw.model === "string" && typeof observerRaw.provider === "string"
+    typeof observerRaw.id === "string" && typeof observerRaw.model === "string" && isProviderId(observerRaw.provider)
     ? {
         id: observerRaw.id,
         name: typeof observerRaw.name === "string" ? observerRaw.name : "Observer",
         role: typeof observerRaw.role === "string" ? observerRaw.role : "Verifier",
-        provider: observerRaw.provider as ProviderId,
+        provider: observerRaw.provider,
         model: observerRaw.model,
         budgetUsd: budgetUsd(observerRaw.budgetUsd),
       }

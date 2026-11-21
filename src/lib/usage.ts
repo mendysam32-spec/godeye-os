@@ -8,7 +8,7 @@ import { chargeUsageEvent } from "./economy";
 import { newId, type UsageEvent, type UsageKind, type UsageSummary } from "./foundation";
 import type { LLMUsage } from "./llm-router";
 import { estimateChatCost } from "./pricing";
-import type { ProviderId } from "./providers";
+import { getProvider, type ProviderId } from "./providers";
 
 interface UsageRow {
   id: string;
@@ -80,7 +80,13 @@ export async function recordUsageEvent(input: RecordUsageInput): Promise<UsageEv
   const promptTokens = Math.max(0, input.usage?.prompt_tokens ?? 0);
   const completionTokens = Math.max(0, input.usage?.completion_tokens ?? 0);
   const totalTokens = Math.max(0, input.usage?.total_tokens ?? promptTokens + completionTokens);
-  const price = input.costUsd != null && Number.isFinite(input.costUsd)
+  // Local runtimes and self-hosted custom endpoints have no catalog price.
+  // Record zero rather than guessing a positive charge.
+  const runtime = getProvider(input.provider);
+  const localPrice = runtime?.localOnly || input.provider === "custom-openai"
+    ? { costUsd: 0, source: runtime?.localOnly ? "local" : "custom", rate: { input: 0, output: 0 } }
+    : null;
+  const price = localPrice ?? (input.costUsd != null && Number.isFinite(input.costUsd)
     ? {
       costUsd: Math.max(0, input.costUsd),
       source: input.pricingSource || "custom-estimate",
@@ -91,7 +97,7 @@ export async function recordUsageEvent(input: RecordUsageInput): Promise<UsageEv
       model: input.model,
       promptTokens,
       completionTokens,
-    });
+    }));
   const event: UsageEvent = {
     id: newId("usage"),
     uid: input.uid,

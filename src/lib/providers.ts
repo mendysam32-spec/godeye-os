@@ -1,4 +1,28 @@
-export type ProviderId = 'openai' | 'anthropic' | 'nvidia' | 'openrouter' | 'omeroute' | 'google' | 'mistral' | 'agentrouter' | 'together' | 'perplexity' | 'cohere' | 'atria';
+export type ProviderId =
+  | 'openai'
+  | 'anthropic'
+  | 'nvidia'
+  | 'openrouter'
+  | 'omeroute'
+  | 'google'
+  | 'mistral'
+  | 'agentrouter'
+  | 'together'
+  | 'perplexity'
+  | 'cohere'
+  | 'atria'
+  // local / self-hosted runtimes (additive — the 12 ids above are unchanged)
+  | 'ollama'
+  | 'lmstudio'
+  | 'custom-openai';
+
+/** Which wire protocol the router uses for a provider. */
+export type ProviderKind = 'anthropic' | 'google' | 'cohere' | 'openai-compatible' | 'local-openai';
+
+/** Credential policy. Local runtimes are keyless; custom endpoints may omit a key. */
+export type ProviderAuthMode = 'api-key' | 'optional-api-key' | 'none';
+
+export type ProviderDiscovery = 'openai-models' | 'ollama-tags' | 'google-models' | 'anthropic-models' | 'none';
 
 export interface ProviderModel {
   id: string;
@@ -16,6 +40,11 @@ export interface ProviderModel {
   vision?: boolean;
   // zero-cost model — surfaced in pickers (terminal UI, model chips)
   free?: boolean;
+  // runtime planning hints. Unknown capabilities stay undefined/false — never
+  // assume a model can call tools just because its name looks capable.
+  tools?: boolean;
+  streaming?: boolean;
+  local?: boolean;
 }
 
 export interface ModelCapabilities {
@@ -53,6 +82,15 @@ export interface Provider {
   models: ProviderModel[];
   baseUrl: string;
   keyPlaceholder: string;
+  /** defaults to `openai-compatible` when omitted (keeps legacy entries intact) */
+  kind?: ProviderKind;
+  /** defaults to `api-key` when omitted */
+  auth?: ProviderAuthMode;
+  discovery?: ProviderDiscovery;
+  /** local runtimes need a local/self-hosted bridge; cloud workers cannot reach them */
+  localOnly?: boolean;
+  /** an explicit endpoint configured by the user is required to use this provider */
+  endpointRequired?: boolean;
 }
 
 export const PROVIDERS: Provider[] = [
@@ -77,6 +115,7 @@ export const PROVIDERS: Provider[] = [
     id: 'anthropic', name: 'Anthropic', icon: '✦', color: '#d4a574',
     baseUrl: 'https://api.anthropic.com',
     keyPlaceholder: 'sk-ant-...',
+    kind: 'anthropic', discovery: 'anthropic-models',
     models: [
       { id: 'claude-4-opus', name: 'Claude 4 Opus', context: '200K', starred: true, reasoning: true, vision: true },
       { id: 'claude-4-sonnet', name: 'Claude 4 Sonnet', context: '200K', starred: true, reasoning: true, vision: true },
@@ -128,6 +167,7 @@ export const PROVIDERS: Provider[] = [
     id: 'google', name: 'Google', icon: 'G', color: '#4285f4',
     baseUrl: 'https://generativelanguage.googleapis.com/v1',
     keyPlaceholder: 'AIza...',
+    kind: 'google', discovery: 'google-models',
     models: [
       { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro', context: '2M', starred: true, reasoning: true, vision: true },
       { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', context: '1M', vision: true },
@@ -181,6 +221,7 @@ export const PROVIDERS: Provider[] = [
     id: 'cohere', name: 'Cohere', icon: 'C', color: '#39594e',
     baseUrl: 'https://api.cohere.ai/v1',
     keyPlaceholder: '...',
+    kind: 'cohere', discovery: 'none',
     models: [
       { id: 'command-r-plus', name: 'Command R+', context: '128K', vision: true },
     ]
@@ -192,6 +233,37 @@ export const PROVIDERS: Provider[] = [
     models: [
       { id: 'Atria-Dawn-Preview', name: 'Atria Dawn Preview', context: '128K', starred: true },
     ]
+  },
+  // --- local / self-hosted runtimes ----------------------------------------
+  // These speak the OpenAI-compatible /v1 API and need no credential. The
+  // endpoint is only reachable from a local desktop/self-hosted runtime; a
+  // cloud worker will reject loopback endpoints unless explicitly bridged.
+  {
+    id: 'ollama', name: 'Ollama (local)', icon: '◉', color: '#6366f1',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    keyPlaceholder: 'no key needed',
+    kind: 'local-openai', auth: 'none', discovery: 'ollama-tags', localOnly: true,
+    models: [
+      { id: 'llama3.2', name: 'Llama 3.2', free: true, local: true },
+      { id: 'qwen2.5', name: 'Qwen 2.5', free: true, local: true },
+      { id: 'llava', name: 'LLaVA (vision)', free: true, local: true, vision: true },
+    ],
+  },
+  {
+    id: 'lmstudio', name: 'LM Studio (local)', icon: '◇', color: '#8b5cf6',
+    baseUrl: 'http://127.0.0.1:1234/v1',
+    keyPlaceholder: 'no key needed',
+    kind: 'local-openai', auth: 'none', discovery: 'openai-models', localOnly: true,
+    models: [
+      { id: 'local-model', name: 'Loaded local model', free: true, local: true },
+    ],
+  },
+  {
+    id: 'custom-openai', name: 'Custom OpenAI-compatible', icon: '⚙', color: '#64748b',
+    baseUrl: '',
+    keyPlaceholder: 'optional — leave blank if unauthenticated',
+    kind: 'openai-compatible', auth: 'optional-api-key', discovery: 'openai-models', endpointRequired: true,
+    models: [],
   },
 ];
 
@@ -249,4 +321,64 @@ export function modelsFor(p: Provider | undefined, dynamic?: ProviderModel[]): P
 // "Invalid header value" before the request even reaches the provider.
 export function isValidApiKey(key: unknown): key is string {
   return typeof key === "string" && /^[\x21-\x7e]{8,2048}$/.test(key);
+}
+
+/** Validate an untrusted provider id before it reaches any catalog lookup. */
+export function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === "string" && PROVIDERS.some((p) => p.id === value);
+}
+
+export function providerKind(p: Provider | undefined): ProviderKind {
+  return p?.kind ?? "openai-compatible";
+}
+
+export function providerAuthMode(p: Provider | undefined): ProviderAuthMode {
+  return p?.auth ?? "api-key";
+}
+
+export function providerDiscovery(p: Provider | undefined): ProviderDiscovery {
+  return p?.discovery ?? "openai-models";
+}
+
+export function providerRequiresKey(p: Provider | undefined): boolean {
+  return providerAuthMode(p) === "api-key";
+}
+
+export function providerAllowsEndpointEdit(p: Provider | undefined): boolean {
+  return !!p && (p.localOnly === true || providerKind(p) === "local-openai" || p.endpointRequired === true);
+}
+
+export function isLocalProvider(provider: ProviderId): boolean {
+  return getProvider(provider)?.localOnly === true;
+}
+
+/**
+ * Auth-policy-aware credential check. Keyless runtimes pass with no key; custom
+ * endpoints accept either no key or a well-formed one. Keyed providers keep the
+ * original strict validation (no whitespace / non-ASCII / short strings).
+ */
+export function isValidProviderCredential(provider: ProviderId, apiKey: unknown): apiKey is string {
+  const mode = providerAuthMode(getProvider(provider));
+  if (mode === "none") return true;
+  const empty = apiKey === undefined || apiKey === null || apiKey === "";
+  if (mode === "optional-api-key" && empty) return true;
+  return isValidApiKey(apiKey);
+}
+
+/** Catalog-first capability lookup used by the runtime planner. */
+export function modelSupportsTools(provider: ProviderId, model: string, dynamic?: ProviderModel[]): boolean {
+  const entry = dynamic?.find((m) => m.id === model) ?? getProvider(provider)?.models.find((m) => m.id === model);
+  if (typeof entry?.tools === "boolean") return entry.tools;
+  if (isLocalProvider(provider)) {
+    return /(tools?|function[-_]?call|hermes|qwen2\.5|llama-?3\.[13]|mistral-nemo|firefunction)/i.test(model);
+  }
+  // Remote OpenAI-compatible gateways in the catalog generally support tools;
+  // media-only models do not.
+  return !/(dall-e|image|sora|video|veo|flux|imagen|whisper|tts|embed)/i.test(model);
+}
+
+export function modelSupportsStreaming(model: string, dynamic?: ProviderModel[]): boolean {
+  const entry = dynamic?.find((m) => m.id === model);
+  if (typeof entry?.streaming === "boolean") return entry.streaming;
+  return !/(dall-e|image|sora|video|veo|flux|imagen|whisper|tts|embed)/i.test(model);
 }
