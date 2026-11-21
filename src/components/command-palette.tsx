@@ -47,6 +47,7 @@ export function CommandPalette() {
       { id: "nav-skills", section: "Go to", label: "Skills", hint: "/skills", run: () => router.push("/skills") },
       { id: "nav-runtime", section: "Go to", label: "Agent runtime", hint: "/runtime", run: () => router.push("/runtime") },
       { id: "nav-genome", section: "Go to", label: "Skill genome", hint: "/genome", run: () => router.push("/genome") },
+      { id: "nav-improvement", section: "Go to", label: "Self-improvement", hint: "/improvement", run: () => router.push("/improvement") },
       { id: "nav-vault", section: "Go to", label: "Providers vault", hint: "/vault", run: () => router.push("/vault") },
       { id: "nav-settings", section: "Go to", label: "Settings", hint: "/settings", run: () => router.push("/settings") },
       { id: "act-newchat", section: "Actions", label: "New chat", hint: "create", run: () => { createChat({ provider: settings.defaultProvider }); router.push("/chat"); } },

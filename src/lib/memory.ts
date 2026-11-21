@@ -311,7 +311,7 @@ async function vectorsFor(uid: string): Promise<Map<string, number[]>> {
 export async function searchMemories(
   uid: string,
   query: string,
-  opts: { projectId?: string | null; limit?: number } = {},
+  opts: { projectId?: string | null; limit?: number; hybridWeight?: number } = {},
 ): Promise<MemoryContext[]> {
   const [all, links, vectors] = await Promise.all([
     listMemories(uid, 500),
@@ -322,6 +322,10 @@ export async function searchMemories(
   const terms = tokens(q);
   const queryVector = q ? embedText(q) : null;
   const limit = Math.max(1, Math.min(MAX_MEMORY_ITEMS, opts.limit ?? MAX_MEMORY_ITEMS));
+  const rawHybridWeight = Number(opts.hybridWeight);
+  const hybridWeight = Number.isFinite(rawHybridWeight)
+    ? Math.min(2, Math.max(0, rawHybridWeight))
+    : 1;
 
   const hits = new Map(all.map((m) => [m.id, lexicalParts(m, q, terms)]));
 
@@ -344,7 +348,7 @@ export async function searchMemories(
     .map((m) => {
       const vector = vectors.get(m.id);
       const similarity = queryVector && vector ? Math.max(0, cosineSimilarity(queryVector, vector)) : 0;
-      let score = (hits.get(m.id)?.score ?? 0) + similarity * 5 + (graphBoost.get(m.id) ?? 0);
+      let score = (hits.get(m.id)?.score ?? 0) + similarity * 5 * hybridWeight + (graphBoost.get(m.id) ?? 0);
       // A tiny recency nudge breaks ties without drowning older, pinned facts.
       const ageDays = (Date.now() - Date.parse(m.updatedAt)) / 86_400_000;
       if (Number.isFinite(ageDays)) score += Math.max(0, 1.5 - ageDays / 30);

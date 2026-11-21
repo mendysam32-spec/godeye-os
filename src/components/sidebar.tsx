@@ -14,6 +14,7 @@ const nav = [
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/skills", label: "Skills", icon: Blocks },
   { href: "/genome", label: "Genome", icon: Dna },
+  { href: "/improvement", label: "Improvement", icon: Sparkles },
   { href: "/memory", label: "Memory", icon: Brain },
   { href: "/runtime", label: "Runtime", icon: Cpu },
   { href: "/runs", label: "Runs & Cost", icon: Activity },

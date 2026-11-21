@@ -5,6 +5,7 @@
  */
 
 import { ensureFoundationSchema, getChatDb, type D1Like } from "./d1";
+import { recordPostMortem } from "./improvement";
 import {
   MAX_TRACE_SNAPSHOT_CHARS,
   safeTracePayload,
@@ -233,6 +234,32 @@ export async function finishRun(
   run.endedAt = new Date().toISOString();
   run.error = error ? String(error).slice(0, 2_000) : null;
   await db.prepare(RUN_UPSERT).bind(...runToBind(run)).run();
+
+  // Roadmap Phase 2 item 7: every finished run gets an automatic, bounded
+  // retrospective. It must never block or fail the run it is describing.
+  try {
+    const { results: eventRows } = await db
+      .prepare("SELECT * FROM execution_events WHERE run_id = ?1 ORDER BY seq ASC")
+      .bind(id)
+      .all<EventRow>();
+    const events = eventRows.map(mapEvent).sort((a, b) => a.seq - b.seq).slice(0, 500);
+    const postMortem = await recordPostMortem({ run, events });
+    if (postMortem) {
+      await appendEvent({
+        uid,
+        runId: id,
+        type: "improvement.postmortem",
+        payload: {
+          id: postMortem.id,
+          taskClass: postMortem.taskClass,
+          status: postMortem.status,
+          findings: postMortem.findings.map((f) => f.code).slice(0, 12),
+        },
+      }).catch(() => null);
+    }
+  } catch {
+    /* diagnostics are best-effort; the finished run is the source of truth */
+  }
   return run;
 }
 

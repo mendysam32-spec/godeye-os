@@ -13,6 +13,7 @@ import {
   type AgentMessage, type AgentMessageType, type AgentTaskRecord, type AgentTaskStatus,
   type VerificationCheck, type VerificationReport, type WorkspaceEntry,
 } from "./foundation";
+import { getImprovementConfigValue } from "./improvement";
 import { callLLM, type ChatMessage } from "./llm-router";
 import type { ProviderId } from "./providers";
 import { proposeSkillFromRun } from "./skill-genome";
@@ -371,7 +372,12 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
   const agents = input.agents.slice(0, 12);
   const verifier = input.verifier ?? {};
   const effort: Effort = input.reasoningEffort ?? "off";
-  const concurrency = clamp(input.concurrency ?? 3, 1, 6);
+  // Merged self-improvement config tunes the scheduler without rewriting code.
+  const schedulerPolicy = await getImprovementConfigValue(uid, "architecture.scheduler").catch(() => null);
+  const policyConcurrency = schedulerPolicy?.maxConcurrency == null ? NaN : Number(schedulerPolicy.maxConcurrency);
+  const concurrency = clamp(Number.isFinite(policyConcurrency) ? policyConcurrency : (input.concurrency ?? 3), 1, 6);
+  const preferShortTasks = schedulerPolicy?.preferShortTasks === true;
+  const priorityWeight = clamp(Number(schedulerPolicy?.priorityWeight ?? 1) || 1, 0, 3);
   const createdAt = new Date().toISOString();
 
   const behaviorHint =
@@ -391,6 +397,7 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
       mode, concurrency, evolve: !!input.evolve, prompt: input.prompt.slice(0, 4_000),
       agents: agents.map((a) => ({ ...a, systemPrompt: undefined })),
       verifier: { ...verifier, observer: undefined },
+      schedulerPolicy: schedulerPolicy ?? null,
     }, 24_000),
     provider: agents[0]?.provider,
     model: agents[0]?.model,
@@ -398,7 +405,11 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
   }).catch(() => null);
   await appendEvent({
     uid, runId, type: "runtime.scheduled",
-    payload: { mode, concurrency, agents: agents.length, priorityOrder: agents.map((a) => ({ id: a.id, priority: a.priority ?? 0 })) },
+    payload: {
+      mode, concurrency, agents: agents.length,
+      priorityOrder: agents.map((a) => ({ id: a.id, priority: a.priority ?? 0 })),
+      policy: { preferShortTasks, priorityWeight },
+    },
   }).catch(() => null);
   await writeWorkspaceValue({
     uid, runId, key: "run:prompt", value: { text: input.prompt.slice(0, 8_000), mode }, label: "prompt",
@@ -422,6 +433,11 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
   const resolved = new Set<string>();
   const failed = new Set<string>();
   const queue = [...tasks];
+  if (preferShortTasks || priorityWeight !== 1) {
+    const score = (t: AgentTaskRecord): number =>
+      (t.priority ?? 0) * priorityWeight - (preferShortTasks ? clamp((t.quotaTokens ?? 32_000) / 32_000, 0, 1) : 0);
+    queue.sort((a, b) => score(b) - score(a) || a.createdAt.localeCompare(b.createdAt));
+  }
   const running: Promise<void>[] = [];
   let active = 0;
   let remaining = tasks.length;

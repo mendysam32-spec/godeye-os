@@ -262,6 +262,151 @@ export interface SkillOutcome {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Self-improvement loop                                                       */
+/* -------------------------------------------------------------------------- */
+
+export const IMPROVEMENT_FINDING_SEVERITIES = ["info", "warning", "critical"] as const;
+export type ImprovementFindingSeverity = (typeof IMPROVEMENT_FINDING_SEVERITIES)[number];
+
+export const IMPROVEMENT_PATTERN_STATUSES = ["open", "proposed", "merged"] as const;
+export type ImprovementPatternStatus = (typeof IMPROVEMENT_PATTERN_STATUSES)[number];
+
+export const IMPROVEMENT_PROPOSAL_TYPES = ["skill", "routing", "architecture"] as const;
+export type ImprovementProposalType = (typeof IMPROVEMENT_PROPOSAL_TYPES)[number];
+
+export const IMPROVEMENT_PROPOSAL_STATUSES = ["proposed", "validated", "merged", "rejected"] as const;
+export type ImprovementProposalStatus = (typeof IMPROVEMENT_PROPOSAL_STATUSES)[number];
+
+export function isImprovementProposalType(v: unknown): v is ImprovementProposalType {
+  return typeof v === "string" && (IMPROVEMENT_PROPOSAL_TYPES as readonly string[]).includes(v);
+}
+
+export function isImprovementProposalStatus(v: unknown): v is ImprovementProposalStatus {
+  return typeof v === "string" && (IMPROVEMENT_PROPOSAL_STATUSES as readonly string[]).includes(v);
+}
+
+export function isImprovementPatternStatus(v: unknown): v is ImprovementPatternStatus {
+  return typeof v === "string" && (IMPROVEMENT_PATTERN_STATUSES as readonly string[]).includes(v);
+}
+
+export interface PostMortemFinding {
+  code: string;
+  severity: ImprovementFindingSeverity;
+  detail: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface PostMortemMetrics {
+  durationMs: number;
+  eventCount: number;
+  errorCount: number;
+  fallbackCount: number;
+  retryCount: number;
+  toolCalls: number;
+  verifierFailures: number;
+  memoryRecalls: number;
+  tokens: number;
+  costUsd: number;
+  success: boolean;
+}
+
+/** Automatic, deterministic retrospective for one finished execution run. */
+export interface PostMortemRecord {
+  id: string;
+  uid: string;
+  runId: string;
+  kind: RunKind;
+  status: RunStatus;
+  prompt: string;
+  taskClass: string;
+  summary: string;
+  findings: PostMortemFinding[];
+  metrics: PostMortemMetrics;
+  signals: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** A repeated bottleneck or repeated successful workflow mined from retrospectives. */
+export interface ImprovementPattern {
+  id: string;
+  uid: string;
+  key: string;
+  title: string;
+  description: string;
+  taskClass: string;
+  pain: string;
+  occurrences: number;
+  runIds: string[];
+  avgCostUsd: number;
+  avgLatencyMs: number;
+  status: ImprovementPatternStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ImprovementValidation {
+  passed: boolean;
+  checks: VerificationCheck[];
+  validatedAt: string | null;
+}
+
+/**
+ * A gated change proposal. `payload` is always declarative: prompt instructions,
+ * a JSON tool specification, a routing preference or an allowlisted config patch.
+ * No executable code is stored or run by this loop.
+ */
+export interface ImprovementProposal {
+  id: string;
+  uid: string;
+  type: ImprovementProposalType;
+  status: ImprovementProposalStatus;
+  title: string;
+  rationale: string;
+  evidence: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  validation: ImprovementValidation;
+  patternId: string | null;
+  skillId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Preference data collected from outcome + cost + latency for model steering. */
+export interface ModelPreference {
+  id: string;
+  uid: string;
+  runId: string;
+  taskClass: string;
+  provider: string;
+  model: string;
+  outcome: "success" | "failure";
+  score: number;
+  tokens: number;
+  costUsd: number;
+  latencyMs: number;
+  createdAt: string;
+}
+
+/** A merged, allowlisted config value consumed by scheduler / memory / planner. */
+export interface ImprovementConfigRecord {
+  id: string;
+  uid: string;
+  key: string;
+  value: Record<string, unknown>;
+  proposalId: string | null;
+  updatedAt: string;
+}
+
+export interface ImprovementCycleResult {
+  postmortems: number;
+  patterns: number;
+  proposals: ImprovementProposal[];
+  validated: number;
+  merged: number;
+  autoMerge: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Spatial canvas                                                              */
 /* -------------------------------------------------------------------------- */
 

@@ -12,6 +12,9 @@ import {
   type MemoryContext,
 } from "@/lib/foundation";
 import { searchMemories } from "@/lib/memory";
+import {
+  classifyTask, getImprovementConfigValue, getRoutingRecommendation,
+} from "@/lib/improvement";
 import { appendEvent, startRun } from "@/lib/traces";
 import { recordUsageEvent } from "@/lib/usage";
 
@@ -121,14 +124,14 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as ChatBody | null;
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-  const { messages, provider, model, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills, freeModels, runId: incomingRunId, chatId, memories: clientMemories, temperature, parentRunId, replayOf, divergence } = body;
+  const { messages, provider, model: requestedModel, mode, vault, settings, stream, toolsEnabled, reasoningEffort, skills, freeModels, runId: incomingRunId, chatId, memories: clientMemories, temperature, parentRunId, replayOf, divergence } = body;
 
   const temperatureOverride =
     typeof temperature === "number" && Number.isFinite(temperature)
       ? Math.min(2, Math.max(0, Math.round(temperature * 100) / 100))
       : undefined;
 
-  if (!messages?.length || !provider || !model) {
+  if (!messages?.length || !provider || !requestedModel) {
     return NextResponse.json({ error: "messages, provider, model required" }, { status: 400 });
   }
 
@@ -155,15 +158,35 @@ export async function POST(req: NextRequest) {
     return "";
   })();
 
+  // ---- self-improvement steering ------------------------------------------
+  // Merged routing/config proposals are declarative and opt-in through the
+  // Improvement page. Replays keep their original model so divergence stays
+  // deterministic; only live turns are auto-routed.
+  const taskClass = classifyTask(lastUserText, mode);
+  const [routing, memoryPolicy, plannerPolicy] = await Promise.all([
+    replayOf || divergence ? Promise.resolve(null) : getRoutingRecommendation(user.id, taskClass).catch(() => null),
+    getImprovementConfigValue(user.id, "architecture.memory-indexer").catch(() => null),
+    getImprovementConfigValue(user.id, "architecture.planner").catch(() => null),
+  ]);
+  const routedModel = routing?.provider === provider && routing.model ? routing.model : null;
+  const model = routedModel || requestedModel;
+  const memoryLimit = Math.max(1, Math.min(MAX_MEMORY_ITEMS, Math.floor(Number(memoryPolicy?.maxItems) || MAX_MEMORY_ITEMS)));
+  const minMemoryScore = Math.max(0, Number(memoryPolicy?.minScore) || 0);
+  const rawHybridWeight = Number(memoryPolicy?.hybridWeight);
+  const memoryHybridWeight = Number.isFinite(rawHybridWeight)
+    ? Math.min(2, Math.max(0, rawHybridWeight))
+    : 1;
+
   // ---- foundation slice: memory recall + stable replay run ----------------
   // The client sends its local cache too, so recall still works when D1 is not
   // bound. Everything is bounded and labelled as reference data in the prompt.
   const runId = typeof incomingRunId === "string" && incomingRunId.trim() ? incomingRunId.trim() : newId("run");
-  const serverMemories = await searchMemories(user.id, lastUserText, { limit: MAX_MEMORY_ITEMS }).catch(() => []);
+  const serverMemories = (await searchMemories(user.id, lastUserText, { limit: memoryLimit, hybridWeight: memoryHybridWeight }).catch(() => []))
+    .filter((m) => (Number(m.score) || 0) >= minMemoryScore);
   const recalledMemories = dedupeMemories([
-    ...cleanMemories(clientMemories).slice(0, MAX_MEMORY_ITEMS),
+    ...cleanMemories(clientMemories).filter((m) => (Number(m.score) || 0) >= minMemoryScore).slice(0, memoryLimit),
     ...serverMemories,
-  ]).slice(0, MAX_MEMORY_ITEMS);
+  ]).slice(0, memoryLimit);
   const replaySnapshot = {
     messages: messages.slice(-12).map((m) => ({
       role: m.role,
@@ -172,6 +195,8 @@ export async function POST(req: NextRequest) {
     provider,
     model,
     mode: mode || "chat",
+    taskClass,
+    routedFrom: routedModel && routedModel !== requestedModel ? requestedModel : null,
     toolsEnabled: !!toolsEnabled,
     reasoningEffort: reasoningEffort ?? null,
     temperature: temperatureOverride ?? 0.6,
@@ -206,6 +231,14 @@ export async function POST(req: NextRequest) {
       promptPreview: lastUserText.slice(0, 500),
     },
   }).catch(() => null);
+  if (routedModel && routedModel !== requestedModel) {
+    await appendEvent({
+      uid: user.id,
+      runId,
+      type: "improvement.routed",
+      payload: { taskClass, from: requestedModel, to: routedModel, provider, source: routing },
+    }).catch(() => null);
+  }
   if (recalledMemories.length) {
     await appendEvent({
       uid: user.id,
@@ -279,6 +312,12 @@ export async function POST(req: NextRequest) {
       `${modePrompt}\n${behavior} ${codeStyle}\n${reasoningBooster}\n` +
       `You are running inside MEDUSA OS by S&P Group. Current mode: ${mode || "chat"}.\n` +
       `Reasoning effort: ${filmEffort}.\nProvider: ${provider}, Model: ${model}.` +
+      (plannerPolicy?.preVerifyModelCapacity === true
+        ? "\nPlanner policy: verify required tools, inputs and output capacity before committing to an approach."
+        : "") +
+      (plannerPolicy?.verifierRequired === true
+        ? "\nVerification policy: finish with a short checklist of constraints checked and any remaining risks."
+        : "") +
       (attachNote ? `\n${attachNote}` : "") +
       (() => {
         const block = buildMemoryPrompt(recalledMemories);
@@ -340,7 +379,9 @@ export async function POST(req: NextRequest) {
   const LIMIT_RE = /\b429\b|rate[ _-]?limit|ratelimit|quota|daily|monthly|exhaust|exceeded|too many requests|free[- ]tier|insufficient|credits?|balance|capacity|overloaded/i;
   const clientFree = Array.isArray(freeModels) ? freeModels.filter((id): id is string => typeof id === "string" && !!id) : [];
   const staticFree = (getProvider(provider)?.models || []).filter((m) => isFreeModel(m)).map((m) => m.id);
-  const fallbackModels = [...new Set(clientFree.length ? clientFree : staticFree)].filter((id) => id !== model).slice(0, 3);
+  const policyFallbacks = plannerPolicy?.fallbackAfterAttempts == null ? 3 : Number(plannerPolicy.fallbackAfterAttempts);
+  const fallbackLimit = Math.max(0, Math.min(3, Number.isFinite(policyFallbacks) ? Math.floor(policyFallbacks) : 3));
+  const fallbackModels = [...new Set(clientFree.length ? clientFree : staticFree)].filter((id) => id !== model).slice(0, fallbackLimit);
   const tryCandidates = [model, ...fallbackModels];
 
   // ---- streaming -----------------------------------------------------------
