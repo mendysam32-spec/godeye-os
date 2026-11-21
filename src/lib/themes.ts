@@ -199,13 +199,13 @@ export const THEMES: ThemeDef[] = [
     mode: "light",
     preview: {
       bg:
-        "radial-gradient(420px 280px at 6% 0%, rgba(167,139,250,0.30), transparent 60%)," +
-        "radial-gradient(400px 260px at 100% 4%, rgba(34,211,238,0.26), transparent 60%)," +
-        "linear-gradient(130deg, #f8fafc, #f5f3ff 55%, #ecfeff)",
-      surface: "rgba(255,255,255,0.75)",
-      bar: "rgba(255,255,255,0.65)",
-      sidebar: "rgba(255,255,255,0.6)",
-      border: "rgba(124,58,237,0.12)",
+        "radial-gradient(circle at 80% 15%, rgba(167,139,250,0.25) 0%, transparent 45%)," +
+        "radial-gradient(circle at 15% 85%, rgba(34,211,238,0.22) 0%, transparent 45%)," +
+        "#f8fafc",
+      surface: "rgba(255,255,255,0.72)",
+      bar: "rgba(255,255,255,0.62)",
+      sidebar: "rgba(239,244,250,0.85)",
+      border: "rgba(124,58,237,0.16)",
       text: "#0f172a",
       sub: "#475569",
       accent: "#7c3aed",
@@ -218,13 +218,13 @@ export const THEMES: ThemeDef[] = [
     mode: "dark",
     preview: {
       bg:
-        "radial-gradient(420px 280px at 6% 0%, rgba(147,51,234,0.42), transparent 60%)," +
-        "radial-gradient(400px 260px at 100% 4%, rgba(6,182,212,0.36), transparent 60%)," +
-        "linear-gradient(145deg, #09090f, #160f2b 55%, #06202b)",
+        "radial-gradient(circle at 80% 15%, rgba(147,51,234,0.35) 0%, transparent 45%)," +
+        "radial-gradient(circle at 15% 85%, rgba(6,182,212,0.30) 0%, transparent 45%)," +
+        "#09090f",
       surface: "rgba(18,19,31,0.65)",
       bar: "rgba(18,19,31,0.55)",
-      sidebar: "rgba(18,19,31,0.5)",
-      border: "rgba(56,189,248,0.2)",
+      sidebar: "rgba(18,19,31,0.62)",
+      border: "rgba(56,189,248,0.22)",
       text: "#f8fafc",
       sub: "#94a3b8",
       accent: "#9333ea",
@@ -237,13 +237,13 @@ export const THEMES: ThemeDef[] = [
     mode: "light",
     preview: {
       bg:
-        "radial-gradient(420px 280px at 6% 0%, rgba(163,230,53,0.28), transparent 60%)," +
-        "radial-gradient(400px 260px at 100% 4%, rgba(52,211,153,0.22), transparent 60%)," +
-        "linear-gradient(130deg, #f7f9f8, #f7fee7 55%, #ecfdf5)",
-      surface: "rgba(255,255,255,0.8)",
-      bar: "rgba(255,255,255,0.7)",
-      sidebar: "rgba(255,255,255,0.65)",
-      border: "rgba(16,185,129,0.18)",
+        "radial-gradient(circle at 80% 15%, rgba(163,230,53,0.28) 0%, transparent 45%)," +
+        "radial-gradient(circle at 15% 85%, rgba(52,211,153,0.20) 0%, transparent 45%)," +
+        "#f7f9f8",
+      surface: "rgba(255,255,255,0.78)",
+      bar: "rgba(255,255,255,0.68)",
+      sidebar: "rgba(237,243,240,0.85)",
+      border: "rgba(16,185,129,0.20)",
       text: "#111815",
       sub: "#4b5563",
       accent: "#65a30d",
@@ -256,13 +256,13 @@ export const THEMES: ThemeDef[] = [
     mode: "dark",
     preview: {
       bg:
-        "radial-gradient(420px 280px at 6% 0%, rgba(132,204,22,0.32), transparent 60%)," +
-        "radial-gradient(400px 260px at 100% 4%, rgba(16,185,129,0.26), transparent 60%)," +
-        "linear-gradient(145deg, #0a0d0c, #142017 55%, #04140f)",
-      surface: "rgba(17,25,22,0.7)",
-      bar: "rgba(17,25,22,0.6)",
-      sidebar: "rgba(17,25,22,0.55)",
-      border: "rgba(163,230,53,0.22)",
+        "radial-gradient(circle at 80% 15%, rgba(132,204,22,0.28) 0%, transparent 45%)," +
+        "radial-gradient(circle at 15% 85%, rgba(16,185,129,0.22) 0%, transparent 45%)," +
+        "#0a0d0c",
+      surface: "rgba(17,25,22,0.68)",
+      bar: "rgba(17,25,22,0.58)",
+      sidebar: "rgba(17,25,22,0.62)",
+      border: "rgba(163,230,53,0.24)",
       text: "#f3f4f6",
       sub: "#9ca3af",
       accent: "#a3e635",
