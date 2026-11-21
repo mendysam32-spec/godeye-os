@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callLLM, type ChatMessage } from "@/lib/llm-router";
 import type { ProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
+import { recordUsageEvent } from "@/lib/usage";
 
 /**
  * Terminal AI — the `/ask` / `?mode` half of the MEDUSA terminal.
@@ -119,6 +120,11 @@ export async function POST(req: NextRequest) {
       endpointOverride
     );
     const { reply, commands } = extractCommands(result.content || "");
+    await recordUsageEvent({
+      uid: user.id, kind: "terminal", provider: body.provider, model: result.model,
+      usage: result.usage, latencyMs: result.latencyMs,
+      metadata: { stage: body.stage || "ask", step: body.step ?? null, backend: body.backend ?? null },
+    }).catch(() => null);
     return NextResponse.json({
       ok: true,
       reply: reply || result.content || "(empty answer)",

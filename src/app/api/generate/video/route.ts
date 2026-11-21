@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { submitVideo, canSubmitVideo, type VaultPayload } from "@/lib/generation-router";
+import { checkBudget } from "@/lib/economy";
+import { estimateGenerationCost } from "@/lib/pricing";
 import type { ProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
 import { getChatDb, ensureGenerationSchema } from "@/lib/d1";
+import { recordUsageEvent } from "@/lib/usage";
 
 // Submitting a job is a single provider POST.
 export const maxDuration = 60;
@@ -41,6 +44,14 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
+  const durationSec = Math.max(1, Math.min(120, Math.floor(Number(String(duration ?? "5").replace(/[^0-9.]/g, "")) || 5)));
+  const estimate = estimateGenerationCost({ kind: "video", provider, model, durationSec, resolution });
+  const budget = await checkBudget(user.id, estimate.costUsd).catch(() => null);
+  if (budget && !budget.allowed) {
+    return NextResponse.json({ error: budget.reason }, { status: 402 });
+  }
+
+  const started = Date.now();
   try {
     const { job } = await submitVideo({
       provider,
@@ -75,6 +86,16 @@ export async function POST(req: NextRequest) {
     } catch {
       jobId = undefined;
     }
+
+    const price = estimateGenerationCost({
+      kind: "video", provider, model, durationSec, resolution,
+    });
+    await recordUsageEvent({
+      uid: user.id, runId: jobId ?? null, kind: "video", provider, model,
+      costUsd: price.costUsd, pricingSource: price.source,
+      latencyMs: Date.now() - started,
+      metadata: { jobId: jobId ?? null, duration, resolution: resolution || "default" },
+    }).catch(() => null);
 
     return NextResponse.json({ ok: true, job, ...(jobId ? { jobId } : {}), provider, model });
   } catch (e) {

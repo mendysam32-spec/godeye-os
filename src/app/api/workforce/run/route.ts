@@ -8,6 +8,12 @@ import { runAgentRuntime, type RuntimeAgentInput } from "@/lib/agent-runtime";
  * (scheduler + structured messages + verifiers + traces + cost ledger). The
  * response keeps the original `results` shape so the dashboard needs no change.
  */
+
+function budgetUsd(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 1_000_000) : undefined;
+}
+
 export async function POST(req: NextRequest) {
   const user = await requireUser(req);
   if (!user) return NextResponse.json({ error: "Login required" }, { status: 401 });
@@ -36,6 +42,7 @@ export async function POST(req: NextRequest) {
       dependsOn: Array.isArray(a.dependsOn) ? a.dependsOn.filter((d): d is string => typeof d === "string") : [],
       quotaTokens: typeof a.quotaTokens === "number" ? a.quotaTokens : undefined,
       quotaMs: typeof a.quotaMs === "number" ? a.quotaMs : undefined,
+      budgetUsd: budgetUsd(a.budgetUsd),
     }];
   });
   if (!agents.length) return NextResponse.json({ error: "No valid agents supplied" }, { status: 400 });
@@ -57,6 +64,7 @@ export async function POST(req: NextRequest) {
         role: typeof observerRaw.role === "string" ? observerRaw.role : "Verifier",
         provider: observerRaw.provider as ProviderId,
         model: observerRaw.model,
+        budgetUsd: budgetUsd(observerRaw.budgetUsd),
       }
     : undefined;
 

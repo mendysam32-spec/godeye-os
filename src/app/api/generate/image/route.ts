@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateImage, type VaultPayload } from "@/lib/generation-router";
+import { checkBudget } from "@/lib/economy";
+import { estimateGenerationCost } from "@/lib/pricing";
 import type { ProviderId } from "@/lib/providers";
 import { requireUser } from "@/lib/auth";
+import { recordUsageEvent } from "@/lib/usage";
 
 export async function POST(req: NextRequest) {
   const user = await requireUser(req);
@@ -28,6 +31,13 @@ export async function POST(req: NextRequest) {
   }
   const endpoint = v && typeof v === "object" && v.endpoint?.trim() ? v.endpoint.trim() : undefined;
 
+  const estimate = estimateGenerationCost({ kind: "image", provider, model, count: 1 });
+  const budget = await checkBudget(user.id, estimate.costUsd).catch(() => null);
+  if (budget && !budget.allowed) {
+    return NextResponse.json({ error: budget.reason }, { status: 402 });
+  }
+
+  const started = Date.now();
   try {
     const out = await generateImage({
       provider,
@@ -37,6 +47,15 @@ export async function POST(req: NextRequest) {
       ...(endpoint ? { baseUrl: endpoint } : {}),
       ...(size ? { size } : {}),
     });
+    const price = estimateGenerationCost({
+      kind: "image", provider, model, count: out.images?.length || 1,
+    });
+    await recordUsageEvent({
+      uid: user.id, kind: "image", provider, model,
+      costUsd: price.costUsd, pricingSource: price.source,
+      latencyMs: Date.now() - started,
+      metadata: { count: out.images?.length || 1, size: size || "default" },
+    }).catch(() => null);
     return NextResponse.json({ ok: true, images: out.images, meta: out.meta, provider, model });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Image generation failed";

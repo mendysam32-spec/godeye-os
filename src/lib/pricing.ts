@@ -90,3 +90,39 @@ export function estimateChatCost(input: {
     rate,
   };
 }
+
+/**
+ * Best-effort generation pricing. Image/video providers rarely report usage,
+ * so this uses conservative per-image / per-second estimates and labels the
+ * source. Update these rates alongside `MODEL_PRICES` when they change.
+ */
+export function estimateGenerationCost(input: {
+  kind: "image" | "video";
+  provider: ProviderId;
+  model: string;
+  count?: number;
+  durationSec?: number;
+  resolution?: string;
+}): CostEstimate {
+  if (isFreeModel(input.model)) {
+    return { costUsd: 0, source: "free-model", rate: { input: 0, output: 0 } };
+  }
+  if (input.kind === "image") {
+    const count = Math.max(1, Math.min(20, Math.floor(input.count ?? 1)));
+    const unit = 0.04;
+    return {
+      costUsd: Math.round(count * unit * 1_000_000) / 1_000_000,
+      source: "generation-estimate:image",
+      rate: { input: unit, output: 0 },
+    };
+  }
+  const seconds = Math.max(1, Math.min(120, Math.floor(input.durationSec ?? 5)));
+  const resolution = (input.resolution ?? "").toLowerCase();
+  const multiplier = /4k|2160/.test(resolution) ? 4 : /1080|full hd/.test(resolution) ? 2 : 1;
+  const unit = 0.01 * multiplier;
+  return {
+    costUsd: Math.round(seconds * unit * 1_000_000) / 1_000_000,
+    source: `generation-estimate:video:${resolution || "default"}`,
+    rate: { input: unit, output: 0 },
+  };
+}

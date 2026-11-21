@@ -46,6 +46,7 @@ export function CommandPalette() {
       { id: "nav-agents", section: "Go to", label: "Agents", hint: "/agents", run: () => router.push("/agents") },
       { id: "nav-skills", section: "Go to", label: "Skills", hint: "/skills", run: () => router.push("/skills") },
       { id: "nav-runtime", section: "Go to", label: "Agent runtime", hint: "/runtime", run: () => router.push("/runtime") },
+      { id: "nav-economy", section: "Go to", label: "Economy", hint: "/economy", run: () => router.push("/economy") },
       { id: "nav-genome", section: "Go to", label: "Skill genome", hint: "/genome", run: () => router.push("/genome") },
       { id: "nav-improvement", section: "Go to", label: "Self-improvement", hint: "/improvement", run: () => router.push("/improvement") },
       { id: "nav-vault", section: "Go to", label: "Providers vault", hint: "/vault", run: () => router.push("/vault") },

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 import { readChatStream } from "@/lib/chat-stream";
-import { Activity, GitBranch, Loader2, Play, RefreshCw } from "lucide-react";
+import { Activity, GitBranch, Loader2, Play, RefreshCw, Wallet } from "lucide-react";
 import { PROVIDERS, isFreeModel, modelsFor, type ProviderId } from "@/lib/providers";
 import type { ReplaySpec } from "@/lib/replay";
 import { getDecryptedVaultForApi } from "@/lib/vault-crypto";
@@ -262,9 +262,14 @@ export default function RunsPage() {
               {runs.length} recorded {runs.length === 1 ? "run" : "runs"} · costs are best-effort estimates
             </div>
           </div>
-          <button onClick={() => void load()} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs hover:bg-muted">
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => router.push("/economy")} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs hover:bg-muted">
+              <Wallet className="h-3.5 w-3.5" /> Economy
+            </button>
+            <button onClick={() => void load()} className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs hover:bg-muted">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+          </div>
         </div>
 
         <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">

@@ -12,6 +12,7 @@ import {
   type MemoryContext,
 } from "@/lib/foundation";
 import { searchMemories } from "@/lib/memory";
+import { checkBudget } from "@/lib/economy";
 import {
   classifyTask, getImprovementConfigValue, getRoutingRecommendation,
 } from "@/lib/improvement";
@@ -119,6 +120,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: `You have reached your token limit (${user.tokensUsed}/${tokenLimit}). Ask the admin to raise your limit.`,
     }, { status: 429 });
+  }
+  // Internal credit budgets are advisory by default: no budget configured
+  // means unlimited. Once a global budget is set it gates live turns here.
+  const budget = await checkBudget(user.id).catch(() => null);
+  if (budget && !budget.allowed) {
+    return NextResponse.json({ error: budget.reason }, { status: 402 });
   }
 
   const body = (await req.json().catch(() => null)) as ChatBody | null;

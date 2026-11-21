@@ -8,6 +8,7 @@
  */
 
 import { ensureFoundationSchema, getChatDb, type D1Like } from "./d1";
+import { checkBudget } from "./economy";
 import {
   AGENT_MESSAGE_TYPES, newId, safeTracePayload,
   type AgentMessage, type AgentMessageType, type AgentTaskRecord, type AgentTaskStatus,
@@ -52,6 +53,8 @@ export interface RuntimeAgentInput {
   dependsOn?: string[];
   quotaTokens?: number;
   quotaMs?: number;
+  /** Optional preflight cost estimate used by the internal budget gate. */
+  budgetUsd?: number;
 }
 
 export interface VerifyConfig {
@@ -460,6 +463,15 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
 
   async function runOne(task: AgentTaskRecord): Promise<void> {
     const agent = agents.find((a) => a.id === task.agentId);
+    // Internal credit budgets gate work before any model call. A missing budget
+    // is unrestricted; a configured/exhausted one skips the task with a reason.
+    const budget = await checkBudget(uid, agent?.budgetUsd ?? 0, {
+      scope: "agent", scopeId: task.id,
+    }).catch(() => null);
+    if (budget && !budget.allowed) {
+      skip(task, budget.reason);
+      return;
+    }
     task.status = "running";
     task.startedAt = new Date().toISOString();
     await saveAgentTask(task).catch(() => null);
@@ -627,35 +639,42 @@ export async function runAgentRuntime(input: RuntimeRunInput): Promise<RuntimeRu
       const digest = [...results.values()]
         .map((r) => `[${r.agentName}] score=${r.score ?? 0}\n${(r.content || r.error || "").slice(0, 1_200)}`)
         .join("\n\n");
-      try {
-        const response = await callLLM(
-          {
-            provider: observer.provider,
-            model: observer.model,
-            messages: [
-              { role: "system", content: "You are an independent observer/verifier in MEDUSA OS. Review the structured peer results for consistency, contradictions and gaps. Reply with a short verdict: CONSENSUS, SPLIT or REJECT, then one paragraph of reasoning and a one-line action." },
-              { role: "user", content: `Original task:\n${input.prompt.slice(0, 4_000)}\n\nPeer results:\n${digest.slice(0, 12_000)}` },
-            ],
-            temperature: 0.2,
-            maxTokens: 800,
-          },
-          apiKey,
-          vaultEndpoint(input.vault, observer.provider) ? { baseUrl: vaultEndpoint(input.vault, observer.provider) } : undefined,
-        );
-        consensus = response.content.slice(0, 4_000);
-        await appendAgentMessage({
-          uid, runId, type: "consensus.vote", from: observer.id, to: "all",
-          payload: { verdict: consensus.slice(0, 2_000) },
-        }).catch(() => null);
-        await writeWorkspaceValue({
-          uid, runId, key: "consensus:verdict", value: { text: consensus }, label: "observer",
-        }).catch(() => null);
-        await recordUsageEvent({
-          uid, runId, kind: "workforce", provider: observer.provider, model: response.model,
-          usage: response.usage, latencyMs: response.latencyMs, metadata: { taskId: observer.id, role: "observer" },
-        }).catch(() => null);
-      } catch (error) {
-        consensus = `Observer failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500);
+      const observerBudget = await checkBudget(uid, observer.budgetUsd ?? 0, {
+        scope: "agent", scopeId: observer.id,
+      }).catch(() => null);
+      if (observerBudget && !observerBudget.allowed) {
+        consensus = `Observer skipped: ${observerBudget.reason}`.slice(0, 500);
+      } else {
+        try {
+          const response = await callLLM(
+            {
+              provider: observer.provider,
+              model: observer.model,
+              messages: [
+                { role: "system", content: "You are an independent observer/verifier in MEDUSA OS. Review the structured peer results for consistency, contradictions and gaps. Reply with a short verdict: CONSENSUS, SPLIT or REJECT, then one paragraph of reasoning and a one-line action." },
+                { role: "user", content: `Original task:\n${input.prompt.slice(0, 4_000)}\n\nPeer results:\n${digest.slice(0, 12_000)}` },
+              ],
+              temperature: 0.2,
+              maxTokens: 800,
+            },
+            apiKey,
+            vaultEndpoint(input.vault, observer.provider) ? { baseUrl: vaultEndpoint(input.vault, observer.provider) } : undefined,
+          );
+          consensus = response.content.slice(0, 4_000);
+          await appendAgentMessage({
+            uid, runId, type: "consensus.vote", from: observer.id, to: "all",
+            payload: { verdict: consensus.slice(0, 2_000) },
+          }).catch(() => null);
+          await writeWorkspaceValue({
+            uid, runId, key: "consensus:verdict", value: { text: consensus }, label: "observer",
+          }).catch(() => null);
+          await recordUsageEvent({
+            uid, runId, kind: "workforce", provider: observer.provider, model: response.model,
+            usage: response.usage, latencyMs: response.latencyMs, metadata: { taskId: observer.id, role: "observer" },
+          }).catch(() => null);
+        } catch (error) {
+          consensus = `Observer failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500);
+        }
       }
     } else {
       consensus = `Observer skipped: no API key for ${observer.provider}`.slice(0, 500);

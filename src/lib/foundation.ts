@@ -547,6 +547,106 @@ export interface UsageSummary {
   byModel: { provider: string; model: string; tokens: number; costUsd: number; events: number }[];
 }
 
+/* -------------------------------------------------------------------------- */
+/* Economic layer                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** Internal USD-equivalent credits only — no signing keys or external payments. */
+export type WalletCurrency = "USD_CREDIT";
+
+export const WALLET_LEDGER_KINDS = ["debit", "credit", "grant", "reinvest"] as const;
+export type WalletLedgerKind = (typeof WALLET_LEDGER_KINDS)[number];
+
+export const BUDGET_SCOPES = ["global", "agent", "run"] as const;
+export type BudgetScope = (typeof BUDGET_SCOPES)[number];
+
+export function isWalletLedgerKind(v: unknown): v is WalletLedgerKind {
+  return typeof v === "string" && (WALLET_LEDGER_KINDS as readonly string[]).includes(v);
+}
+
+export function isBudgetScope(v: unknown): v is BudgetScope {
+  return typeof v === "string" && (BUDGET_SCOPES as readonly string[]).includes(v);
+}
+
+export interface WalletAccount {
+  id: string;
+  uid: string;
+  /** Opaque, non-secret reference id shown in the UI. Never a signing key. */
+  key: string;
+  label: string;
+  currency: WalletCurrency;
+  balanceMicroUsd: number;
+  status: "active";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletLedgerEntry {
+  id: string;
+  uid: string;
+  walletId: string;
+  runId: string | null;
+  kind: WalletLedgerKind;
+  amountMicroUsd: number;
+  balanceAfterMicroUsd: number;
+  reason: string;
+  sourceUsageId: string | null;
+  agentId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface BudgetRecord {
+  id: string;
+  uid: string;
+  walletId: string;
+  scope: BudgetScope;
+  scopeId: string;
+  limitMicroUsd: number;
+  spentMicroUsd: number;
+  period: "all-time" | "daily" | "monthly";
+  status: "active" | "paused";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetDelegation {
+  id: string;
+  uid: string;
+  fromAgentId: string;
+  toAgentId: string;
+  budgetId: string;
+  capMicroUsd: number;
+  spentMicroUsd: number;
+  status: "active" | "revoked";
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface BudgetCheck {
+  allowed: boolean;
+  remainingMicroUsd: number | null;
+  reason: string;
+  scopes: BudgetScope[];
+}
+
+export interface EconomyTotals {
+  balanceUsd: number;
+  spentUsd: number;
+  creditsUsd: number;
+  budgetLimitUsd: number;
+  budgetRemainingUsd: number;
+  ledgerEntries: number;
+}
+
+export interface EconomySnapshot {
+  wallet: WalletAccount | null;
+  ledger: WalletLedgerEntry[];
+  budgets: BudgetRecord[];
+  delegations: BudgetDelegation[];
+  totals: EconomyTotals;
+}
+
 /** UUID-ish id with a readable prefix. Works in Workers, Node and browsers. */
 export function newId(prefix: string): string {
   const c = globalThis.crypto as Crypto | undefined;

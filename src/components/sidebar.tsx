@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Terminal as TerminalIcon, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap, Blocks, Brain, Activity, Cpu, Dna, Waypoints } from "lucide-react";
+import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Terminal as TerminalIcon, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap, Blocks, Brain, Activity, Cpu, Dna, Waypoints, Wallet } from "lucide-react";
 import { useMEDUSA, type Folder, type Project } from "@/lib/store";
 import { toast } from "@/components/toast";
 import { useState } from "react";
@@ -18,6 +18,7 @@ const nav = [
   { href: "/memory", label: "Memory", icon: Brain },
   { href: "/runtime", label: "Runtime", icon: Cpu },
   { href: "/runs", label: "Runs & Cost", icon: Activity },
+  { href: "/economy", label: "Economy", icon: Wallet },
   { href: "/connectors", label: "Connectors", icon: PlugZap },
   { href: "/vault", label: "Providers", icon: KeyRound },
   { href: "/settings", label: "Settings", icon: Settings },

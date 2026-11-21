@@ -4,6 +4,7 @@
  */
 
 import { ensureFoundationSchema, getChatDb, type D1Like } from "./d1";
+import { chargeUsageEvent } from "./economy";
 import { newId, type UsageEvent, type UsageKind, type UsageSummary } from "./foundation";
 import type { LLMUsage } from "./llm-router";
 import { estimateChatCost } from "./pricing";
@@ -36,6 +37,9 @@ export interface RecordUsageInput {
   usage?: LLMUsage;
   latencyMs?: number;
   metadata?: Record<string, unknown>;
+  /** Explicit cost for non-token surfaces (image/video/terminal tools). */
+  costUsd?: number;
+  pricingSource?: string;
 }
 
 async function foundationDb(): Promise<D1Like | null> {
@@ -76,12 +80,18 @@ export async function recordUsageEvent(input: RecordUsageInput): Promise<UsageEv
   const promptTokens = Math.max(0, input.usage?.prompt_tokens ?? 0);
   const completionTokens = Math.max(0, input.usage?.completion_tokens ?? 0);
   const totalTokens = Math.max(0, input.usage?.total_tokens ?? promptTokens + completionTokens);
-  const price = estimateChatCost({
-    provider: input.provider,
-    model: input.model,
-    promptTokens,
-    completionTokens,
-  });
+  const price = input.costUsd != null && Number.isFinite(input.costUsd)
+    ? {
+      costUsd: Math.max(0, input.costUsd),
+      source: input.pricingSource || "custom-estimate",
+      rate: { input: 0, output: 0 },
+    }
+    : estimateChatCost({
+      provider: input.provider,
+      model: input.model,
+      promptTokens,
+      completionTokens,
+    });
   const event: UsageEvent = {
     id: newId("usage"),
     uid: input.uid,
@@ -112,6 +122,10 @@ export async function recordUsageEvent(input: RecordUsageInput): Promise<UsageEv
       event.metadata ? JSON.stringify(event.metadata) : null,
     )
     .run();
+  // Economic layer: every usage event is mirrored into the wallet ledger so
+  // cost accounting cannot drift from the authoritative usage table. Best
+  // effort — a ledger failure must never fail an already-completed model call.
+  await chargeUsageEvent(event).catch(() => null);
   return event;
 }
 
