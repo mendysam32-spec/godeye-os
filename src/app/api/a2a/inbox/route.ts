@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  canonicalJson, createEnvelope, didParts, localIdentity,
-  missingCapabilities, normalizeCapabilities, verifyEnvelope,
+  canonicalJson, createEnvelope, didParts, hashJson, localIdentity,
+  missingCapabilities, normalizeCapabilities, validatePublicJwk, verifyEnvelope,
   type A2AEnvelope,
 } from "@/lib/a2a";
 import { peerKeyMatches } from "@/lib/a2a-delivery";
@@ -10,6 +10,9 @@ import {
   hasA2AMessage, insertA2AReceipt, insertA2AMessage, listA2AReceipts,
   upsertA2APeer, upsertA2ATask, type A2AAgentRecord, type A2ATaskRecord,
 } from "@/lib/a2a-store";
+import { readGrantPayload } from "@/lib/federated-memory";
+import { verifySignedSkillPackage } from "@/lib/federated-skills";
+import { upsertFedEncryptionKey, upsertFedMemoryGrant, upsertFedSkillPackage } from "@/lib/federation-store";
 
 /**
  * Unauthenticated federation inbox. Callers authenticate with a signed A2A
@@ -264,6 +267,99 @@ export async function POST(req: NextRequest) {
     });
     await recordInbound(task.id);
     return NextResponse.json({ ok: true, taskId: task.id, status, receipt });
+  }
+
+  if (envelope.type === "memory.grant") {
+    let grant: ReturnType<typeof readGrantPayload>;
+    try {
+      grant = readGrantPayload(envelope);
+    } catch (e) {
+      return reject((e as Error).message || "Invalid memory grant");
+    }
+    if (Date.parse(grant.expiresAt) + 5 * 60 * 1000 < Date.now()) return reject("Memory grant has expired");
+    if (!agent.capabilities.includes("federated.memory") && !agent.capabilities.includes("memory.query")) {
+      return reject("Recipient does not advertise federated memory support");
+    }
+    if (await hashJson(grant.sealed) !== grant.bundleHash) return reject("Memory grant bundle hash mismatch");
+    const sealedHeader = obj(grant.sealed as unknown as Record<string, unknown>);
+    const encryptionKey = validatePublicJwk(sealedHeader.senderPublicKey);
+    const keyId = text(sealedHeader.senderKeyId, 80);
+    if (!encryptionKey || !keyId) return reject("Memory grant has an invalid encryption key");
+
+    // The encryption key is auto-pinned through the already-verified, peer-pinned
+    // envelope. No key material arrives outside that signed chain of trust.
+    await upsertFedEncryptionKey({
+      id: `fek_${senderDid}:${keyId}`,
+      uid: agent.uid,
+      did: senderDid,
+      agentId: senderAgentId,
+      keyId,
+      publicKey: encryptionKey,
+      trustMode: "pin",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await upsertFedMemoryGrant({
+      id: `fmg_in_${grant.grantId}`,
+      uid: agent.uid,
+      direction: "received",
+      grantId: grant.grantId,
+      resourceKind: grant.resourceKind,
+      resourceId: grant.resourceId,
+      localAgentId: agent.agentId,
+      peerDid: senderDid,
+      peerAgentId: senderAgentId,
+      capability: grant.capability,
+      scope: grant.scope,
+      sealed: grant.sealed as unknown as Record<string, unknown>,
+      envelope,
+      bundleHash: grant.bundleHash,
+      messageId: envelope.id,
+      expiresAt: grant.expiresAt,
+      status: "active",
+      importedBranchId: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const receipt = await makeReceipt(agent, senderDid, senderAgentId, {
+      messageId: envelope.id,
+      status: "accepted",
+      detail: `Memory grant ${grant.grantId} accepted`,
+      payloadHash: envelope.payloadHash,
+    });
+    await recordInbound("");
+    return NextResponse.json({ ok: true, grantId: grant.grantId, status: "accepted", receipt });
+  }
+
+  if (envelope.type === "skill.publish") {
+    const checked = await verifySignedSkillPackage(envelope);
+    if (!checked.ok || !checked.manifest) return reject(checked.error || "Invalid skill package");
+    const manifest = checked.manifest;
+    await upsertFedSkillPackage({
+      id: `fsp_in_${envelope.id}`,
+      uid: agent.uid,
+      packageId: manifest.packageId,
+      slug: manifest.slug,
+      name: manifest.name,
+      description: manifest.description,
+      version: manifest.versionText,
+      kind: manifest.kind,
+      publisherDid: senderDid,
+      keyId: envelope.from.keyId,
+      envelope,
+      manifestHash: checked.manifestHash || envelope.payloadHash,
+      status: "published",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const receipt = await makeReceipt(agent, senderDid, senderAgentId, {
+      messageId: envelope.id,
+      status: "accepted",
+      detail: `Skill package ${manifest.packageId} accepted`,
+      payloadHash: envelope.payloadHash,
+    });
+    await recordInbound("");
+    return NextResponse.json({ ok: true, packageId: manifest.packageId, status: "accepted", receipt });
   }
 
   // `error` and any future declarative message type are recorded, never executed.

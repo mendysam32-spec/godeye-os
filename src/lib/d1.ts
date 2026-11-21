@@ -105,8 +105,9 @@ export const GENERATION_SCHEMA: string[] = [
  * ledger, plus the memory kernel (versions, graph links, local vectors).
  * Mirrors `migrations/0005_foundation.sql`, `0006_memory_kernel.sql`,
  * `0007_agent_runtime.sql`, `0008_skill_genome.sql`, `0009_canvas.sql`,
- * `0010_self_improvement.sql`, `0011_economic.sql`, `0012_runtime_router.sql`
- * and `0013_a2a_protocol.sql`; keep them in sync. The file fallback below
+ * `0010_self_improvement.sql`, `0011_economic.sql`, `0012_runtime_router.sql`,
+ * `0013_a2a_protocol.sql` and `0014_federated_memory_marketplace.sql`; keep
+ * them in sync. The file fallback below
  * understands the simple INSERT/SELECT/DELETE statements these routes issue,
  * so the whole slice also works in plain `next dev`.
  */
@@ -612,6 +613,76 @@ export const FOUNDATION_SCHEMA: string[] = [
     )`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_messages_uid ON a2a_messages(uid, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_messages_mid ON a2a_messages(message_id)`,
+  // --- 0014_federated_memory_marketplace.sql -------------------------------
+  `CREATE TABLE IF NOT EXISTS fed_encryption_keys (
+      id                TEXT PRIMARY KEY,
+      uid               TEXT NOT NULL,
+      did               TEXT NOT NULL,
+      agent_id          TEXT NOT NULL DEFAULT '',
+      key_id            TEXT NOT NULL DEFAULT '',
+      public_key        TEXT NOT NULL DEFAULT '{}',
+      trust_mode        TEXT NOT NULL DEFAULT 'pin',
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_encryption_keys_uid ON fed_encryption_keys(uid, updated_at)`,
+  `CREATE TABLE IF NOT EXISTS fed_memory_grants (
+      id                 TEXT PRIMARY KEY,
+      uid                TEXT NOT NULL,
+      direction          TEXT NOT NULL DEFAULT 'issued',
+      grant_id           TEXT NOT NULL,
+      resource_kind      TEXT NOT NULL DEFAULT 'graph',
+      resource_id        TEXT NOT NULL DEFAULT '',
+      local_agent_id     TEXT NOT NULL DEFAULT '',
+      peer_did           TEXT NOT NULL,
+      peer_agent_id      TEXT NOT NULL DEFAULT '',
+      capability         TEXT NOT NULL DEFAULT 'memory.query',
+      scope_json         TEXT NOT NULL DEFAULT '{}',
+      sealed_json        TEXT NOT NULL DEFAULT '{}',
+      envelope_json      TEXT NOT NULL DEFAULT '',
+      bundle_hash        TEXT NOT NULL DEFAULT '',
+      message_id         TEXT NOT NULL DEFAULT '',
+      expires_at         TEXT NOT NULL DEFAULT '',
+      status             TEXT NOT NULL DEFAULT 'active',
+      imported_branch_id TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_memory_grants_uid ON fed_memory_grants(uid, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_memory_grants_gid ON fed_memory_grants(grant_id)`,
+  `CREATE TABLE IF NOT EXISTS fed_skill_packages (
+      id            TEXT PRIMARY KEY,
+      uid           TEXT NOT NULL,
+      package_id    TEXT NOT NULL,
+      slug          TEXT NOT NULL DEFAULT '',
+      name          TEXT NOT NULL DEFAULT '',
+      description   TEXT NOT NULL DEFAULT '',
+      version       TEXT NOT NULL DEFAULT '1.0.0',
+      kind          TEXT NOT NULL DEFAULT 'prompt',
+      publisher_did TEXT NOT NULL DEFAULT '',
+      key_id        TEXT NOT NULL DEFAULT '',
+      envelope_json TEXT NOT NULL DEFAULT '',
+      manifest_hash TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'published',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_skill_packages_uid ON fed_skill_packages(uid, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_skill_packages_pid ON fed_skill_packages(package_id)`,
+  `CREATE TABLE IF NOT EXISTS fed_skill_installs (
+      id            TEXT PRIMARY KEY,
+      uid           TEXT NOT NULL,
+      package_id    TEXT NOT NULL,
+      publisher_did TEXT NOT NULL DEFAULT '',
+      manifest_hash TEXT NOT NULL DEFAULT '',
+      verification  TEXT NOT NULL DEFAULT 'unverified',
+      genome_id     TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'candidate',
+      detail        TEXT NOT NULL DEFAULT '',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL
+    )`,
+  `CREATE INDEX IF NOT EXISTS idx_fed_skill_installs_uid ON fed_skill_installs(uid, created_at)`,
 ];
 
 /* -------------------------------------------------------------------------- */

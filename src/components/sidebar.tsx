@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Terminal as TerminalIcon, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap, Blocks, Brain, Activity, Cpu, Dna, Waypoints, Wallet, Route, Network } from "lucide-react";
+import { LayoutDashboard, Bot, KeyRound, Settings, Sparkles, Eye, MessageSquare, Terminal as TerminalIcon, Menu, X, Plus, ChevronRight, Folder as FolderIcon, Trash2, FolderKanban, Users as UsersIcon, LogOut, PlugZap, Blocks, Brain, Activity, Cpu, Dna, Waypoints, Wallet, Route, Network, Share2, Store } from "lucide-react";
 import { useMEDUSA, type Folder, type Project } from "@/lib/store";
 import { toast } from "@/components/toast";
 import { useState } from "react";
@@ -19,6 +19,8 @@ const nav = [
   { href: "/runtime", label: "Runtime", icon: Cpu },
   { href: "/router", label: "Router", icon: Route },
   { href: "/federation", label: "Federation", icon: Network },
+  { href: "/federated-memory", label: "Federated Memory", icon: Share2 },
+  { href: "/marketplace", label: "Marketplace", icon: Store },
   { href: "/runs", label: "Runs & Cost", icon: Activity },
   { href: "/economy", label: "Economy", icon: Wallet },
   { href: "/connectors", label: "Connectors", icon: PlugZap },

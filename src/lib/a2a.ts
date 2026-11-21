@@ -23,11 +23,13 @@ export type A2AMessageType =
   | "task.status"
   | "task.receipt"
   | "task.result"
+  | "memory.grant"
+  | "skill.publish"
   | "error";
 
 export const A2A_MESSAGE_TYPES: A2AMessageType[] = [
   "hello", "capability.query", "task.delegate", "task.status",
-  "task.receipt", "task.result", "error",
+  "task.receipt", "task.result", "memory.grant", "skill.publish", "error",
 ];
 
 export const A2A_CAPABILITIES = [
@@ -42,6 +44,8 @@ export const A2A_CAPABILITIES = [
   "code.refactor",
   "canvas.collaborate",
   "budget.delegate",
+  "federated.memory",
+  "marketplace.skill",
 ] as const;
 
 export type A2ACapability = (typeof A2A_CAPABILITIES)[number];
@@ -101,7 +105,7 @@ export interface A2AEnvelopeInput {
   displayName?: string;
   role?: string;
   capabilities?: string[];
-  /** Only `task.result` may carry code-like text (as inert content). */
+  /** `task.result` and `skill.publish` may carry code-like text as inert content. */
   allowCode?: boolean;
 }
 
@@ -365,39 +369,55 @@ function bigIntToBytes32(value: bigint): Uint8Array {
   return out;
 }
 
-async function agentKeys(uid: string, agentId: string): Promise<AgentKeys> {
+export interface DerivedP256Key {
+  privateJwk: { kty: "EC"; crv: "P-256"; x: string; y: string; d: string };
+  publicJwk: A2APublicJwk;
+  keyId: string;
+}
+
+/**
+ * Deterministic P-256 key derivation from the deployment secret. Distinct
+ * salt/info values give cryptographically separate keys for signing and key
+ * agreement; private JWKs never leave this module in stored form.
+ */
+export async function deriveP256Key(salt: string, info: string): Promise<DerivedP256Key> {
   const hkdfKey = await crypto.subtle.importKey("raw", encoder.encode(signingSecret()), "HKDF", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: encoder.encode("medusa-a2a-signing-v1"),
-      info: encoder.encode(`${clip(uid, 96)}\u0000${clip(agentId, 96)}`),
-    },
+    { name: "HKDF", hash: "SHA-256", salt: encoder.encode(salt), info: encoder.encode(info) },
     hkdfKey,
     256,
   );
   const scalar = mod(bytesToBigInt(new Uint8Array(bits)), P256_N) || B_ONE;
   const point = pointMultiply(scalar);
-  if (!point) throw new Error("Could not derive a valid A2A public key");
+  if (!point) throw new Error("Could not derive a valid P-256 key");
   const publicJwk = validatePublicJwk({
     kty: "EC",
     crv: "P-256",
     x: bytesToBase64Url(bigIntToBytes32(point.x)),
     y: bytesToBase64Url(bigIntToBytes32(point.y)),
   });
-  if (!publicJwk) throw new Error("Could not derive a valid A2A public key");
+  if (!publicJwk) throw new Error("Could not derive a valid P-256 key");
+  return {
+    privateJwk: {
+      kty: "EC", crv: "P-256", x: publicJwk.x, y: publicJwk.y,
+      d: bytesToBase64Url(bigIntToBytes32(scalar)),
+    },
+    publicJwk,
+    keyId: await fingerprintJwk(publicJwk),
+  };
+}
+
+async function agentKeys(uid: string, agentId: string): Promise<AgentKeys> {
+  const derived = await deriveP256Key(
+    "medusa-a2a-signing-v1", `${clip(uid, 96)}\u0000${clip(agentId, 96)}`,
+  );
   const privateKey = await crypto.subtle.importKey(
-    "jwk",
-    { kty: "EC", crv: "P-256", x: publicJwk.x, y: publicJwk.y, d: bytesToBase64Url(bigIntToBytes32(scalar)) },
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
+    "jwk", derived.privateJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"],
   );
   const publicKey = await crypto.subtle.importKey(
-    "jwk", publicJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
+    "jwk", derived.publicJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
   );
-  return { privateKey, publicKey, publicJwk, keyId: await fingerprintJwk(publicJwk) };
+  return { privateKey, publicKey, publicJwk: derived.publicJwk, keyId: derived.keyId };
 }
 
 export async function localIdentity(
@@ -500,7 +520,7 @@ export async function verifyEnvelope(raw: unknown, now = Date.now()): Promise<A2
 
   let payload: Record<string, unknown>;
   try {
-    payload = safeA2AJson(env.payload, 0, env.type === "task.result");
+    payload = safeA2AJson(env.payload, 0, env.type === "task.result" || env.type === "skill.publish");
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

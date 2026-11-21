@@ -47,7 +47,35 @@ export async function GET() {
       "task.status": "Status update referencing messageId or taskId.",
       "task.result": "Terminal result with inert result text/JSON; may contain code-like text only as non-executable content.",
       "task.receipt": "Signed acknowledgement of a messageId with accepted/rejected/duplicate/recorded status.",
+      "memory.grant": "Scoped, recipient-encrypted memory snapshot. Recipient verifies signature, grant id, expiry and bundle hash, then imports nodes as a new provenance-tagged branch.",
+      "skill.publish": "Signed declarative skill manifest. Verification checks publisher pin, schema, size and no-code gates; import creates a gated candidate genome entry only.",
       error: "Declarative error detail; recorded but never executed.",
+    },
+    federated: {
+      memory: {
+        transport: "Signed memory.grant envelope over the normal A2A inbox",
+        encryption: "Recipient-bound ECDH P-256 + HKDF-SHA256 + AES-256-GCM; separate key from ES256 signing",
+        keyPublication: "P-256 public encryption JWK + keyId in GET /api/a2a/manifest, also pinnable via the local federation console",
+        scope: ["projectId", "kinds", "branchId", "limit"],
+        limits: { maxNodes: 20, maxLinks: 60, maxContentChars: 400, maxTtlMs: 86_400_000 },
+        rules: [
+          "Only pinned peers may issue a grant",
+          "Grant id, owner DID, expiry and bundle hash are bound by the signed envelope",
+          "Import creates new local memory ids and a derived_from-style provenance branch",
+          "Revoked or expired grants are rejected before decryption",
+        ],
+      },
+      marketplace: {
+        package: "One A2A skill.publish envelope containing a declarative manifest (body, tests, reduced DNA)",
+        signing: "ES256 over canonical JSON by the publisher's deterministic P-256 identity",
+        portability: "The full signed envelope is the portable package; no runtime, hooks or install scripts",
+        import: "Verified packages become status=candidate genome entries until locally tested and selected",
+        rules: [
+          "Executable install entries, commands, endpoints and credentials are rejected",
+          "Publisher pinning is optional but reported as signature-only when absent",
+          "Signed hashes prove integrity, not safety; local tests still gate activation",
+        ],
+      },
     },
     taskPayload: {
       required: ["taskId", "objective"],
